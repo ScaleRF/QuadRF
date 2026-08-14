@@ -17,24 +17,6 @@ the QuadRF packages in the same bookworm arm64 container without publishing.
 
 ## GitHub Actions
 
-### One-time repository setup
-
-1. Enable GitHub Pages for this repository: **Settings → Pages → Source:
-   GitHub Actions**.
-2. Create a dedicated packaging signing key (do not use a personal key):
-
-   ```bash
-   gpg --quick-generate-key "QuadRF Packaging <packages@scalerf.com>" default default 0
-   gpg --list-secret-keys --keyid-format long
-   gpg --export-secret-keys --armor <KEY_ID>
-   ```
-
-3. Store the armored secret key as the repository secret `QUADRF_GPG_PRIVATE_KEY`.
-   If the key has a passphrase, also set `QUADRF_GPG_PASSPHRASE`.
-4. Export the public key once and keep it; clients install
-   `https://scalerf.github.io/QuadRF/quadrf.gpg`. Changing keys later requires
-   users to replace that file.
-
 ### Publishing a release
 
 ```bash
