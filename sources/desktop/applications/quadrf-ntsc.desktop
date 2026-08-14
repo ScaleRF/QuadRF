@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Camera Decoder
+Comment=NTSC demodulation over SoapySDR
+Exec=xfce4-terminal -e quadrf-ntsc
+TryExec=quadrf-ntsc
+Icon=quadrf-video-decoder
+Terminal=false
+Categories=HamRadio;AudioVideo;

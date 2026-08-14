@@ -1,0 +1,28 @@
+.TH QUADRF-NTSC 1 "August 2026" "QuadRF" "QuadRF"
+.SH NAME
+quadrf-ntsc \- decode and play an analogue video signal
+.br
+quadrf-ntsc-demod \- NTSC demodulator
+.SH SYNOPSIS
+.B quadrf-ntsc
+.br
+.B quadrf-ntsc-demod
+.RI [ options ]
+.SH DESCRIPTION
+.B quadrf-ntsc
+is the Camera Decoder launcher. It tunes the front-end with
+.BR quadrf-jtag (1),
+runs the demodulator and pipes the result into mpv. The video output is chosen
+from the environment: inside a graphical session mpv draws there, and only on a
+bare console with a monitor attached does it go straight to KMS.
+.PP
+.B quadrf-ntsc-demod
+reads IQ from the SoapySDR device, demodulates NTSC and writes raw yuyv422
+frames at 640x480 on standard output. It is usually driven by
+.BR quadrf-ntsc ,
+but the raw stream can equally be redirected to a file or piped into ffmpeg.
+.SH BUGS
+The decoder currently misbehaves when an HDMI display is attached to the Pi.
+.SH SEE ALSO
+.BR quadrf-jtag (1),
+.BR mpv (1)

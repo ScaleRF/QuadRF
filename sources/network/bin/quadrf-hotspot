@@ -1,0 +1,112 @@
+#!/bin/bash
+# Bring up the QuadRF access point when wlan0 cannot join a saved network.
+# Run once at boot by quadrf-hotspot.service.
+set -euo pipefail
+
+. /usr/share/quadrf/functions.sh
+quadrf_load_conf
+
+AP_CONF=/etc/dnsmasq.d/quadrf-wlan0-ap.conf
+LAN_CONF=/etc/dnsmasq.d/quadrf-wlan0-lan.conf
+CONFIG_TXT="${QUADRF_BOOT_DIR}/config.txt"
+STA_TIMEOUT=12
+
+WPA_CONF=/etc/wpa_supplicant/wpa_supplicant.conf
+
+log() { logger -t quadrf-hotspot -- "$*"; echo "$*"; }
+
+sta_ready() {
+    iw dev wlan0 link 2>/dev/null | grep -q 'Connected to' &&
+        ip -4 -o addr show dev wlan0 scope global 2>/dev/null | grep -q .
+}
+
+has_saved_network() {
+    [[ -f "${WPA_CONF}" ]] && grep -qE '^[[:space:]]*network=' "${WPA_CONF}"
+}
+
+# ifup dhcp on wlan0 against our own AP rewrites resolv.conf to 192.168.44.1.
+restore_lan_dns() {
+    grep -q "nameserver ${QUADRF_AP_ADDRESS}" /etc/resolv.conf 2>/dev/null || return 0
+    dns=""
+    if [[ -f /var/lib/dhcp/dhclient.eth0.leases ]]; then
+        dns="$(awk '/option domain-name-servers/ { gsub(/;/, "", $3); print $3; exit }' \
+            /var/lib/dhcp/dhclient.eth0.leases)"
+    fi
+    [[ -n "${dns}" ]] || dns="1.1.1.1"
+    printf 'nameserver %s\n' "${dns}" > /etc/resolv.conf
+    log "restored resolver ${dns} after AP bring-up"
+}
+
+keep_sta() {
+    log "wlan0 associated, staying in station mode"
+    if [[ -f "${AP_CONF}" ]]; then
+        rm -f "${AP_CONF}"
+        systemctl reload dnsmasq 2>/dev/null || true
+    fi
+    exit 0
+}
+
+if [[ -f "${CONFIG_TXT}" ]] &&
+   grep -qE '^[[:space:]]*#?[[:space:]]*dtoverlay=disable-wifi' "${CONFIG_TXT}"; then
+    log "dtoverlay=disable-wifi is set in ${CONFIG_TXT}; wlan0 is unavailable"
+    exit 1
+fi
+
+if ! ip link show wlan0 &>/dev/null; then
+    log "no wlan0 interface, skipping access point"
+    exit 0
+fi
+
+ip link set dev wlan0 up || true
+if has_saved_network; then
+    wpa_supplicant -B -i wlan0 -c "${WPA_CONF}" >/dev/null 2>&1 || true
+fi
+
+deadline=$((SECONDS + STA_TIMEOUT))
+while (( SECONDS < deadline )); do
+    if iw dev wlan0 link 2>/dev/null | grep -q 'Connected to' &&
+       ! ip -4 -o addr show dev wlan0 scope global 2>/dev/null | grep -q .; then
+        timeout 8 dhclient -1 wlan0 >/dev/null 2>&1 || true
+    fi
+    sta_ready && keep_sta
+    sleep 1
+done
+sta_ready && keep_sta
+
+log "no wlan0 association after ${STA_TIMEOUT}s, starting ${QUADRF_AP_SSID} access point"
+
+ip link set dev wlan0 down
+systemctl stop wpa_supplicant 2>/dev/null || true
+pkill -f 'wpa_supplicant.*wlan0' 2>/dev/null || true
+pkill -f 'dhclient.*wlan0' 2>/dev/null || true
+ip addr flush dev wlan0
+rm -f "${LAN_CONF}"
+
+ip link set dev wlan0 up
+iw dev wlan0 set power_save off
+ip addr add "${QUADRF_AP_ADDRESS}/24" dev wlan0
+sleep 2
+
+# Names for AP clients. Do not use address=/#/... — that is global in
+# dnsmasq and hijacks DNS on eth0/usb0 (apt, etc.) while the AP is up.
+cat > "${AP_CONF}" <<EOF
+interface=wlan0
+no-dhcp-interface=wlan0
+interface-name=${QUADRF_TLS_DOMAIN},wlan0
+interface-name=quadrf.local,wlan0
+interface-name=quadrf,wlan0
+EOF
+
+systemctl unmask hostapd.service 2>/dev/null || true
+if ! systemctl start hostapd.service ||
+   ! systemctl is-active --quiet hostapd.service; then
+    log "hostapd failed to start, see journalctl -u hostapd"
+    exit 1
+fi
+
+rm -f /run/dhcp-server/dhcpd.pid /var/run/dhcpd.pid
+systemctl start isc-dhcp-server || log "isc-dhcp-server failed, clients will not get leases"
+systemctl reload-or-restart dnsmasq || log "dnsmasq reload failed"
+restore_lan_dns
+
+log "access point up: SSID ${QUADRF_AP_SSID} on ${QUADRF_AP_ADDRESS}"

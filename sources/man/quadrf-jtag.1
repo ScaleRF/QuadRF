@@ -1,0 +1,88 @@
+.TH QUADRF-JTAG 1 "August 2026" "QuadRF" "QuadRF"
+.SH NAME
+quadrf-jtag \- control the QuadRF MAX285x front-end
+.SH SYNOPSIS
+.B quadrf-jtag
+.RI [ options ]
+.B \-\-init
+.br
+.B quadrf-jtag
+.RI [ options ]
+.BI \-\-tx " spec"
+.br
+.B quadrf-jtag
+.RI [ options ]
+.BI \-\-rx " spec"
+.br
+.B quadrf-jtag
+.RI [ options ]
+.BI \-\-status " rx|tx"
+.br
+.B quadrf-jtag
+.RI [ options ]
+.BR read " | " write
+.I addr
+.RI [ value ]
+.SH DESCRIPTION
+Programs the two MAX285x transceivers on the QuadRF board through the JTAG
+ioctls of the CSI driver. The driver must be loaded and the FPGA programmed,
+which
+.BR quadrf-load (8)
+does at boot.
+.SH OPTIONS
+.TP
+.B \-\-init
+Initialise both chips and leave them in standby. Also
+.B \-\-max2850
+and
+.B \-\-max2851
+for the transmit and receive chip on their own.
+.TP
+.BI \-\-tx " spec"
+.TQ
+.BI \-\-rx " spec"
+Enter transmit or receive mode and program the parameters in
+.IR spec ,
+a comma-separated list of key=value pairs:
+.BI antennas= mask
+(0xF is all four),
+.BI bw= MHz
+(transmit: 20 or 40; receive: any positive value, default 40),
+.BI freq= MHz ,
+.BI gain= 0..63 ,
+.BI agc= dBFS
+(receive only),
+.BI pol= rhcp|lhcp
+(receive only, default rhcp) and
+.BI interleave= 1|0
+(receive only, four-channel interleaved mode, default 0). Pass
+.B off
+instead of a spec to return the chip to standby.
+.TP
+.BI \-\-status " rx|tx"
+Print the full register state of the selected chip.
+.TP
+.BI \-d ", " \-\-device " path"
+Device node. Default:
+.IR /dev/csi_stream0 .
+.TP
+.B \-\-no\-setup
+Do not call CSI_IOC_JTAG_SETUP.
+.TP
+.B \-\-keep
+Do not call CSI_IOC_JTAG_RELEASE on exit.
+.SH EXAMPLES
+Receive at 2.45 GHz on all four antennas, interleaved:
+.PP
+.nf
+quadrf-jtag --rx antennas=0xF,freq=2450,bw=40,gain=40,interleave=1
+.fi
+.PP
+Put the transmitter back into standby:
+.PP
+.nf
+quadrf-jtag --tx off
+.fi
+.SH SEE ALSO
+.BR quadrf (1),
+.BR quadrf-load (8)

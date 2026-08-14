@@ -1,0 +1,9 @@
+phasegaze/*.o
+phasegaze/csi_sweep
+phasegaze/phase_cal_samples_*.csv
+
+__pycache__/
+*.pyc
+
+.DS_Store
+*~

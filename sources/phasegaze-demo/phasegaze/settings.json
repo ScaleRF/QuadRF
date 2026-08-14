@@ -1,0 +1,23 @@
+{
+  "lo_start_mhz": 5683.428571,
+  "lo_end_mhz": 5902.857143,
+  "point_size": 2.75,
+  "point_gain": 6.2875,
+  "decay_factor": 0.5125,
+  "intensity_threshold": 0,
+  "show_bottom": 0,
+  "show_mirrors": 0,
+  "rf_gain_db": 12,
+  "dig_bw_k": 17,
+  "viewfinder_mode": 0,
+  "stability_mode": 0,
+  "mount_z_valid": 1,
+  "mount_z_sx": 0.002760518109,
+  "mount_z_sy": -0.07244810462,
+  "mount_z_sz": 0.9973683953,
+  "mount_y_valid": 1,
+  "mount_y_samples": 0,
+  "mount_y_sx": -0.06540995091,
+  "mount_y_sy": 0.997533083,
+  "mount_y_sz": 0.02548202686
+}

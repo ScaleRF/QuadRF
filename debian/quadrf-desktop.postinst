@@ -1,0 +1,9 @@
+#!/bin/sh
+set -e
+
+if [ "$1" = configure ]; then
+    /usr/lib/quadrf/apply.d/50-desktop
+fi
+
+#DEBHELPER#
+exit 0

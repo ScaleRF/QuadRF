@@ -1,0 +1,123 @@
+#!/bin/sh
+# QuadRF appliance control.
+set -eu
+
+. /usr/share/quadrf/functions.sh
+
+APPLY_DIR=/usr/lib/quadrf/apply.d
+UNITS="load-quadrf.service quadrf-gui.service quadrf-soapy-server.service
+       quadrf-desktop.service quadrf-hotspot.service quadrf-ethernet.service
+       quadrf-ups.service nginx.service dnsmasq.service avahi-daemon.service"
+
+usage() {
+    cat <<'EOF'
+Usage: quadrf <command> [arguments]
+
+  status              service, radio and network state
+  apply               re-apply site configuration for the installed packages
+  packages            installed quadrf-* packages and versions
+  tls import <dir>    install a certificate tree (Let's Encrypt live directory)
+  tls self-signed     regenerate the placeholder certificate
+EOF
+}
+
+require_root() {
+    if [ "$(id -u)" -ne 0 ]; then
+        echo "quadrf: $1 needs root" >&2
+        exit 1
+    fi
+}
+
+cmd_status() {
+    quadrf_load_conf
+
+    echo "Services"
+    for unit in ${UNITS}; do
+        if systemctl list-unit-files "${unit}" >/dev/null 2>&1 &&
+           [ -n "$(systemctl list-unit-files --no-legend "${unit}" 2>/dev/null)" ]; then
+            printf '  %-28s %s / %s\n' "${unit}" \
+                "$(systemctl is-enabled "${unit}" 2>/dev/null || echo unknown)" \
+                "$(systemctl is-active "${unit}" 2>/dev/null || echo inactive)"
+        fi
+    done
+
+    echo
+    echo "Radio"
+    for module in fpga_csi fpga_dsi; do
+        if lsmod | grep -q "^${module}\b"; then
+            printf '  %-28s loaded\n' "${module}"
+        else
+            printf '  %-28s not loaded\n' "${module}"
+        fi
+    done
+    if [ -x /usr/bin/SoapySDRUtil ]; then
+        drivers="$(SoapySDRUtil --find 2>/dev/null | sed -n 's/.*driver = //p' | tr '\n' ' ')"
+        printf '  %-28s %s\n' "soapy devices" "${drivers:-none}"
+    fi
+
+    echo
+    echo "Network"
+    printf '  %-28s %s\n' "hostname" "$(hostname)"
+    for iface in wlan0 eth0 usb0; do
+        addr="$(ip -4 -o addr show dev "${iface}" scope global 2>/dev/null |
+                awk '{print $4}' | tr '\n' ' ')"
+        [ -n "${addr}" ] && printf '  %-28s %s\n' "${iface}" "${addr}"
+    done
+
+    if [ -s /var/lib/quadrf/reboot-required ]; then
+        echo
+        echo "Reboot required:"
+        sed 's/^/  /' /var/lib/quadrf/reboot-required
+    fi
+}
+
+cmd_apply() {
+    require_root apply
+    [ -d "${APPLY_DIR}" ] || return 0
+    run-parts --exit-on-error "${APPLY_DIR}"
+    systemctl daemon-reload
+}
+
+cmd_packages() {
+    dpkg-query -W -f '${Package} ${Version} ${Status}\n' 'quadrf*' 2>/dev/null |
+        awk '$4 == "ok" && $5 == "installed" { printf "  %-24s %s\n", $1, $2 }'
+}
+
+cmd_tls() {
+    require_root "tls"
+    quadrf_load_conf
+    case "${1:-}" in
+        import)
+            src="${2:?usage: quadrf tls import <directory>}"
+            [ -f "${src}/fullchain.pem" ] && [ -f "${src}/privkey.pem" ] || {
+                echo "quadrf: ${src} has no fullchain.pem/privkey.pem" >&2
+                exit 1
+            }
+            install -d -m 755 /etc/quadrf/tls
+            install -m 644 "${src}/fullchain.pem" /etc/quadrf/tls/fullchain.pem
+            install -m 600 "${src}/privkey.pem" /etc/quadrf/tls/privkey.pem
+            echo "Imported certificate for ${QUADRF_TLS_DOMAIN} from ${src}"
+            ;;
+        self-signed)
+            rm -f /etc/quadrf/tls/fullchain.pem /etc/quadrf/tls/privkey.pem
+            /usr/lib/quadrf/apply.d/40-network
+            ;;
+        *)
+            usage
+            exit 1
+            ;;
+    esac
+    systemctl reload nginx.service 2>/dev/null || true
+}
+
+command="${1:-status}"
+[ $# -gt 0 ] && shift
+
+case "${command}" in
+    status)   cmd_status ;;
+    apply)    cmd_apply ;;
+    packages) cmd_packages ;;
+    tls)      cmd_tls "$@" ;;
+    help|-h|--help) usage ;;
+    *)        usage; exit 1 ;;
+esac

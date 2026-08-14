@@ -1,0 +1,767 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>MoonRF AR Vision</title>
+
+    <link rel="manifest" href="manifest.json">
+    
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#000000">
+
+    <style>
+        body, html { margin: 0; padding: 0; background: #000; overflow: hidden; height: 100%; font-family: sans-serif; }
+        #cam_feed { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; z-index: 1; }
+        #rf_overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 2; pointer-events: none; opacity: 0.75; }
+        #ui_overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 3; touch-action: none; }
+        #status { position: absolute; top: 10px; left: 10px; color: #0f0; font-family: monospace; z-index: 4; text-shadow: 1px 1px 2px #000; pointer-events: none; }
+        
+        #intensity_slider { position: absolute; right: 20px; top: 50%; transform: translateY(-50%); height: 50%; z-index: 10; 
+            -webkit-appearance: slider-vertical; writing-mode: bt-lr; opacity: 0.7; }
+        #hw_gain_slider { position: absolute; right: 60px; top: 50%; transform: translateY(-50%); height: 50%; z-index: 10; 
+            -webkit-appearance: slider-vertical; writing-mode: bt-lr; opacity: 0.7; }
+        #mirror_btn, #fullscreen_btn, #reset_btn {
+            position: absolute; bottom: 20px; z-index: 10;
+            padding: 10px 15px; background: rgba(30, 30, 30, 0.8); color: white;
+            border: 1px solid #777; border-radius: 5px; cursor: pointer; opacity: 0.7; font-weight: bold;
+        }
+        #mirror_btn { right: 20px; }
+        #fullscreen_btn { right: 120px; }
+        #reset_btn { right: 240px; }
+        #mirror_btn:active, #fullscreen_btn:active, #reset_btn:active { background: rgba(70, 70, 70, 0.8); }
+        
+        /* Camera Error Modal Styles */
+        #cam_error {
+            display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            background: rgba(20, 20, 20, 0.95); border: 2px solid #f00; border-radius: 10px;
+            padding: 20px; width: 85%; max-width: 400px; z-index: 10; color: #fff; box-shadow: 0px 10px 30px rgba(0,0,0,0.8);
+        }
+        #cam_error h3 { margin-top: 0; color: #ff4444; }
+        #cam_error p { font-size: 14px; line-height: 1.4; color: #ccc; }
+        .copy-row { display: flex; gap: 10px; margin: 15px 0; }
+        .copy-row input { flex-grow: 1; padding: 10px; background: #000; color: #0f0; border: 1px solid #555; border-radius: 5px; font-family: monospace; font-size: 12px; }
+        .copy-row button { padding: 10px 15px; background: #333; color: #fff; border: 1px solid #777; border-radius: 5px; cursor: pointer; font-weight: bold; }
+        .copy-row button:active { background: #555; }
+        .instruction-step { margin-bottom: 10px; font-size: 14px; }
+        .highlight { color: #fff; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+<div id="status">Connecting...</div>
+<video id="cam_feed" autoplay playsinline></video>
+<canvas id="rf_overlay"></canvas>
+<canvas id="ui_overlay"></canvas>
+
+<input type="range" id="intensity_slider" min="0.0" max="1.0" step="0.01" value="0.5" style="display: none;">
+<input type="range" id="hw_gain_slider" min="0" max="127" step="1" value="34">
+<button id="reset_btn">Reset</button>
+<button id="fullscreen_btn">Fullscreen</button>
+<button id="mirror_btn">Flip L/R</button>
+
+<div id="cam_error">
+    <h3>Camera Access Blocked</h3>
+    <p>Chrome blocks camera access on local networks without HTTPS. To bypass this for field ops:</p>
+    
+    <div class="instruction-step">1. Copy this internal flag link:</div>
+    <div class="copy-row">
+        <input type="text" id="flag_url" value="chrome://flags/#unsafely-treat-insecure-origin-as-secure" readonly>
+        <button onclick="copyFlag()">Copy</button>
+    </div>
+    
+    <div class="instruction-step">2. Open a <b>New Tab</b> and paste the link.</div>
+    <div class="instruction-step">3. Enable the setting and add this address to the text box:</div>
+    <div class="copy-row">
+        <input type="text" id="flag_origin" readonly>
+        <button onclick="copyOrigin()">Copy</button>
+    </div>
+    <div class="instruction-step">4. Tap <b>Relaunch</b> at the bottom.</div>
+</div>
+
+<script>
+    const video = document.getElementById('cam_feed');
+    const canvas = document.getElementById('rf_overlay');
+    const uiCanvas = document.getElementById('ui_overlay');
+    const statusDiv = document.getElementById('status');
+    
+    const ctx = canvas.getContext('2d', { alpha: true });
+    const uiCtx = uiCanvas.getContext('2d', { alpha: true });
+
+    const EXTRAPOLATION_SCALE = 4.0;
+    const SETTINGS_KEY = 'quadrf_AR_settings';
+
+    const DEFAULT_CORNERS = [
+        { u: 0.25, v: 0.25 },
+        { u: 0.75, v: 0.25 },
+        { u: 0.75, v: 0.75 },
+        { u: 0.25, v: 0.75 }
+    ];
+    let corners = DEFAULT_CORNERS.map(c => ({ u: c.u, v: c.v }));
+    let flipLR = true;
+    let hwGain = 34;
+    let hadLocalSettings = false;
+    let saveTimer = null;
+
+    function settingsPayload() {
+        return {
+            flip: flipLR,
+            gain: hwGain,
+            corners: corners.map(c => ({ u: c.u, v: c.v }))
+        };
+    }
+
+    function applySettings(s) {
+        if (!s || typeof s !== 'object') return;
+        if (typeof s.flip === 'boolean') flipLR = s.flip;
+        if (typeof s.gain === 'number') hwGain = Math.max(0, Math.min(127, s.gain | 0));
+        if (Array.isArray(s.corners) && s.corners.length === 4) {
+            const next = s.corners.map(c => ({ u: +c.u, v: +c.v }));
+            if (next.every(c => Number.isFinite(c.u) && Number.isFinite(c.v)))
+                corners = next;
+        }
+        const hw = document.getElementById('hw_gain_slider');
+        if (hw) hw.value = String(hwGain);
+        drawUI();
+    }
+
+    function saveSettings(immediate) {
+        const payload = settingsPayload();
+        try {
+            localStorage.setItem(SETTINGS_KEY, JSON.stringify(payload));
+            hadLocalSettings = true;
+        } catch (e) {}
+        if (!(ws && ws.readyState === WebSocket.OPEN)) return;
+        if (immediate) {
+            if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+            ws.send("settings:" + JSON.stringify(payload));
+            return;
+        }
+        if (saveTimer) clearTimeout(saveTimer);
+        saveTimer = setTimeout(() => {
+            saveTimer = null;
+            if (ws && ws.readyState === WebSocket.OPEN)
+                ws.send("settings:" + JSON.stringify(payload));
+        }, 100);
+    }
+    
+    let draggedCorner = null;
+    let isDraggingAll = false;
+    let lastDragPos = null;
+
+    let hideTimeout = null;
+    let fadeReq = null;
+    let controlAlpha = 1.0;
+    let controlsArmed = true; // false while reveal gesture / arm grace is active
+    let wasHiddenOnDown = false;
+    let armTimer = null;
+    const ARM_DELAY_MS = 280; // grace after reveal before controls accept input
+    let ws = null;
+
+    function loadSettings() {
+        try {
+            const raw = localStorage.getItem(SETTINGS_KEY);
+            if (!raw) return;
+            applySettings(JSON.parse(raw));
+            hadLocalSettings = true;
+        } catch (e) {}
+    } 
+
+    // --- Legacy Clipboard Helper ---
+    function copyFlag() {
+        let copyText = document.getElementById("flag_url");
+        copyText.select();
+        copyText.setSelectionRange(0, 99999); 
+        document.execCommand("copy"); 
+        alert("Copied! Paste this URL in a new Chrome tab.");
+    }
+
+    function copyOrigin() {
+        let copyText = document.getElementById("flag_origin");
+        copyText.select();
+        copyText.setSelectionRange(0, 99999);
+        document.execCommand("copy");
+        alert("Copied! Paste this into the Chrome flag text box.");
+    }
+
+    document.getElementById("flag_origin").value = window.location.origin;
+
+    function resize() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+        uiCanvas.width = window.innerWidth;
+        uiCanvas.height = window.innerHeight;
+        drawUI();
+    }
+    window.addEventListener('resize', resize);
+    loadSettings();
+    window.addEventListener('pagehide', () => saveSettings(true));
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden') saveSettings(true);
+    });
+    resize();
+
+    // ---------------------------------------------------------
+    // Auto-Hide Logic
+    // ---------------------------------------------------------
+
+    function animateFadeOut() {
+        controlAlpha -= 0.05; 
+        if (controlAlpha <= 0) {
+            controlAlpha = 0;
+        } else {
+            fadeReq = requestAnimationFrame(animateFadeOut);
+        }
+        drawUI();
+    }
+    
+    function resetHideTimer() {
+        if (fadeReq) cancelAnimationFrame(fadeReq);
+        controlAlpha = 1.0;
+        drawUI();
+        
+        if (hideTimeout) clearTimeout(hideTimeout);
+        
+        hideTimeout = setTimeout(() => {
+            if (!draggedCorner && !isDraggingAll) {
+                fadeReq = requestAnimationFrame(animateFadeOut);
+            } else {
+                resetHideTimer();
+            }
+        }, 2000);
+    }
+
+    // ---------------------------------------------------------
+    // Draggable UI & Single/Double Tap Detection
+    // ---------------------------------------------------------
+
+    let startPos = {x: 0, y: 0};
+    let isPointerDown = false;
+    let isDrag = false;
+    let clickTimer = null;
+    let lastTapTime = 0;
+    let isTouchDevice = false;
+
+    function getPointerPos(e) {
+        if (!e) return {x: 0, y: 0};
+        if (e.touches && e.touches.length > 0) return { x: e.touches[0].clientX, y: e.touches[0].clientY };
+        if (e.changedTouches && e.changedTouches.length > 0) return { x: e.changedTouches[0].clientX, y: e.changedTouches[0].clientY };
+        return { x: e.clientX, y: e.clientY };
+    }
+
+    function disarmControls() {
+        controlsArmed = false;
+        if (armTimer) { clearTimeout(armTimer); armTimer = null; }
+        drawUI();
+    }
+
+    function scheduleArmControls() {
+        if (armTimer) clearTimeout(armTimer);
+        armTimer = setTimeout(() => {
+            armTimer = null;
+            controlsArmed = true;
+            drawUI();
+        }, ARM_DELAY_MS);
+        drawUI();
+    }
+
+    function onDown(e) {
+        if (e.type && e.type.startsWith('touch')) isTouchDevice = true;
+        if (e.type && e.type.startsWith('mouse') && isTouchDevice) return;
+
+        // Reveal tap, or tap during arm grace: show UI only
+        wasHiddenOnDown = (controlAlpha === 0);
+        if (wasHiddenOnDown || !controlsArmed) {
+            if (wasHiddenOnDown) disarmControls();
+            resetHideTimer();
+            startPos = getPointerPos(e);
+            isPointerDown = true;
+            isDrag = false;
+            draggedCorner = null;
+            isDraggingAll = false;
+            return;
+        }
+
+        resetHideTimer();
+        let pos = getPointerPos(e);        startPos = pos;
+        isPointerDown = true;
+        isDrag = false;
+        
+        let minDist = 60; 
+        draggedCorner = null;
+        isDraggingAll = false;
+        
+        for (let i = 0; i < corners.length; i++) {
+            let cx = corners[i].u * uiCanvas.width;
+            let cy = corners[i].v * uiCanvas.height;
+            let dist = Math.hypot(pos.x - cx, pos.y - cy);
+            if (dist < minDist) {
+                minDist = dist;
+                draggedCorner = corners[i];
+            }
+        }
+
+        if (!draggedCorner && isPointInQuad(pos.x, pos.y)) {
+            isDraggingAll = true;
+            lastDragPos = pos;
+        }
+    }
+
+    function onMove(e) {
+        if (e.type && e.type.startsWith('mouse') && isTouchDevice) return;
+        if (wasHiddenOnDown || !controlsArmed) return;
+
+        let pos = getPointerPos(e);        
+        // Detect if the user moved enough to count as a drag rather than a tap
+        if (Math.hypot(pos.x - startPos.x, pos.y - startPos.y) > 10) {
+            isDrag = true;
+        }
+        
+        if (draggedCorner) {
+            e.preventDefault(); 
+            resetHideTimer();
+            draggedCorner.u = pos.x / uiCanvas.width;
+            draggedCorner.v = pos.y / uiCanvas.height;
+            drawUI();
+            saveSettings();
+        } else if (isDraggingAll) {
+            e.preventDefault();
+            resetHideTimer();
+            
+            let du = (pos.x - lastDragPos.x) / uiCanvas.width;
+            let dv = (pos.y - lastDragPos.y) / uiCanvas.height;
+            
+            for (let c of corners) {
+                c.u += du;
+                c.v += dv;
+            }
+            
+            lastDragPos = pos;
+            drawUI();
+            saveSettings();
+        }
+    }
+
+    function onUp(e) {
+        if (e.type && e.type.startsWith('mouse') && isTouchDevice) return;
+
+        if (!isPointerDown) return; // Prevent triggering from slider releases
+        isPointerDown = false;
+
+        // Reveal / grace: no corners/buttons/lock; arm after short delay
+        if (wasHiddenOnDown || !controlsArmed) {
+            wasHiddenOnDown = false;
+            draggedCorner = null;
+            isDraggingAll = false;
+            scheduleArmControls();
+            resetHideTimer();
+            return;
+        }
+
+        if (draggedCorner || isDraggingAll) saveSettings(true);
+        
+        // As long as the pointer didn't move >10px (isDrag), treat it as a tap/click
+        // even if it landed inside the dragging quad.
+        if (!isDrag) {
+            let now = Date.now();
+            // 350ms window for double tap detection
+            if (now - lastTapTime < 350) {
+                clearTimeout(clickTimer);
+                lastTapTime = 0;
+                handleDoubleClick(startPos.x, startPos.y);
+            } else {
+                lastTapTime = now;
+                clickTimer = setTimeout(() => {
+                    handleSingleClick();
+                }, 350);
+            }
+        }
+        
+        draggedCorner = null; 
+        isDraggingAll = false;
+        resetHideTimer(); 
+    }
+
+    uiCanvas.addEventListener('mousedown', onDown);
+    uiCanvas.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    uiCanvas.addEventListener('touchstart', onDown, {passive: false});
+    uiCanvas.addEventListener('touchmove', onMove, {passive: false});
+    window.addEventListener('touchend', onUp);
+
+    // --- Interaction Handlers ---
+    
+    function handleDoubleClick(px, py) {
+        let r = 5; // 11x11 pixel sample area
+        let imgData;
+        try {
+            imgData = ctx.getImageData(px - r, py - r, r*2 + 1, r*2 + 1).data;
+        } catch(e) {
+            console.error("Canvas read failed", e);
+            return;
+        }
+
+        let sum_r = 0, sum_g = 0, sum_b = 0, count = 0;
+        for (let i = 0; i < imgData.length; i += 4) {
+            if (imgData[i+3] > 0) { // Only count drawn pixels (alpha > 0)
+                sum_r += imgData[i];
+                sum_g += imgData[i+1];
+                sum_b += imgData[i+2];
+                count++;
+            }
+        }
+
+        if (count > 0) {
+            let avg_r = (sum_r / count) / 255.0;
+            let avg_g = (sum_g / count) / 255.0;
+            let avg_b = (sum_b / count) / 255.0;
+
+            // Convert RGB to Hue
+            let max = Math.max(avg_r, avg_g, avg_b), min = Math.min(avg_r, avg_g, avg_b);
+            let h = 0, d = max - min;
+            if (d > 0.001) {
+                if (max === avg_r) h = (avg_g - avg_b) / d + (avg_g < avg_b ? 6 : 0);
+                else if (max === avg_g) h = (avg_b - avg_r) / d + 2;
+                else if (max === avg_b) h = (avg_r - avg_g) / d + 4;
+                h /= 6;
+            }
+
+            // Reverse the color mapping to find visual frequency
+            let FREQ_MIN_MHZ = 4900.0;
+            let FREQ_MAX_MHZ = 6000.0;
+            let LO_STEP_MHZ = 18.0;
+
+            let visual_freq = FREQ_MIN_MHZ + h * (FREQ_MAX_MHZ - FREQ_MIN_MHZ);
+            
+            // Apply the same 3-block pipeline latency compensation as the SDL interface
+            let target_freq = visual_freq - (3.0 * LO_STEP_MHZ);
+
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send("lock:" + target_freq.toFixed(2));
+                console.log("Sent target lock freq:", target_freq.toFixed(2));
+            }
+        }
+    }
+
+    function handleSingleClick() {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send("unlock");
+            console.log("Sent unlock request");
+        }
+    }
+
+    function isPointInQuad(px, py) {
+        let inside = false;
+        let poly = corners.map(c => ({x: c.u * uiCanvas.width, y: c.v * uiCanvas.height}));
+        for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+            let xi = poly[i].x, yi = poly[i].y;
+            let xj = poly[j].x, yj = poly[j].y;
+            let intersect = ((yi > py) != (yj > py)) && (px < (xj - xi) * (py - yi) / (yj - yi) + xi);
+            if (intersect) inside = !inside;
+        }
+        return inside;
+    }
+
+    function mapPoint(u, v) {
+        let u_mapped = (u - 0.5) * EXTRAPOLATION_SCALE + 0.5;
+        let v_mapped = (v - 0.5) * EXTRAPOLATION_SCALE + 0.5;
+
+        let topX = corners[0].u + u_mapped * (corners[1].u - corners[0].u);
+        let topY = corners[0].v + u_mapped * (corners[1].v - corners[0].v);
+        
+        let botX = corners[3].u + u_mapped * (corners[2].u - corners[3].u);
+        let botY = corners[3].v + u_mapped * (corners[2].v - corners[3].v);
+
+        let x = (topX + v_mapped * (botX - topX)) * uiCanvas.width;
+        let y = (topY + v_mapped * (botY - topY)) * uiCanvas.height;
+        
+        return {x, y};
+    }
+
+    function drawUI() {
+        uiCtx.clearRect(0, 0, uiCanvas.width, uiCanvas.height);
+
+        const slider = document.getElementById('intensity_slider');
+        const hwSlider = document.getElementById('hw_gain_slider');
+        const mirrorBtn = document.getElementById('mirror_btn');
+        const fsBtn = document.getElementById('fullscreen_btn');
+        const resetBtn = document.getElementById('reset_btn');
+        const pe = (controlAlpha === 0 || !controlsArmed) ? 'none' : 'auto';
+
+        if (slider) {
+            slider.style.opacity = controlAlpha * 0.7; 
+            slider.style.pointerEvents = pe;
+        }
+        if (hwSlider) {
+            hwSlider.style.opacity = controlAlpha * 0.7; 
+            hwSlider.style.pointerEvents = pe;
+        }
+        if (mirrorBtn) {
+            mirrorBtn.style.opacity = controlAlpha * 0.7; 
+            mirrorBtn.style.pointerEvents = pe;
+        }
+        if (fsBtn) {
+            fsBtn.style.opacity = controlAlpha * 0.7; 
+            fsBtn.style.pointerEvents = pe;
+        }
+        if (resetBtn) {
+            resetBtn.style.opacity = controlAlpha * 0.7;
+            resetBtn.style.pointerEvents = pe;
+        }
+
+        if (controlAlpha > 0) {
+            // Editable quad only (outer FOV extrapolation is still used for RF mapping)
+            uiCtx.beginPath();
+            uiCtx.moveTo(corners[0].u * uiCanvas.width, corners[0].v * uiCanvas.height);
+            uiCtx.lineTo(corners[1].u * uiCanvas.width, corners[1].v * uiCanvas.height);
+            uiCtx.lineTo(corners[2].u * uiCanvas.width, corners[2].v * uiCanvas.height);
+            uiCtx.lineTo(corners[3].u * uiCanvas.width, corners[3].v * uiCanvas.height);
+            uiCtx.closePath();
+            uiCtx.strokeStyle = `rgba(0, 0, 0, ${0.8 * controlAlpha})`;
+            uiCtx.setLineDash([5, 5]);
+            uiCtx.lineWidth = 2;
+            uiCtx.stroke();
+            uiCtx.setLineDash([]);
+
+            uiCtx.fillStyle = `rgba(0, 0, 0, ${0.85 * controlAlpha})`;
+            uiCtx.strokeStyle = `rgba(255, 255, 255, ${0.5 * controlAlpha})`;
+            for (let i = 0; i < corners.length; i++) {
+                uiCtx.beginPath();
+                uiCtx.arc(corners[i].u * uiCanvas.width, corners[i].v * uiCanvas.height, 14, 0, Math.PI * 2);
+                uiCtx.fill();
+                uiCtx.lineWidth = 1;
+                uiCtx.stroke();
+            }
+
+            let center = mapPoint(0.5, 0.5);
+            const crossSize = 20;
+            uiCtx.beginPath();
+            uiCtx.moveTo(center.x - crossSize, center.y);
+            uiCtx.lineTo(center.x + crossSize, center.y);
+            uiCtx.moveTo(center.x, center.y - crossSize);
+            uiCtx.lineTo(center.x, center.y + crossSize);
+            uiCtx.lineWidth = 8;
+            uiCtx.strokeStyle = `rgba(100, 100, 100, ${0.9 * controlAlpha})`;
+            uiCtx.stroke();
+        }
+    }
+
+    // ---------------------------------------------------------
+    // Camera & WebSocket Setup (With Auto-Reconnect)
+    // ---------------------------------------------------------
+    
+    function showCameraError(msg) {
+        statusDiv.innerText = msg;
+        statusDiv.style.color = "red";
+        document.getElementById('flag_origin').value = window.location.origin;
+        document.getElementById('cam_error').style.display = 'block';
+    }
+
+    const intensitySlider = document.getElementById('intensity_slider');
+    let currentCurve = 1.0; 
+    
+    intensitySlider.oninput = (e) => {
+        currentCurve = parseFloat(e.target.value);
+        resetHideTimer(); 
+    };
+
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+        navigator.mediaDevices.getUserMedia({
+            video: { 
+                facingMode: "environment",
+                width: { ideal: 1920 },
+                height: { ideal: 1080 }
+            }
+        }).then(stream => {
+            video.srcObject = stream;
+            
+            video.onloadedmetadata = () => {
+                const [track] = stream.getVideoTracks();
+                const capabilities = track.getCapabilities();
+
+                if ('zoom' in capabilities) {
+                    track.applyConstraints({
+                        advanced: [{ zoom: capabilities.zoom.min }]
+                    }).catch(err => console.error("Min zoom lock failed:", err));
+                }
+            };
+        }).catch(err => {
+            showCameraError("Camera Error: " + err.message);
+        });
+    } else {
+        showCameraError("Camera Blocked (Insecure Origin)");
+    }
+
+    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${wsProtocol}//${window.location.host}/ws`;
+
+    // Initialize global WebSocket variable
+    let reconnectTimeout = null;
+
+    function connectStream() {
+        ws = new WebSocket(wsUrl);
+        ws.binaryType = "arraybuffer";
+
+        ws.onopen = () => {
+            statusDiv.innerText = "RF Stream: LIVE";
+            statusDiv.style.color = "#0f0";
+            console.log("WebSocket connected.");
+            if (reconnectTimeout) clearTimeout(reconnectTimeout);
+            ws.send("gain:" + hwGain);
+            ws.send("mirror:" + (flipLR ? "1" : "0"));
+            // Push local settings so the Pi has a backup; server also sends on connect
+            if (hadLocalSettings) saveSettings(true);
+            else ws.send("settings:get");
+        };
+
+        ws.onclose = () => {
+            statusDiv.innerText = "RF Stream: RECONNECTING...";
+            statusDiv.style.color = "#ff0";
+            
+            ws = null; 
+            
+            if (reconnectTimeout) clearTimeout(reconnectTimeout);
+            reconnectTimeout = setTimeout(connectStream, 1000);
+        };
+
+        ws.onerror = (err) => {
+            console.error("WebSocket error. Closing socket to force reconnect.");
+            if (ws) ws.close();
+        };
+
+        ws.onmessage = (event) => {
+            if (typeof event.data === 'string') {
+                if (event.data.startsWith('settings:')) {
+                    // Prefer already-loaded local settings; only apply server when we had none
+                    if (!hadLocalSettings) {
+                        try {
+                            applySettings(JSON.parse(event.data.slice(9)));
+                            try {
+                                localStorage.setItem(SETTINGS_KEY, JSON.stringify(settingsPayload()));
+                                hadLocalSettings = true;
+                            } catch (e) {}
+                            if (ws && ws.readyState === WebSocket.OPEN) {
+                                ws.send("gain:" + hwGain);
+                                ws.send("mirror:" + (flipLR ? "1" : "0"));
+                            }
+                        } catch (e) {}
+                    }
+                }
+                return;
+            }
+
+            ctx.globalCompositeOperation = 'destination-out';
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.3)'; 
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            ctx.globalCompositeOperation = 'lighter';
+
+            const view = new Float32Array(event.data);
+            const pointGain = 0.20; 
+            const blurRadius = Math.max(15, canvas.width * 0.015);
+            
+            const exponent = Math.pow(10, 1.0 - currentCurve);
+
+            for (let i = 0; i < view.length; i += 4) {
+                let tx = view[i];
+                let ty = view[i+1];
+                let hue = view[i+2];
+                let strength = view[i+3];
+
+                let u = tx;
+                let v = 1.0 - ty; 
+
+                let pt = mapPoint(u, v);
+                let h = hue * 360;
+                
+                let curved_strength = Math.pow(strength, exponent);
+                let a = Math.min(1.0, curved_strength * pointGain);
+
+                if (a > 0.04 && pt.x > -blurRadius && pt.x < canvas.width + blurRadius && pt.y > -blurRadius && pt.y < canvas.height + blurRadius) {
+                    
+                    let grad = ctx.createRadialGradient(pt.x, pt.y, 0, pt.x, pt.y, blurRadius);
+                    grad.addColorStop(0, `hsla(${h}, 100%, 50%, ${a})`);
+                    grad.addColorStop(0.3, `hsla(${h}, 100%, 50%, ${a * 0.6})`);
+                    grad.addColorStop(1, `hsla(${h}, 100%, 50%, 0)`);
+                    
+                    ctx.fillStyle = grad;
+                    ctx.fillRect(pt.x - blurRadius, pt.y - blurRadius, blurRadius * 2, blurRadius * 2);
+                }
+            }
+        };
+    }
+
+    // Fire the initial connection
+    connectStream();
+
+   
+    // --- Hardware Controls ---
+    const hwGainSlider = document.getElementById('hw_gain_slider');
+    if (hwGainSlider) {
+        hwGainSlider.value = String(hwGain);
+        hwGainSlider.oninput = (e) => {
+            hwGain = parseInt(e.target.value, 10);
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send("gain:" + hwGain);
+            }
+            saveSettings();
+            resetHideTimer(); 
+        };
+    }
+
+    const mBtn = document.getElementById('mirror_btn');
+    if (mBtn) {
+        mBtn.onclick = () => {
+            flipLR = !flipLR;
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send("mirror:" + (flipLR ? "1" : "0"));
+            }
+            saveSettings();
+            resetHideTimer();
+        };
+    }
+
+    const resetBtn = document.getElementById('reset_btn');
+    if (resetBtn) {
+        resetBtn.onclick = () => {
+            corners = DEFAULT_CORNERS.map(c => ({ u: c.u, v: c.v }));
+            drawUI();
+            saveSettings(true);
+            resetHideTimer();
+        };
+    }
+
+    // --- Fullscreen (manual only) ---
+    const fullscreenBtn = document.getElementById('fullscreen_btn');
+
+    if (fullscreenBtn) {
+        fullscreenBtn.onclick = () => {
+            if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+                const el = document.documentElement;
+                const req = el.requestFullscreen || el.webkitRequestFullscreen || el.msRequestFullscreen;
+                if (req) {
+                    try {
+                        const p = req.call(el);
+                        if (p && p.catch) p.catch(() => {});
+                    } catch (e) {}
+                }
+            } else {
+                const exit = document.exitFullscreen || document.webkitExitFullscreen;
+                if (exit) {
+                    try { exit.call(document); } catch (e) {}
+                }
+            }
+            resetHideTimer();
+        };
+    }
+
+    document.addEventListener('fullscreenchange', () => {
+        if (!fullscreenBtn) return;
+        fullscreenBtn.innerText = document.fullscreenElement ? "Exit Fullscreen" : "Fullscreen";
+    });
+
+    resetHideTimer();
+</script>
+</body>
+</html>

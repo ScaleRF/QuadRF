@@ -1,0 +1,9 @@
+interface=eth0
+dhcp-range=set:eth0,10.55.1.2,10.55.1.10,255.255.255.0,12h
+dhcp-option=tag:eth0,3
+dhcp-option=tag:eth0,6,10.55.1.1
+dhcp-option=tag:eth0,15,link
+domain=link
+interface-name=@DOMAIN@,eth0
+interface-name=quadrf.local,eth0
+interface-name=quadrf,eth0

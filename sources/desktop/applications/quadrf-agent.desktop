@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Agentic Radio
+Comment=gptme session in the QuadRF workspace
+Exec=xfce4-terminal -e "gptme"
+TryExec=gptme
+Icon=quadrf-agent
+Terminal=false
+Categories=HamRadio;Development;

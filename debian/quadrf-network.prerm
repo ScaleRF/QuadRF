@@ -1,0 +1,12 @@
+#!/bin/sh
+set -e
+
+if [ "$1" = remove ]; then
+    /usr/lib/quadrf/apply.d/40-network remove
+    if [ -d /run/systemd/system ]; then
+        deb-systemd-invoke reload-or-restart nginx.service || true
+    fi
+fi
+
+#DEBHELPER#
+exit 0

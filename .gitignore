@@ -1,0 +1,35 @@
+# Build output
+build/
+cmake-build-*/
+*.o
+*.a
+*.so
+*.ko
+
+# Packaging output
+debian/tmp/
+debian/files
+debian/*.debhelper
+debian/*.debhelper.log
+debian/*.substvars
+debian/debhelper-build-stamp
+debian/quadrf/
+debian/quadrf-*/
+packaging/out/
+packaging/thirdparty/*/work/
+packaging/repo/db/
+packaging/repo/dists/
+packaging/repo/pool/
+packaging/repo/.gnupg/
+packaging/repo/quadrf.gpg
+*.deb
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+
+# API keys and certificates, never committed
+.config/gptme/env
+*.pem

@@ -1,6 +1,0 @@
-../Core/Src/qec.c:28:6:set_tx_tone_freq	24	static
-../Core/Src/qec.c:35:6:QEC	320	static
-../Core/Src/qec.c:183:6:qec_calc	40	static
-../Core/Src/qec.c:190:6:correlator_measurement	32	static
-../Core/Src/qec.c:221:6:apply_rxqec_correction	48	static
-../Core/Src/qec.c:237:6:apply_txqec_correction	40	static

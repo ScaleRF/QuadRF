@@ -1,0 +1,15 @@
+#!/bin/sh
+set -e
+
+if [ "$1" = configure ]; then
+    /usr/lib/quadrf/apply.d/40-network
+    if [ -d /run/systemd/system ]; then
+        if nginx -t >/dev/null 2>&1; then
+            deb-systemd-invoke reload-or-restart nginx.service || true
+        fi
+        deb-systemd-invoke try-restart dnsmasq.service avahi-daemon.service || true
+    fi
+fi
+
+#DEBHELPER#
+exit 0

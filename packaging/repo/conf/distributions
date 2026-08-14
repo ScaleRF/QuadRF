@@ -1,0 +1,8 @@
+Origin: QuadRF
+Label: QuadRF
+Codename: bookworm
+Suite: stable
+Architectures: arm64
+Components: main
+Description: QuadRF appliance packages
+SignWith: default

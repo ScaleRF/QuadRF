@@ -1,0 +1,3 @@
+usr/lib/*/SoapySDR/
+usr/lib/sysctl.d/60-quadrf-soapy-server.conf
+lib/systemd/system/quadrf-soapy-server.service

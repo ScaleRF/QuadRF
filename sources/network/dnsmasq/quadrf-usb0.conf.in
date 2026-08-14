@@ -1,0 +1,9 @@
+interface=usb0
+dhcp-range=set:usb0,10.55.0.2,10.55.0.10,255.255.255.0,12h
+dhcp-option=tag:usb0,3
+dhcp-option=tag:usb0,6,10.55.0.1
+dhcp-option=tag:usb0,15,link
+domain=link
+interface-name=@DOMAIN@,usb0
+interface-name=quadrf.local,usb0
+interface-name=quadrf,usb0

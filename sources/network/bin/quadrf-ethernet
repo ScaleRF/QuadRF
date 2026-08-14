@@ -1,0 +1,149 @@
+#!/bin/bash
+# Bring eth0 up as a LAN client when DHCP answers, otherwise as a
+# direct-connect island at 10.55.1.1. Run from ifup and from
+# quadrf-ethernet.service.
+set -euo pipefail
+
+. /usr/share/quadrf/functions.sh
+quadrf_load_conf
+
+IFACE=eth0
+DIRECT_ADDR=10.55.1.1
+DIRECT_CONF=/etc/dnsmasq.d/quadrf-eth0-direct.conf
+LAN_CONF=/etc/dnsmasq.d/quadrf-eth0-lan.conf
+DHCP_WAIT=12
+CARRIER_WAIT=5
+
+log() { logger -t quadrf-ethernet -- "$*"; echo "$*"; }
+
+reload_dnsmasq() {
+    if systemctl is-active --quiet dnsmasq.service; then
+        systemctl reload dnsmasq.service 2>/dev/null ||
+            systemctl try-restart dnsmasq.service &
+    fi
+}
+
+write_conf() {
+    dest="$1"
+    tmp="$(mktemp)"
+    cat > "${tmp}"
+    if [[ ! -f "${dest}" ]] || ! cmp -s "${tmp}" "${dest}"; then
+        install -m 644 "${tmp}" "${dest}"
+        reload_dnsmasq
+    fi
+    rm -f "${tmp}"
+}
+
+drop_conf() {
+    dest="$1"
+    if [[ -f "${dest}" ]]; then
+        rm -f "${dest}"
+        reload_dnsmasq
+    fi
+}
+
+global_v4() {
+    ip -4 -o addr show dev "${IFACE}" scope global 2>/dev/null | awk '{print $4}'
+}
+
+lan_v4() {
+    global_v4 | grep -v '^10\.55\.1\.' || true
+}
+
+has_carrier() {
+    [[ -f /sys/class/net/${IFACE}/carrier ]] &&
+        [[ "$(cat /sys/class/net/${IFACE}/carrier 2>/dev/null || echo 0)" = 1 ]]
+}
+
+enter_lan() {
+    drop_conf "${DIRECT_CONF}"
+    write_conf "${LAN_CONF}" <<EOF
+interface=${IFACE}
+no-dhcp-interface=${IFACE}
+interface-name=${QUADRF_TLS_DOMAIN},${IFACE}
+interface-name=quadrf.local,${IFACE}
+interface-name=quadrf,${IFACE}
+EOF
+    log "${IFACE} on LAN at $(lan_v4 | tr '\n' ' ')"
+}
+
+enter_direct() {
+    ip addr add "${DIRECT_ADDR}/24" dev "${IFACE}" 2>/dev/null || true
+    drop_conf "${LAN_CONF}"
+    write_conf "${DIRECT_CONF}" <<EOF
+interface=${IFACE}
+dhcp-range=set:${IFACE},10.55.1.2,10.55.1.10,255.255.255.0,12h
+dhcp-option=tag:${IFACE},3
+dhcp-option=tag:${IFACE},6,${DIRECT_ADDR}
+dhcp-option=tag:${IFACE},15,link
+domain=link
+interface-name=${QUADRF_TLS_DOMAIN},${IFACE}
+interface-name=quadrf.local,${IFACE}
+interface-name=quadrf,${IFACE}
+EOF
+    log "${IFACE} direct-connect at ${DIRECT_ADDR}"
+}
+
+try_dhcp() {
+    if command -v dhclient >/dev/null; then
+        timeout "${DHCP_WAIT}" dhclient -1 "${IFACE}" >/dev/null 2>&1 || true
+    elif command -v dhcpcd >/dev/null; then
+        timeout "${DHCP_WAIT}" dhcpcd -1 -w --timeout "${DHCP_WAIT}" "${IFACE}" >/dev/null 2>&1 || true
+    fi
+}
+
+stop_dhcp() {
+    if command -v dhclient >/dev/null; then
+        dhclient -r "${IFACE}" >/dev/null 2>&1 || true
+        pkill -f "dhclient.*${IFACE}" >/dev/null 2>&1 || true
+    fi
+    if command -v dhcpcd >/dev/null; then
+        dhcpcd -k "${IFACE}" >/dev/null 2>&1 || true
+    fi
+}
+
+do_stop() {
+    stop_dhcp
+    ip addr del "${DIRECT_ADDR}/24" dev "${IFACE}" 2>/dev/null || true
+    drop_conf "${DIRECT_CONF}"
+    drop_conf "${LAN_CONF}"
+}
+
+do_start() {
+    ip link show "${IFACE}" &>/dev/null || {
+        log "no ${IFACE}, skipping"
+        exit 0
+    }
+    ip link set dev "${IFACE}" up || true
+
+    deadline=$((SECONDS + CARRIER_WAIT))
+    while (( SECONDS < deadline )); do
+        has_carrier && break
+        sleep 1
+    done
+    if ! has_carrier; then
+        log "no carrier on ${IFACE}"
+        exit 0
+    fi
+
+    if [[ -n "$(lan_v4)" ]]; then
+        enter_lan
+        exit 0
+    fi
+
+    try_dhcp
+    if [[ -n "$(lan_v4)" ]]; then
+        enter_lan
+        exit 0
+    fi
+
+    stop_dhcp
+    ip addr flush dev "${IFACE}" scope global || true
+    enter_direct
+}
+
+case "${1:-start}" in
+    stop|down) do_stop ;;
+    start|up|"") do_start ;;
+    *) echo "usage: $0 [start|stop]" >&2; exit 1 ;;
+esac

@@ -1,0 +1,48 @@
+.TH QUADRF-RF-VISION 1 "August 2026" "QuadRF" "QuadRF"
+.SH NAME
+quadrf-rf-vision \- spatial RF phase scatter
+.SH SYNOPSIS
+.B quadrf-rf-vision
+.RB [ \-\-headless ]
+.RB [ \-\-camera ]
+.RB [ \-\-cam_w
+.IR W ]
+.RB [ \-\-cam_h
+.IR H ]
+.RB [ \-\-cam_fps
+.IR fps ]
+.RB [ \-\-cam_cmd
+.IR command ]
+.SH DESCRIPTION
+Sweeps the local oscillator, reads the four CSI channels, and plots the phase
+gradient of each bin as a point whose position is the direction it arrived
+from. Strong, stable emitters settle into tight clusters; noise spreads out.
+.PP
+The scatter is drawn in an SDL window and also served over a WebSocket on port
+8000, which is what the browser AR page at
+.I /AR/
+consumes. Overlay settings saved from that page are kept in
+.IR /var/lib/quadrf/demos/ar_settings.json .
+.SH OPTIONS
+.TP
+.B \-\-headless
+Do not open the SDL window; serve the WebSocket feed only.
+.TP
+.B \-\-camera
+Underlay the scatter with a live camera image captured through libcamera-vid.
+.TP
+.BI \-\-cam_w " W" ", " \-\-cam_h " H"
+Camera capture resolution. Default: 640x480.
+.TP
+.BI \-\-cam_fps " fps"
+Camera frame rate. Default: 30.
+.TP
+.BI \-\-cam_cmd " command"
+Replace the capture command. It must write raw I420 frames on standard output.
+.SH FILES
+.TP
+.I /var/lib/quadrf/demos/ar_settings.json
+Overlay settings shared with the AR page.
+.SH SEE ALSO
+.BR quadrf-psd (1),
+.BR quadrf-jtag (1)

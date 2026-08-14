@@ -1,0 +1,3 @@
+usr/lib/quadrf/overlays/
+usr/lib/quadrf/apply.d/10-boot
+lib/systemd/system/quadrf-reboot-clear.service

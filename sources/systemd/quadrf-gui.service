@@ -1,0 +1,19 @@
+[Unit]
+Description=QuadRF control web interface
+# Wants, not Requires: the panel must come up for Wi-Fi / first-boot even
+# when the radio tile is missing and load-quadrf fails.
+Wants=load-quadrf.service
+After=network.target
+
+[Service]
+Type=simple
+# User, Group and HOME come from /etc/systemd/system/quadrf-gui.service.d/,
+# written from QUADRF_USER in /etc/quadrf/quadrf.conf.
+User=root
+WorkingDirectory=/usr/share/quadrf/gui
+ExecStart=/usr/bin/python3 /usr/share/quadrf/gui/app.py
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

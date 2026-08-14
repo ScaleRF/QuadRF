@@ -1,0 +1,14 @@
+#!/bin/sh
+set -e
+
+NAME=quadrf-fpga
+
+if [ "$1" = remove ] || [ "$1" = upgrade ] || [ "$1" = deconfigure ]; then
+    VERSION="$(dpkg-query -W -f='${Version}' quadrf-fpga-dkms | cut -d- -f1)"
+    if dkms status -m "${NAME}" -v "${VERSION}" | grep -q .; then
+        dkms remove -m "${NAME}" -v "${VERSION}" --all >/dev/null 2>&1 || true
+    fi
+fi
+
+#DEBHELPER#
+exit 0

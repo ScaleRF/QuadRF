@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Software Install
+Comment=DietPi software catalogue
+Exec=xfce4-terminal --hold -x sudo /boot/dietpi/dietpi-software
+TryExec=/boot/dietpi/dietpi-software
+Icon=quadrf-software
+Terminal=false
+Categories=System;

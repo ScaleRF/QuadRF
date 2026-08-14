@@ -1,0 +1,29 @@
+.TH QUADRF-PSD 1 "August 2026" "QuadRF" "QuadRF"
+.SH NAME
+quadrf-psd \- power spectral density plot for the QuadRF front-end
+.SH SYNOPSIS
+.B quadrf-psd
+.SH DESCRIPTION
+Maps the CSI driver's ring buffer, runs a 4096-point FFT over it and draws the
+resulting spectrum, with an IQ histogram beside it. There are no command-line
+options; everything is adjusted from the keyboard while it runs.
+.SH KEYS
+.TP
+.B Space
+Switch between one-channel packed and four-channel interleaved mode. The
+spectrum history is cleared so the two do not ghost into each other.
+.TP
+.BR Up ", " Down
+Move the whole dB window up or down by 5 dB.
+.TP
+.BR Left ", " Right
+Move the top of the dB window only.
+.TP
+.B r
+Reset the dB window.
+.TP
+.B Escape
+Quit.
+.SH SEE ALSO
+.BR quadrf-rf-vision (1),
+.BR quadrf-jtag (1)

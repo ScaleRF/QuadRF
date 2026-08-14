@@ -1,0 +1,3 @@
+#!/bin/bash
+pcmanfm --desktop --profile LXDE &
+tint2 -c "${HOME}/.config/tint2/tint2rc" &

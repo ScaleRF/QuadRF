@@ -1,0 +1,16 @@
+[Unit]
+Description=QuadRF FPGA bring-up
+Documentation=man:quadrf(1)
+After=local-fs.target
+ConditionPathExists=/usr/share/quadrf/fpga/quadrf.svf
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+TimeoutStartSec=120
+TimeoutStopSec=15
+KillMode=process
+ExecStart=/usr/sbin/quadrf-load
+
+[Install]
+WantedBy=multi-user.target

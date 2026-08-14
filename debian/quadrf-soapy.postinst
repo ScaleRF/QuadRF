@@ -1,0 +1,17 @@
+#!/bin/sh
+set -e
+
+if [ "$1" = configure ]; then
+    # Keep Debian's SoapySDRServer binary (Depends: soapyremote-server), but
+    # do not let its unit race quadrf-soapy-server on port 55132.
+    if [ -d /run/systemd/system ]; then
+        deb-systemd-invoke stop soapyremote-server.service >/dev/null 2>&1 || true
+    fi
+    if [ -x /usr/bin/deb-systemd-helper ]; then
+        deb-systemd-helper disable soapyremote-server.service >/dev/null 2>&1 || true
+        deb-systemd-helper mask soapyremote-server.service >/dev/null 2>&1 || true
+    fi
+fi
+
+#DEBHELPER#
+exit 0

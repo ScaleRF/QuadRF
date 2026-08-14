@@ -1,0 +1,33 @@
+.TH QUADRF-DNS-UPDATE 8 "August 2026" "QuadRF" "QuadRF"
+.SH NAME
+quadrf-dns-update \- publish the QuadRF names on the station interface
+.SH SYNOPSIS
+.B quadrf-dns-update
+.SH DESCRIPTION
+When wlan0 holds a global address, writes a dnsmasq snippet that resolves
+.BR QUADRF_TLS_DOMAIN ,
+.B quadrf.local
+and
+.B quadrf
+to whatever address wlan0 currently has, then reloads dnsmasq. When wlan0 has
+no address the snippet is removed instead.
+.PP
+.I /etc/network/if-up.d/quadrf-dns
+calls this whenever wlan0 comes up, and
+.B quadrf apply
+calls it once at install time. The file is only rewritten when its contents
+change, so repeated calls do not disturb running clients.
+.PP
+The reload is deliberately detached from the caller: at boot
+.B network.target
+waits on ifup@wlan0 while dnsmasq waits on
+.BR network-online.target ,
+and a synchronous restart here stalls both for about forty-five seconds.
+.SH FILES
+.TP
+.I /etc/dnsmasq.d/quadrf-wlan0-lan.conf
+The generated snippet.
+.SH SEE ALSO
+.BR quadrf (1),
+.BR quadrf.conf (5),
+.BR quadrf-hotspot (8)

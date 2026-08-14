@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=QRadioLink
+Comment=Digital voice and data link application
+Exec=qradiolink
+TryExec=qradiolink
+Icon=quadrf-qradiolink
+Terminal=false
+Categories=Network;HamRadio;

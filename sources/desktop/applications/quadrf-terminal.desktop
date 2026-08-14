@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Terminal
+Exec=xfce4-terminal
+TryExec=xfce4-terminal
+Icon=quadrf-terminal
+Terminal=false
+Categories=System;TerminalEmulator;

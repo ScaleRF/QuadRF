@@ -1,0 +1,7 @@
+usr/share/applications/
+usr/share/icons/
+usr/share/quadrf/desktop/
+usr/share/quadrf/agent/
+usr/lib/quadrf/kasm-wrangle
+usr/lib/quadrf/apply.d/50-desktop
+lib/systemd/system/quadrf-desktop.service

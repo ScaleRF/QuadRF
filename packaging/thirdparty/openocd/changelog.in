@@ -1,0 +1,5 @@
+quadrf-openocd (@VERSION@) bookworm; urgency=medium
+
+  * Build of the Raspberry Pi OpenOCD fork pinned in packaging/pins.env.
+
+ -- QuadRF Engineering <contact@ScaleRF.com>  @DATE@

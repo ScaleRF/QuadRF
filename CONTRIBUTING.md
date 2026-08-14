@@ -45,7 +45,7 @@ If your contribution incorporates third-party material, clearly identify the sou
 
 ## Relationship to the Patent Covenant
 
-Contributions may also be subject to the reciprocal patent-grant and defensive non-assert terms in `PATENT_COVENANT.md` if the contributor claims, invokes, relies on, or receives the benefit of the Scale RF patent covenant for the Released Antenna Design or a Compliant Derivative.
+Contributions may also be subject to the reciprocal patent-grant and defensive non-assert terms in `licenses/PATENT_COVENANT.md` if the contributor claims, invokes, relies on, or receives the benefit of the Scale RF patent covenant for the Released Antenna Design or a Compliant Derivative.
 
 ## Contact
 

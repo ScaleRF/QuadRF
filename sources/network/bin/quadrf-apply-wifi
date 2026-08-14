@@ -1,0 +1,29 @@
+#!/bin/bash
+# Write a new wpa_supplicant network and reboot into it.
+# Called by the web GUI through the sudoers rule in /etc/sudoers.d/quadrf.
+set -euo pipefail
+
+SSID="${1:?usage: quadrf-apply-wifi <ssid> [passphrase]}"
+PSK="${2:-}"
+WPA_CONF=/etc/wpa_supplicant/wpa_supplicant.conf
+
+install -d -m 755 "$(dirname "${WPA_CONF}")"
+
+{
+    echo 'ctrl_interface=DIR=/var/run/wpa_supplicant GROUP=netdev'
+    echo 'update_config=1'
+    echo 'country=US'
+    echo
+    echo 'network={'
+    printf '    ssid="%s"\n' "${SSID}"
+    if [[ -n "${PSK}" ]]; then
+        printf '    psk="%s"\n' "${PSK}"
+    else
+        echo '    key_mgmt=NONE'
+    fi
+    echo '}'
+} > "${WPA_CONF}"
+chmod 600 "${WPA_CONF}"
+
+# Detach the reboot so the caller can finish serving its response first.
+(sleep 3 && systemctl reboot) >/dev/null 2>&1 &

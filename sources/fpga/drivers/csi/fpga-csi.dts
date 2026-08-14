@@ -1,0 +1,40 @@
+/dts-v1/;
+/plugin/;
+
+/ {
+	compatible = "brcm,bcm2712";
+
+	fragment@0 {
+		/* * Target the CSI0 node (CAM0 connector) using its label.
+		 * This is the cleaner, preferred way to do what your
+		 * target-path = "/axi/pcie@1000120000/rp1/csi@128000";
+		 * was doing.
+		 */
+		target = <&csi1>;
+
+		__overlay__ {
+			/* * Add your driver's compatible string *first* in the list.
+			 * The kernel will try to bind "acme,fpga-csi-rx" first.
+			 * If that fails, it will fall back to the stock "brcm,rp1-csi" driver.
+			 */
+			compatible = "acme,fpga-csi-rx", "brcm,rp1-csi";
+			
+			/* Enable the node */
+			status = "okay";
+
+			/* Parameters */
+			acme,raw-bits = <8>;    /* set to <8> for RAW8 */
+			acme,dt = <0x2a>;    /* set to <8> for RAW8 */
+			acme,mbps   = <640>;  /* 437 lane rate in Mbps */
+			acme,nlanes = <2>;    /*2 number of data lanes */
+
+			acme,bytes-per-line = <1024>; /* 1024 pixels, RAW8 -> 1024 bytes */
+			acme,lines          = <128>; /* 128 lines per frame */
+
+			jtag-tck-gpios = <&gpio 14 0>;
+			jtag-tms-gpios = <&gpio 15 0>;
+			jtag-tdo-gpios = <&gpio 18 0>;
+			jtag-tdi-gpios = <&gpio 23 0>;
+		};
+	};
+};

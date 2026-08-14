@@ -1,0 +1,9 @@
+authoritative;
+
+subnet @AP_PREFIX@.0 netmask 255.255.255.0 {
+    range @AP_PREFIX@.10 @AP_PREFIX@.254;
+    option broadcast-address @AP_PREFIX@.255;
+    option routers @AP_ADDRESS@;
+    option domain-name "local";
+    option domain-name-servers @AP_ADDRESS@;
+}

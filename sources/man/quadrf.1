@@ -1,0 +1,63 @@
+.TH QUADRF 1 "August 2026" "QuadRF" "QuadRF"
+.SH NAME
+quadrf \- inspect and configure a QuadRF appliance
+.SH SYNOPSIS
+.B quadrf
+.RI [ command ]
+.RI [ arguments ]
+.SH DESCRIPTION
+.B quadrf
+reports the state of the appliance and re-applies the site configuration held
+in
+.IR /etc/quadrf/quadrf.conf .
+With no command it behaves as
+.BR "quadrf status" .
+.SH COMMANDS
+.TP
+.B status
+Print each installed QuadRF service with its enabled and active state, whether
+the CSI and DSI drivers are loaded, the SoapySDR devices that can be found, and
+the addresses on wlan0, eth0 and usb0. A pending reboot is reported last.
+.TP
+.B apply
+Run every configuration hook in
+.I /usr/lib/quadrf/apply.d
+in order, then reload systemd. Each installed package contributes one hook, so
+this re-applies the firmware block, the service account drop-ins, the generated
+network configuration and the desktop layout. Safe to repeat. Needs root.
+.TP
+.B packages
+List the installed quadrf-* packages and their versions.
+.TP
+.BI "tls import " directory
+Install
+.I fullchain.pem
+and
+.I privkey.pem
+from
+.I directory
+into
+.I /etc/quadrf/tls
+and reload nginx. A Let's Encrypt live directory can be given directly. Needs
+root.
+.TP
+.B tls self-signed
+Discard the installed certificate and regenerate the self-signed placeholder
+for the configured domain. Needs root.
+.SH FILES
+.TP
+.I /etc/quadrf/quadrf.conf
+Site configuration. See
+.BR quadrf.conf (5).
+.TP
+.I /usr/lib/quadrf/apply.d/
+Configuration hooks, one per installed package.
+.TP
+.I /var/lib/quadrf/reboot-required
+Written when a change needs a restart to take effect. Cleared on the next
+boot by
+.BR quadrf-reboot-clear.service .
+.SH SEE ALSO
+.BR quadrf.conf (5),
+.BR quadrf-jtag (1),
+.BR quadrf-load (8)

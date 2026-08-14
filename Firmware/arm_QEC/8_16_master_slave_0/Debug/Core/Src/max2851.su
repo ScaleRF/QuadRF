@@ -1,6 +1,0 @@
-../Core/Src/max2851.c:14:6:write_max2851_base_regs	160	static
-../Core/Src/max2851.c:90:6:set_Rx	16	static
-../Core/Src/max2851.c:99:6:set_Rx_gain	16	static
-../Core/Src/max2851.c:103:6:set_RxIdle	8	static
-../Core/Src/max2851.c:107:9:find_best_rx_vga	32	static
-../Core/Src/max2851.c:132:6:gain_track	72	static

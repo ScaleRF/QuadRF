@@ -1,0 +1,11 @@
+[Unit]
+Description=QuadRF fallback access point
+After=network.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/quadrf-hotspot
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,18 @@
+[Unit]
+Description=QuadRF remote desktop (KasmVNC)
+After=network.target
+
+[Service]
+Type=forking
+# User, Group and HOME come from /etc/systemd/system/quadrf-desktop.service.d/,
+# written from QUADRF_USER in /etc/quadrf/quadrf.conf.
+User=root
+ExecStartPre=-/usr/bin/vncserver -kill :1
+ExecStartPre=-/bin/rm -f /tmp/.X1-lock /tmp/.X11-unix/X1
+ExecStart=/usr/bin/vncserver :1 -disableBasicAuth -publicIP 127.0.0.1
+ExecStop=/usr/bin/vncserver -kill :1
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

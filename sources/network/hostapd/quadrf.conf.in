@@ -1,0 +1,10 @@
+interface=wlan0
+driver=nl80211
+ssid=@SSID@
+hw_mode=g
+channel=6
+country_code=US
+ieee80211n=1
+wmm_enabled=1
+auth_algs=1
+wpa=0

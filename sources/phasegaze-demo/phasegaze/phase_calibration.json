@@ -1,0 +1,28 @@
+{
+  "version": 2,
+  "eps10_rad": 0,
+  "eps20_rad": 0,
+  "eps30_rad": 0,
+  "estimated_source_dir": [0.000000, 0.000000, 0.000000],
+  "rms_residual_rad": 0,
+  "samples": 5,
+  "orientation_coverage": 0,
+  "iterations": 0,
+  "converged": 0,
+  "created_unix": 1779564041,
+  "delay_cal": {
+    "m10_rad_per_mhz": -0.0005781362415,
+    "b10_rad": 3.706379652,
+    "m20_rad_per_mhz": 0.0003854718234,
+    "b20_rad": -2.446280718,
+    "m30_rad_per_mhz": 0.000963608094,
+    "b30_rad": -6.15266037,
+    "samples": [
+      {"slot": 2, "freq_mhz": 5540.0, "eps10_rad": 0.5793699622, "eps20_rad": -0.5344017744, "eps30_rad": -1.113771796},
+      {"slot": 3, "freq_mhz": 5700.0, "eps10_rad": 0.4545618594, "eps20_rad": -0.2796379328, "eps30_rad": -0.7341997623},
+      {"slot": 4, "freq_mhz": 5885.0, "eps10_rad": 0.2308754772, "eps20_rad": -0.04216310009, "eps30_rad": -0.2730385661},
+      {"slot": 0, "freq_mhz": 5180.0, "eps10_rad": 0.653778851, "eps20_rad": -0.3365679085, "eps30_rad": -0.9903467894},
+      {"slot": 1, "freq_mhz": 5320.0, "eps10_rad": 0.6422982812, "eps20_rad": -0.3899738491, "eps30_rad": -1.0322721}
+    ]
+  }
+}

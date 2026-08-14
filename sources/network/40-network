@@ -1,0 +1,241 @@
+#!/bin/sh
+# Render the QuadRF network configuration from /etc/quadrf/quadrf.conf and wire
+# it into nginx, dnsmasq, hostapd, isc-dhcp-server and avahi.
+#
+#   40-network            apply
+#   40-network remove     undo the edits made to other packages' files
+set -eu
+
+. /usr/share/quadrf/functions.sh
+quadrf_load_conf
+
+SHARE=/usr/share/quadrf/network
+AP_PREFIX="${QUADRF_AP_ADDRESS%.*}"
+
+render() {
+    sed -e "s|@DOMAIN@|${QUADRF_TLS_DOMAIN}|g" \
+        -e "s|@SSID@|${QUADRF_AP_SSID}|g" \
+        -e "s|@AP_ADDRESS@|${QUADRF_AP_ADDRESS}|g" \
+        -e "s|@AP_PREFIX@|${AP_PREFIX}|g" \
+        -e "s|@USER@|${QUADRF_USER}|g" \
+        "$1" > "$2"
+}
+
+STOLEN_DIR=/var/lib/quadrf/stolen-ifaces
+
+# Comment a pre-existing iface stanza in /etc/network/interfaces so a
+# drop-in can own the interface. The original block is saved and put back
+# on remove.
+steal_iface() {
+    iface="$1"
+    conf=/etc/network/interfaces
+    [ -f "${conf}" ] || return 0
+    grep -qs "^# quadrf-owns ${iface}$" "${conf}" && return 0
+
+    if ! grep -qsE "^[[:space:]]*(auto|allow-hotplug)[[:space:]]+${iface}([[:space:]]|$)" "${conf}" &&
+       ! grep -qsE "^[[:space:]]*iface[[:space:]]+${iface}[[:space:]]" "${conf}"; then
+        return 0
+    fi
+
+    mkdir -p "${STOLEN_DIR}"
+    tmp="$(mktemp)"
+    saved="${STOLEN_DIR}/${iface}"
+    : > "${saved}"
+
+    # Keep stealing through comments and option lines. Stopping on a
+    # comment left DietPi's `wireless-power` / `wpa-conf` uncommented
+    # after a commented example block, which ifup reports as a misplaced
+    # option and refuses to parse the whole file.
+    awk -v iface="${iface}" -v saved="${saved}" '
+        function isheader() {
+            return $1=="auto" || $1=="allow-auto" || $1=="allow-hotplug" ||
+                   $1=="iface" || $1=="mapping" || $1=="source" ||
+                   $1=="source-directory"
+        }
+        function isours() {
+            return (($1=="auto" || $1=="allow-auto" || $1=="allow-hotplug") && $2==iface) ||
+                   ($1=="iface" && $2==iface)
+        }
+        BEGIN { steal=0; marked=0 }
+        {
+            if (isours()) {
+                steal=1
+                if (!marked) { print "# quadrf-owns " iface; marked=1 }
+                print $0 >> saved
+                print "#" $0
+                next
+            }
+            if (steal && (NF==0 || isheader())) steal=0
+            if (steal) {
+                print $0 >> saved
+                if ($0 ~ /^[[:space:]]*#/) print
+                else print "#" $0
+                next
+            }
+            print
+        }
+    ' "${conf}" > "${tmp}"
+    cat "${tmp}" > "${conf}"
+    rm -f "${tmp}"
+}
+
+restore_iface() {
+    iface="$1"
+    conf=/etc/network/interfaces
+    saved="${STOLEN_DIR}/${iface}"
+    [ -f "${conf}" ] || return 0
+    grep -qs "^# quadrf-owns ${iface}$" "${conf}" || return 0
+
+    tmp="$(mktemp)"
+    awk -v iface="${iface}" -v saved="${saved}" '
+        $0 == "# quadrf-owns " iface {
+            n = 0
+            while ((getline line < saved) > 0) {
+                print line
+                n++
+            }
+            close(saved)
+            for (i = 0; i < n; i++) {
+                if ((getline) <= 0) break
+            }
+            next
+        }
+        { print }
+    ' "${conf}" > "${tmp}"
+    cat "${tmp}" > "${conf}"
+    rm -f "${tmp}" "${saved}"
+}
+
+# True when the base image still owns this interface (so we must not add a
+# second stanza). steal_iface comments DietPi's block first.
+iface_preconfigured() {
+    iface="$1"
+    dest="/etc/network/interfaces.d/quadrf-${iface}.cfg"
+    [ ! -e "${dest}" ] &&
+        grep -qsE "^[[:space:]]*iface[[:space:]]+${iface}[[:space:]]" \
+            /etc/network/interfaces
+}
+
+# Interface stanzas are only dropped in when the base configuration does not
+# already describe the interface; a duplicate stanza breaks ifupdown outright.
+install_interface() {
+    iface="$1"
+    src="${SHARE}/interfaces.d/quadrf-${iface}.cfg"
+    dest="/etc/network/interfaces.d/quadrf-${iface}.cfg"
+
+    if iface_preconfigured "${iface}"; then
+        echo "quadrf: ${iface} is already configured in /etc/network/interfaces;" \
+             "not installing ${dest}" >&2
+        return 1
+    fi
+    install -D -m 644 "${src}" "${dest}"
+}
+
+configure_tls() {
+    install -d -m 755 /etc/quadrf/tls
+    [ -f /etc/quadrf/tls/fullchain.pem ] && [ -f /etc/quadrf/tls/privkey.pem ] && return 0
+
+    live="/etc/letsencrypt/live/${QUADRF_TLS_DOMAIN}"
+    if [ -f "${live}/fullchain.pem" ] && [ -f "${live}/privkey.pem" ]; then
+        install -m 644 "${live}/fullchain.pem" /etc/quadrf/tls/fullchain.pem
+        install -m 600 "${live}/privkey.pem" /etc/quadrf/tls/privkey.pem
+        return 0
+    fi
+
+    openssl req -x509 -nodes -days 3650 \
+        -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 \
+        -subj "/CN=${QUADRF_TLS_DOMAIN}" \
+        -keyout /etc/quadrf/tls/privkey.pem \
+        -out /etc/quadrf/tls/fullchain.pem 2>/dev/null
+    chmod 600 /etc/quadrf/tls/privkey.pem
+    echo "quadrf: using a self-signed certificate for ${QUADRF_TLS_DOMAIN};" \
+         "replace it with 'quadrf tls import <dir>'"
+}
+
+apply() {
+    render "${SHARE}/nginx-site.in" /etc/nginx/sites-available/quadrf
+    render "${SHARE}/dnsmasq/quadrf-usb0.conf.in" /etc/dnsmasq.d/quadrf-usb0.conf
+    render "${SHARE}/hostapd.conf.in" /etc/hostapd/quadrf.conf
+    render "${SHARE}/dhcpd.conf.in" /etc/quadrf/dhcpd.conf
+
+    render "${SHARE}/sudoers.in" /etc/sudoers.d/quadrf.tmp
+    chmod 440 /etc/sudoers.d/quadrf.tmp
+    if visudo -cf /etc/sudoers.d/quadrf.tmp >/dev/null; then
+        mv /etc/sudoers.d/quadrf.tmp /etc/sudoers.d/quadrf
+    else
+        rm -f /etc/sudoers.d/quadrf.tmp
+        echo "quadrf: generated sudoers fragment was rejected, not installed" >&2
+    fi
+
+    # Take eth0/wlan0 from the DietPi image so the drop-ins are the only
+    # stanzas. quadrf-ethernet / quadrf-hotspot decide DHCP vs island / AP.
+    steal_iface eth0
+    steal_iface wlan0
+    install_interface eth0 || true
+    install_interface wlan0 || true
+    rm -f /etc/dnsmasq.d/quadrf-eth0.conf \
+          /etc/dnsmasq.d/quadrf-eth0-direct.conf \
+          /etc/dnsmasq.d/quadrf-eth0-lan.conf
+    install -D -m 644 "${SHARE}/interfaces.d/quadrf-usb0.cfg" \
+        /etc/network/interfaces.d/quadrf-usb0.cfg
+
+    if [ -f /etc/network/interfaces ] &&
+       ! grep -qs 'interfaces\.d' /etc/network/interfaces; then
+        echo "quadrf: /etc/network/interfaces does not read interfaces.d;" \
+             "add 'source interfaces.d/*'" >&2
+    fi
+
+    # hostapd and isc-dhcp-server are started on demand by quadrf-hotspot.
+    quadrf_setting_set /etc/default/hostapd DAEMON_CONF '"/etc/hostapd/quadrf.conf"' || true
+    quadrf_setting_set /etc/default/isc-dhcp-server DHCPDv4_CONF /etc/quadrf/dhcpd.conf || true
+    quadrf_setting_set /etc/default/isc-dhcp-server INTERFACESv4 '"wlan0"' || true
+    systemctl unmask hostapd.service 2>/dev/null || true
+    systemctl disable hostapd.service isc-dhcp-server.service 2>/dev/null || true
+
+    # Publish quadrf.local regardless of the system hostname, and keep the
+    # reflector off: with several interfaces up it echoes our own announcement
+    # back and avahi renames itself to quadrf-2.
+    if [ -f /etc/avahi/avahi-daemon.conf ]; then
+        quadrf_setting_set /etc/avahi/avahi-daemon.conf host-name quadrf
+        quadrf_setting_set /etc/avahi/avahi-daemon.conf enable-reflector no
+    fi
+
+    # dnsmasq needs port 53.
+    if [ -f /etc/systemd/resolved.conf ]; then
+        quadrf_setting_set /etc/systemd/resolved.conf DNSStubListener no
+        systemctl try-restart systemd-resolved.service 2>/dev/null || true
+    fi
+
+    configure_tls
+
+    ln -sfn /etc/nginx/sites-available/quadrf /etc/nginx/sites-enabled/quadrf
+    rm -f /etc/nginx/sites-enabled/default
+
+    [ -x /usr/sbin/quadrf-dns-update ] && /usr/sbin/quadrf-dns-update || true
+    [ -x /usr/sbin/quadrf-ethernet ] && /usr/sbin/quadrf-ethernet || true
+}
+
+remove() {
+    restore_iface eth0
+    restore_iface wlan0
+    rm -f /etc/nginx/sites-enabled/quadrf \
+          /etc/nginx/sites-available/quadrf \
+          /etc/dnsmasq.d/quadrf-eth0.conf \
+          /etc/dnsmasq.d/quadrf-eth0-direct.conf \
+          /etc/dnsmasq.d/quadrf-eth0-lan.conf \
+          /etc/dnsmasq.d/quadrf-usb0.conf \
+          /etc/dnsmasq.d/quadrf-wlan0-ap.conf \
+          /etc/dnsmasq.d/quadrf-wlan0-lan.conf \
+          /etc/hostapd/quadrf.conf \
+          /etc/sudoers.d/quadrf \
+          /etc/network/interfaces.d/quadrf-eth0.cfg \
+          /etc/network/interfaces.d/quadrf-wlan0.cfg \
+          /etc/network/interfaces.d/quadrf-usb0.cfg
+    rm -rf /etc/quadrf/tls /etc/quadrf/dhcpd.conf
+}
+
+case "${1:-apply}" in
+    apply)  apply ;;
+    remove) remove ;;
+    *)      echo "usage: $0 [apply|remove]" >&2; exit 1 ;;
+esac

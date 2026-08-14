@@ -1,2 +1,0 @@
-../Core/Src/app_log.c:20:6:app_log	24	static
-../Core/Src/app_log.c:41:6:waitForKeyPress	16	static

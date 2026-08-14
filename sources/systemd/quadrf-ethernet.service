@@ -1,0 +1,14 @@
+[Unit]
+Description=QuadRF ethernet (DHCP or direct-connect)
+After=sys-subsystem-net-devices-eth0.device network.target
+Wants=sys-subsystem-net-devices-eth0.device
+ConditionPathExists=/sys/class/net/eth0
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/quadrf-ethernet
+ExecStop=/usr/sbin/quadrf-ethernet stop
+
+[Install]
+WantedBy=multi-user.target

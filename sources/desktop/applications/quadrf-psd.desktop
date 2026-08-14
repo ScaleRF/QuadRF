@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=PSD Plot
+Comment=Live spectrum from the CSI ring buffer
+Exec=quadrf-psd
+TryExec=quadrf-psd
+Icon=quadrf-psd
+Terminal=false
+Categories=HamRadio;Science;

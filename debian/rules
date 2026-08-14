@@ -1,0 +1,38 @@
+#!/usr/bin/make -f
+
+include /usr/share/dpkg/pkg-info.mk
+
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+export QUADRF_VERSION = $(DEB_VERSION_UPSTREAM)
+
+%:
+	dh $@
+
+override_dh_auto_build-indep:
+	$(MAKE) build-indep VERSION=$(QUADRF_VERSION)
+
+override_dh_auto_build-arch:
+	$(MAKE) build-arch VERSION=$(QUADRF_VERSION)
+
+override_dh_auto_install-indep:
+	$(MAKE) install-indep DESTDIR=$(CURDIR)/debian/tmp VERSION=$(QUADRF_VERSION)
+
+override_dh_auto_install-arch:
+	$(MAKE) install-arch DESTDIR=$(CURDIR)/debian/tmp VERSION=$(QUADRF_VERSION)
+
+override_dh_missing:
+	dh_missing --fail-missing
+
+# Units are installed via debian/*.install under lib/systemd/system so
+# bookworm's dh_installsystemd can see them (it does not look in usr/lib).
+# several names do not match the binary package (load-quadrf, quadrf-hotspot).
+# Pass them explicitly so they are enabled; load-quadrf and soapy-server wait
+# for the post-install reboot rather than failing in the maintainer script.
+override_dh_installsystemd:
+	dh_installsystemd -pquadrf-boot --no-start quadrf-reboot-clear.service
+	dh_installsystemd -pquadrf-fpga --no-start load-quadrf.service
+	dh_installsystemd -pquadrf-gui quadrf-gui.service
+	dh_installsystemd -pquadrf-soapy --no-start quadrf-soapy-server.service
+	dh_installsystemd -pquadrf-network quadrf-hotspot.service quadrf-ethernet.service
+	dh_installsystemd -pquadrf-desktop quadrf-desktop.service
+	dh_installsystemd -pquadrf-ups quadrf-ups.service

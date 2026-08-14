@@ -1,0 +1,29 @@
+.TH QUADRF-APPLY-WIFI 8 "August 2026" "QuadRF" "QuadRF"
+.SH NAME
+quadrf-apply-wifi \- provision a Wi-Fi network and reboot into it
+.SH SYNOPSIS
+.B quadrf-apply-wifi
+.I ssid
+.RI [ passphrase ]
+.SH DESCRIPTION
+Replaces
+.I /etc/wpa_supplicant/wpa_supplicant.conf
+with a single network for
+.IR ssid ,
+using
+.I passphrase
+for WPA or an open network when none is given, and reboots the appliance three
+seconds later.
+.PP
+The reboot is detached so the caller can finish first: the web control panel
+invokes this through the sudoers rule in
+.I /etc/sudoers.d/quadrf
+and needs to return its response before the system goes down.
+.PP
+Any previously configured network is discarded. If the new one does not
+associate, the appliance comes back on its fallback access point; see
+.BR quadrf-hotspot (8).
+.SH SEE ALSO
+.BR quadrf (1),
+.BR quadrf-hotspot (8),
+.BR wpa_supplicant.conf (5)

@@ -1,0 +1,11 @@
+#!/bin/sh
+# Run the UPS monitor as the operator account and give it I2C access.
+set -eu
+
+. /usr/share/quadrf/functions.sh
+quadrf_load_conf
+quadrf_user_dropin quadrf-ups.service
+
+if getent group i2c >/dev/null && getent passwd "${QUADRF_USER}" >/dev/null; then
+    adduser --quiet "${QUADRF_USER}" i2c || true
+fi

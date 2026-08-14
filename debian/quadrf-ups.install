@@ -1,0 +1,4 @@
+usr/lib/quadrf/ups-daemon
+usr/share/quadrf/ups/
+usr/lib/quadrf/apply.d/60-ups
+lib/systemd/system/quadrf-ups.service

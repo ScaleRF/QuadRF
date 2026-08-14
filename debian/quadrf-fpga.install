@@ -1,0 +1,8 @@
+usr/bin/quadrf-jtag
+usr/sbin/quadrf-load
+usr/share/quadrf/fpga/
+usr/share/quadrf/openocd/
+usr/include/quadrf/
+lib/systemd/system/load-quadrf.service
+usr/share/man/man1/quadrf-jtag.1
+usr/share/man/man8/quadrf-load.8

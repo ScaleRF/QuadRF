@@ -1,0 +1,131 @@
+#!/bin/sh
+# Keep the firmware partition in sync with quadrf-boot: device-tree overlays,
+# the QuadRF block in config.txt and the USB gadget modules in cmdline.txt.
+#
+#   10-boot            apply
+#   10-boot remove     take the QuadRF settings back out
+set -eu
+
+. /usr/share/quadrf/functions.sh
+quadrf_load_conf
+
+CONFIG="${QUADRF_BOOT_DIR}/config.txt"
+CMDLINE="${QUADRF_BOOT_DIR}/cmdline.txt"
+OVERLAY_DIR="${QUADRF_BOOT_DIR}/overlays"
+SOURCE_DIR=/usr/lib/quadrf/overlays
+MODULES="modules-load=dwc2,g_ether"
+
+if [ ! -f "${CONFIG}" ]; then
+    echo "quadrf: ${CONFIG} not found; set QUADRF_BOOT_DIR in ${QUADRF_CONF}" >&2
+    exit 0
+fi
+
+changed=0
+mark_changed() { changed=1; }
+
+install_overlays() {
+    mkdir -p "${OVERLAY_DIR}"
+    for dtbo in "${SOURCE_DIR}"/*.dtbo; do
+        [ -f "${dtbo}" ] || continue
+        target="${OVERLAY_DIR}/$(basename "${dtbo}")"
+        if ! cmp -s "${dtbo}" "${target}"; then
+            install -m 644 "${dtbo}" "${target}"
+            mark_changed
+        fi
+    done
+}
+
+remove_overlays() {
+    for dtbo in "${SOURCE_DIR}"/*.dtbo; do
+        [ -f "${dtbo}" ] || continue
+        rm -f "${OVERLAY_DIR}/$(basename "${dtbo}")"
+    done
+}
+
+# DietPi's first run adds dtoverlay=disable-wifi when Wi-Fi is left off during
+# setup. That drops wlan0, which the fallback access point needs.
+drop_wifi_disable() {
+    if grep -qE '^[[:space:]]*#?[[:space:]]*dtoverlay=disable-wifi' "${CONFIG}"; then
+        sed -i -E '/^[[:space:]]*#?[[:space:]]*dtoverlay=disable-wifi/d' "${CONFIG}"
+        mark_changed
+    fi
+}
+
+apply_config_block() {
+    before="$(mktemp)"
+    cp "${CONFIG}" "${before}"
+
+    quadrf_block_apply "${CONFIG}" boot <<EOF
+framebuffer_width=1920
+framebuffer_height=1080
+enable_uart=0
+temp_limit=75
+dtparam=i2c_arm=on
+dtoverlay=vc4-kms-v3d,noaudio
+dtoverlay=fpga-csi
+dtoverlay=fpga-dsi
+dtoverlay=dwc2,dr_mode=peripheral
+EOF
+
+    cmp -s "${before}" "${CONFIG}" || mark_changed
+    rm -f "${before}"
+}
+
+# cmdline.txt is a single line, so it gets token surgery rather than a block:
+# add the gadget modules, keep the console on tty1, drop the serial console.
+apply_cmdline() {
+    [ -f "${CMDLINE}" ] || return 0
+
+    out=""
+    have_modules=0
+    have_tty1=0
+    for token in $(cat "${CMDLINE}"); do
+        case "${token}" in
+            console=serial*|console=ttyAMA*|console=ttyS*) continue ;;
+            modules-load=*) token="${MODULES}"; have_modules=1 ;;
+            console=tty1) have_tty1=1 ;;
+        esac
+        out="${out}${out:+ }${token}"
+    done
+    [ "${have_modules}" -eq 1 ] || out="${out} ${MODULES}"
+    [ "${have_tty1}" -eq 1 ] || out="${out} console=tty1"
+
+    if [ "${out}" != "$(cat "${CMDLINE}")" ]; then
+        printf '%s\n' "${out}" > "${CMDLINE}"
+        mark_changed
+    fi
+}
+
+remove_cmdline() {
+    [ -f "${CMDLINE}" ] || return 0
+    out=""
+    for token in $(cat "${CMDLINE}"); do
+        [ "${token}" = "${MODULES}" ] && continue
+        out="${out}${out:+ }${token}"
+    done
+    printf '%s\n' "${out}" > "${CMDLINE}"
+}
+
+case "${1:-apply}" in
+    apply)
+        install_overlays
+        drop_wifi_disable
+        apply_config_block
+        apply_cmdline
+        # enable_uart=0 in the QuadRF block; don't wait on a serial getty.
+        systemctl mask serial-getty@ttyAMA0.service 2>/dev/null || true
+        [ "${changed}" -eq 0 ] ||
+            quadrf_reboot_required "boot configuration changed (FPGA overlays, USB gadget)"
+        ;;
+    remove)
+        remove_overlays
+        quadrf_block_remove "${CONFIG}" boot
+        remove_cmdline
+        systemctl unmask serial-getty@ttyAMA0.service 2>/dev/null || true
+        quadrf_reboot_required "QuadRF boot configuration removed"
+        ;;
+    *)
+        echo "usage: $0 [apply|remove]" >&2
+        exit 1
+        ;;
+esac

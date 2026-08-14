@@ -1,0 +1,38 @@
+.TH QUADRF-ETHERNET 8 "August 2026" "QuadRF" "QuadRF"
+.SH NAME
+quadrf-ethernet \- DHCP client or direct-connect island on eth0
+.SH SYNOPSIS
+.B quadrf-ethernet
+.RI [ start | stop ]
+.SH DESCRIPTION
+Waits briefly for carrier on eth0, then for a DHCP lease. If a global
+address other than
+.B 10.55.1.1
+appears, the appliance stays a LAN client and publishes
+.B quadrf.local
+on that interface. No DHCP server is started, so a home router keeps
+owning the subnet.
+.PP
+If nothing answers, eth0 becomes a direct-connect island at
+.B 10.55.1.1/24
+with dnsmasq handing
+.B 10.55.1.2
+through
+.B 10.55.1.10
+to the attached machine. There is no default route, so an unplugged
+cable cannot take over outbound traffic.
+.PP
+.B quadrf-ethernet.service
+runs this at boot. The ifupdown stanza in
+.I /etc/network/interfaces.d/quadrf-eth0.cfg
+runs it again when the cable is plugged in.
+.SH FILES
+.TP
+.I /etc/dnsmasq.d/quadrf-eth0-direct.conf
+DHCP range and names, only while direct-connect is up.
+.TP
+.I /etc/dnsmasq.d/quadrf-eth0-lan.conf
+Names only, while eth0 holds a router lease.
+.SH SEE ALSO
+.BR quadrf-hotspot (8),
+.BR quadrf (1)

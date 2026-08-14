@@ -1,0 +1,1441 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RF Pano Viewer</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #111;
+            color: #eee;
+            font-family: sans-serif;
+        }
+        #ui-container {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            z-index: 10;
+            background: rgba(0, 0, 0, 0.75);
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            max-width: 300px;
+            max-height: calc(100vh - 20px);
+            overflow-y: auto;
+            pointer-events: auto;
+        }
+        #ui-container::-webkit-scrollbar { width: 4px; }
+        #ui-container::-webkit-scrollbar-thumb { background: #555; border-radius: 2px; }
+        h1 {
+            margin: 0 0 4px 0;
+            font-size: 1.2rem;
+            color: #fff;
+        }
+        .hint {
+            font-size: 0.75rem;
+            color: #888;
+            margin-bottom: 10px;
+            line-height: 1.4;
+        }
+        .meta-item {
+            margin-bottom: 4px;
+            font-size: 0.85rem;
+        }
+        .meta-label {
+            font-weight: bold;
+            color: #aaa;
+        }
+        #canvas-container {
+            width: 100vw;
+            height: 100vh;
+        }
+        .control-group {
+            margin-top: 10px;
+            border-top: 1px solid #444;
+            padding-top: 10px;
+        }
+        .control-group label {
+            display: block;
+            font-size: 0.85rem;
+            margin-bottom: 5px;
+            color: #ccc;
+        }
+        .control-group input[type="range"] {
+            width: 100%;
+        }
+        .control-group input[type="file"] {
+            width: 100%;
+            font-size: 0.8rem;
+        }
+        .file-label {
+            font-size: 0.75rem;
+            color: #888;
+            margin-top: 3px;
+            word-break: break-all;
+        }
+        #save-btn {
+            width: 100%;
+            padding: 8px;
+            background: #2a6;
+            color: #fff;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            font-weight: bold;
+        }
+        #save-btn:hover { background: #3b7; }
+        #save-btn:active { background: #196; }
+        #loading {
+            display: none;
+            color: #4CAF50;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div id="ui-container">
+        <h1>RF Pano Viewer</h1>
+        <div class="hint">
+            Ctrl+drag: move image &middot; Shift+drag: roll image<br>
+            Esc: reset view
+        </div>
+
+        <div class="control-group">
+            <label>RF Point Cloud (.rfpic)</label>
+            <input type="file" id="rfpic-input" accept=".rfpic">
+        </div>
+        <div class="control-group">
+            <label>Panorama Image</label>
+            <input type="file" id="pano-input" accept="image/*">
+            <div class="file-label" id="pano-filename">PANO_20260410_234709_0.jpg</div>
+        </div>
+        <div class="control-group">
+            <label>Orientation (.json)</label>
+            <input type="file" id="orientation-input" accept=".json">
+        </div>
+
+        <div id="loading">Loading and parsing...</div>
+
+        <div id="metadata">
+            <div class="meta-item"><span class="meta-label">File:</span> <span id="meta-filename">-</span></div>
+            <div class="meta-item"><span class="meta-label">Points:</span> <span id="meta-points">-</span></div>
+            <div class="meta-item"><span class="meta-label">Mode:</span> <span id="meta-mode">-</span></div>
+            <div class="meta-item"><span class="meta-label">Time:</span> <span id="meta-time">-</span></div>
+            <div class="meta-item"><span class="meta-label">Freq Range:</span> <span id="meta-freq">-</span></div>
+            <div class="meta-item"><span class="meta-label">Orientation:</span> <span id="meta-orient">-</span></div>
+            <div class="meta-item"><span class="meta-label">View:</span> <span id="meta-view">Outside</span></div>
+        </div>
+
+        <div id="pano-metadata" style="display: none; margin-top: 8px; border-top: 1px solid #444; padding-top: 8px;">
+            <div class="meta-item"><span class="meta-label" style="color: #7af;">Pano Image</span></div>
+            <div class="meta-item"><span class="meta-label">Camera:</span> <span id="pano-meta-camera">-</span></div>
+            <div class="meta-item"><span class="meta-label">Date:</span> <span id="pano-meta-date">-</span></div>
+            <div class="meta-item"><span class="meta-label">GPS:</span> <span id="pano-meta-gps">-</span></div>
+            <div class="meta-item"><span class="meta-label">Projection:</span> <span id="pano-meta-proj">-</span></div>
+            <div class="meta-item"><span class="meta-label">Coverage:</span> <span id="pano-meta-coverage">-</span></div>
+            <div class="meta-item"><span class="meta-label">Pano Pose:</span> <span id="pano-meta-pose">-</span></div>
+        </div>
+
+        <div id="controls" style="display: none;">
+            <div class="control-group">
+                <label for="size-slider">Point Size: <span id="size-val">0.050</span></label>
+                <input type="range" id="size-slider" min="0.001" max="0.2" step="0.001" value="0.05">
+            </div>
+            <div class="control-group">
+                <label for="opacity-slider">Point Opacity: <span id="opacity-val">0.80</span></label>
+                <input type="range" id="opacity-slider" min="0.01" max="1.0" step="0.01" value="0.8">
+            </div>
+            <div class="control-group">
+                <label for="threshold-slider">Intensity Threshold: <span id="threshold-val">0.500</span></label>
+                <input type="range" id="threshold-slider" min="0" max="1" step="0.001" value="0.5">
+            </div>
+            <div class="control-group" style="display: flex; align-items: center; gap: 8px;">
+                <input type="checkbox" id="blending-checkbox" checked>
+                <label for="blending-checkbox" style="margin: 0;">Additive Blending</label>
+            </div>
+            <div class="control-group">
+                <label>Intensity Histogram</label>
+                <canvas id="histogram" width="270" height="100" style="width: 100%; background: #222; border-radius: 4px; margin-top: 5px;"></canvas>
+            </div>
+            <div class="control-group">
+                <label>Frequency Histogram</label>
+                <canvas id="freq-histogram" width="270" height="100" style="width: 100%; background: #222; border-radius: 4px; margin-top: 5px; cursor: crosshair;"></canvas>
+            </div>
+        </div>
+
+        <div class="control-group">
+            <label for="pano-opacity-slider">Pano Opacity (outside): <span id="pano-opacity-val">0.50</span></label>
+            <input type="range" id="pano-opacity-slider" min="0.0" max="1.0" step="0.01" value="0.5">
+        </div>
+
+        <div class="control-group">
+            <button id="save-btn">Save Bundle (.zip)</button>
+        </div>
+    </div>
+
+    <div id="freq-tooltip" style="display: none; position: fixed; background: rgba(0,0,0,0.8); color: #fff; padding: 2px 6px; border-radius: 4px; font-size: 10px; pointer-events: none; z-index: 100; white-space: nowrap;"></div>
+    <div id="canvas-container"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/jszip@3/dist/jszip.min.js"></script>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        // =====================================================================
+        // Constants
+        // =====================================================================
+        const SPHERE_RADIUS = 1.02;
+        const D = 0.0455;
+        const C = 299.792458;
+        const FREQ_MIN_MHZ = 4900.0;
+        const FREQ_MAX_MHZ = 6100.0;
+        const DEFAULT_INTENSITY_THRESHOLD = 0.5;
+
+        function scaleFactor(f_mhz) {
+            return 2 * Math.PI * (D / C) * f_mhz;
+        }
+
+        function recoverHue(r, g, b) {
+            const mx = Math.max(r, g, b);
+            const mn = Math.min(r, g, b);
+            const delta = mx - mn;
+            let hue = 0;
+            if (delta === 0) {
+                hue = 0;
+            } else if (mx === r) {
+                hue = (g - b) / delta;
+            } else if (mx === g) {
+                hue = 2 + (b - r) / delta;
+            } else if (mx === b) {
+                hue = 4 + (r - g) / delta;
+            }
+            hue = (hue / 6.0) % 1.0;
+            if (hue < 0) hue += 1.0;
+            return hue;
+        }
+
+        function createGaussianTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 64;
+            canvas.height = 64;
+            const ctx = canvas.getContext('2d');
+            const grad = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+            grad.addColorStop(0, 'rgba(255,255,255,1)');
+            grad.addColorStop(0.2, 'rgba(255,255,255,0.8)');
+            grad.addColorStop(0.5, 'rgba(255,255,255,0.2)');
+            grad.addColorStop(1, 'rgba(255,255,255,0)');
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, 64, 64);
+            return new THREE.CanvasTexture(canvas);
+        }
+
+        const gaussianTexture = createGaussianTexture();
+
+        // =====================================================================
+        // JPEG metadata parser (EXIF + GPano XMP, no external deps)
+        // =====================================================================
+
+        function parseJpegMetadata(arrayBuffer) {
+            const result = { exif: null, gpano: null };
+            const bytes = new Uint8Array(arrayBuffer);
+            const view = new DataView(arrayBuffer);
+
+            if (bytes.length < 4 || view.getUint16(0) !== 0xFFD8) return result;
+
+            let pos = 2;
+            while (pos < bytes.length - 3) {
+                if (bytes[pos] !== 0xFF) break;
+                const marker = bytes[pos + 1];
+                if (marker === 0xDA) break; // start of scan
+
+                const segLen = view.getUint16(pos + 2);
+                const segStart = pos + 4;
+                const segEnd = pos + 2 + segLen;
+
+                if (marker === 0xE1) { // APP1
+                    // EXIF header: "Exif\0\0"
+                    if (!result.exif && segLen > 8 &&
+                        bytes[segStart] === 0x45 && bytes[segStart+1] === 0x78 &&
+                        bytes[segStart+2] === 0x69 && bytes[segStart+3] === 0x66 &&
+                        bytes[segStart+4] === 0x00 && bytes[segStart+5] === 0x00) {
+                        try {
+                            result.exif = parseExifBlock(arrayBuffer, segStart + 6, segEnd - segStart - 6);
+                        } catch (e) { console.warn('EXIF parse error:', e); }
+                    }
+
+                    // XMP with GPano
+                    try {
+                        const chunk = new TextDecoder('ascii').decode(
+                            bytes.slice(segStart, Math.min(segEnd, segStart + 65000))
+                        );
+                        if (chunk.includes('GPano:')) {
+                            result.gpano = {};
+                            const re = /GPano:(\w+)="([^"]+)"/g;
+                            let m;
+                            while ((m = re.exec(chunk)) !== null) {
+                                const num = Number(m[2]);
+                                result.gpano[m[1]] = isNaN(num) ? m[2] : num;
+                            }
+                        }
+                    } catch (e) { /* non-ASCII segment */ }
+                }
+
+                pos += 2 + segLen;
+            }
+
+            return result;
+        }
+
+        function parseExifBlock(buffer, tiffStart, tiffLen) {
+            const view = new DataView(buffer, tiffStart, tiffLen);
+            const le = view.getUint16(0) === 0x4949;
+
+            const u8  = (o) => view.getUint8(o);
+            const u16 = (o) => view.getUint16(o, le);
+            const u32 = (o) => view.getUint32(o, le);
+            const s32 = (o) => view.getInt32(o, le);
+            const tSz = { 1:1, 2:1, 3:2, 4:4, 5:8, 7:1, 9:4, 10:8 };
+
+            function readValue(type, count, entryOff) {
+                const total = (tSz[type] || 1) * count;
+                const dOff = total <= 4 ? (entryOff + 8) : u32(entryOff + 8);
+                if (dOff + total > tiffLen) return null;
+
+                if (type === 2) { // ASCII
+                    let s = '';
+                    for (let i = 0; i < count - 1; i++) {
+                        const c = u8(dOff + i);
+                        if (c === 0) break;
+                        s += String.fromCharCode(c);
+                    }
+                    return s;
+                }
+                if (type === 1) return u8(dOff);
+                if (type === 3) return count === 1 ? u16(dOff) : Array.from({length: count}, (_, i) => u16(dOff + i * 2));
+                if (type === 4) return u32(dOff);
+                if (type === 5) { // RATIONAL
+                    const read1 = (off) => { const d = u32(off + 4); return d === 0 ? 0 : u32(off) / d; };
+                    if (count === 1) return read1(dOff);
+                    return Array.from({length: count}, (_, i) => read1(dOff + i * 8));
+                }
+                if (type === 10) { // SRATIONAL
+                    const read1 = (off) => { const d = s32(off + 4); return d === 0 ? 0 : s32(off) / d; };
+                    if (count === 1) return read1(dOff);
+                    return Array.from({length: count}, (_, i) => read1(dOff + i * 8));
+                }
+                return null;
+            }
+
+            function parseIFD(ifdOff) {
+                const m = new Map();
+                if (ifdOff + 2 > tiffLen) return m;
+                const n = u16(ifdOff);
+                for (let i = 0; i < n; i++) {
+                    const eo = ifdOff + 2 + i * 12;
+                    if (eo + 12 > tiffLen) break;
+                    const tag = u16(eo);
+                    const type = u16(eo + 2);
+                    const count = u32(eo + 4);
+                    const val = readValue(type, count, eo);
+                    if (val !== null) m.set(tag, val);
+                }
+                return m;
+            }
+
+            const ifd0Off = u32(4);
+            const ifd0 = parseIFD(ifd0Off);
+
+            const r = {
+                Make:        ifd0.get(0x010F) || null,
+                Model:       ifd0.get(0x0110) || null,
+                Orientation: ifd0.get(0x0112) || 0,
+                DateTime:    ifd0.get(0x0132) || null,
+            };
+
+            // Exif sub-IFD
+            const exifOff = ifd0.get(0x8769);
+            if (exifOff) {
+                const ei = parseIFD(exifOff);
+                r.DateTimeOriginal = ei.get(0x9003) || null;
+            }
+
+            // GPS IFD
+            const gpsOff = ifd0.get(0x8825);
+            if (gpsOff) {
+                const gi = parseIFD(gpsOff);
+                const latRef = gi.get(1), latV = gi.get(2);
+                const lonRef = gi.get(3), lonV = gi.get(4);
+                if (latV && lonV) {
+                    const toDeg = (v) => Array.isArray(v) ? v[0] + v[1]/60 + v[2]/3600 : v;
+                    r.latitude  = toDeg(latV) * (latRef === 'S' ? -1 : 1);
+                    r.longitude = toDeg(lonV) * (lonRef === 'W' ? -1 : 1);
+                }
+                const altRef = gi.get(5);
+                const altV   = gi.get(6);
+                if (altV != null) r.altitude = (altRef === 1 || altRef === 0x01) ? -altV : altV;
+                const imgDir    = gi.get(17);
+                const imgDirRef = gi.get(16);
+                if (imgDir != null) {
+                    r.GPSImgDirection    = imgDir;
+                    r.GPSImgDirectionRef = imgDirRef || 'T';
+                }
+            }
+
+            return r;
+        }
+
+        // =====================================================================
+        // Pano metadata display + GPano-aware loading
+        // =====================================================================
+
+        function displayPanoMetadata(meta) {
+            const el = document.getElementById('pano-metadata');
+            if (!meta.exif && !meta.gpano) { el.style.display = 'none'; return; }
+            el.style.display = 'block';
+
+            const exif = meta.exif || {};
+            const gpano = meta.gpano || {};
+
+            // Camera
+            let cam = '-';
+            if (exif.Make || exif.Model) {
+                const make = (exif.Make || '').trim();
+                const model = (exif.Model || '').trim();
+                // avoid "Google Google Pixel 9a"
+                cam = model.toLowerCase().startsWith(make.toLowerCase()) ? model : `${make} ${model}`;
+            }
+            document.getElementById('pano-meta-camera').textContent = cam;
+
+            // Date
+            const dt = exif.DateTimeOriginal || exif.DateTime;
+            document.getElementById('pano-meta-date').textContent = dt
+                ? dt.replace(/^(\d{4}):(\d{2}):(\d{2})/, '$1-$2-$3')
+                : '-';
+
+            // GPS
+            if (exif.latitude != null) {
+                const latDir = exif.latitude >= 0 ? 'N' : 'S';
+                const lonDir = exif.longitude >= 0 ? 'E' : 'W';
+                let gpsStr = `${Math.abs(exif.latitude).toFixed(4)}°${latDir}, ${Math.abs(exif.longitude).toFixed(4)}°${lonDir}`;
+                if (exif.altitude != null) gpsStr += ` ${exif.altitude.toFixed(0)}m`;
+                document.getElementById('pano-meta-gps').textContent = gpsStr;
+            } else {
+                document.getElementById('pano-meta-gps').textContent = '-';
+            }
+
+            // Projection + coverage
+            document.getElementById('pano-meta-proj').textContent =
+                gpano.ProjectionType || (meta.gpano ? 'unknown' : '-');
+
+            if (gpano.FullPanoWidthPixels) {
+                const cw = gpano.CroppedAreaImageWidthPixels || gpano.FullPanoWidthPixels;
+                const ch = gpano.CroppedAreaImageHeightPixels || gpano.FullPanoHeightPixels;
+                const pct = ((cw * ch) / (gpano.FullPanoWidthPixels * gpano.FullPanoHeightPixels) * 100).toFixed(0);
+                document.getElementById('pano-meta-coverage').textContent =
+                    `${cw}×${ch} of ${gpano.FullPanoWidthPixels}×${gpano.FullPanoHeightPixels} (${pct}%)`;
+            } else {
+                document.getElementById('pano-meta-coverage').textContent = '-';
+            }
+
+            // Pose
+            const parts = [];
+            if (gpano.PoseHeadingDegrees != null) parts.push(`H:${gpano.PoseHeadingDegrees.toFixed(1)}°`);
+            if (gpano.PosePitchDegrees != null)   parts.push(`P:${gpano.PosePitchDegrees.toFixed(1)}°`);
+            if (gpano.PoseRollDegrees != null)     parts.push(`R:${gpano.PoseRollDegrees.toFixed(1)}°`);
+            if (parts.length === 0 && exif.GPSImgDirection != null)
+                parts.push(`GPS heading: ${exif.GPSImgDirection.toFixed(1)}° ${exif.GPSImgDirectionRef || ''}`);
+            document.getElementById('pano-meta-pose').textContent = parts.length ? parts.join(' ') : '-';
+        }
+
+        function gpanoNeedsExpansion(gpano) {
+            if (!gpano || !gpano.FullPanoWidthPixels) return false;
+            return (gpano.CroppedAreaTopPixels > 0 ||
+                    gpano.CroppedAreaLeftPixels > 0 ||
+                    (gpano.CroppedAreaImageWidthPixels || 0) < gpano.FullPanoWidthPixels ||
+                    (gpano.CroppedAreaImageHeightPixels || 0) < gpano.FullPanoHeightPixels);
+        }
+
+        function expandToFullEquirect(img, gpano) {
+            const canvas = document.createElement('canvas');
+            canvas.width  = gpano.FullPanoWidthPixels;
+            canvas.height = gpano.FullPanoHeightPixels;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img,
+                gpano.CroppedAreaLeftPixels || 0,
+                gpano.CroppedAreaTopPixels  || 0);
+            return canvas;
+        }
+
+        function applyPanoImageOrientation(meta) {
+            // GPano PoseHeading/Pitch/Roll — same idea as rfpic v2 IMU orientation
+            const gp = meta.gpano || {};
+            if (gp.PoseHeadingDegrees != null) {
+                const euler = new THREE.Euler(
+                    THREE.MathUtils.degToRad(gp.PosePitchDegrees || 0),
+                    THREE.MathUtils.degToRad(gp.PoseHeadingDegrees),
+                    THREE.MathUtils.degToRad(gp.PoseRollDegrees || 0),
+                    'YXZ'
+                );
+                panoGroup.quaternion.setFromEuler(euler);
+                return 'gpano';
+            }
+
+            // Fall back to EXIF GPS image direction (compass heading)
+            const ex = meta.exif || {};
+            if (ex.GPSImgDirection != null) {
+                panoGroup.quaternion.setFromEuler(
+                    new THREE.Euler(0, THREE.MathUtils.degToRad(ex.GPSImgDirection), 0, 'YXZ')
+                );
+                return 'gps_heading';
+            }
+
+            return 'none';
+        }
+
+        async function loadPanoramaFromBlob(blob) {
+            const arrayBuffer = await blob.arrayBuffer();
+            const meta = parseJpegMetadata(arrayBuffer);
+            displayPanoMetadata(meta);
+
+            const img = new Image();
+            const url = URL.createObjectURL(blob);
+
+            return new Promise((resolve) => {
+                img.onload = () => {
+                    let textureSource = img;
+
+                    if (gpanoNeedsExpansion(meta.gpano)) {
+                        textureSource = expandToFullEquirect(img, meta.gpano);
+                    }
+
+                    const texture = (textureSource instanceof HTMLCanvasElement)
+                        ? new THREE.CanvasTexture(textureSource)
+                        : new THREE.Texture(textureSource);
+                    texture.colorSpace = THREE.SRGBColorSpace;
+                    
+                    // Flip horizontally to correct inversion when viewing from inside
+                    texture.wrapS = THREE.RepeatWrapping;
+                    texture.repeat.x = -1;
+                    
+                    texture.needsUpdate = true;
+
+                    if (panoMaterial.map) panoMaterial.map.dispose();
+                    panoMaterial.map = texture;
+                    panoMaterial.needsUpdate = true;
+                    panoSphereMesh.visible = true;
+
+                    applyPanoImageOrientation(meta);
+
+                    URL.revokeObjectURL(url);
+                    resolve(meta);
+                };
+                img.onerror = () => {
+                    URL.revokeObjectURL(url);
+                    resolve(meta);
+                };
+                img.src = url;
+            });
+        }
+
+        // =====================================================================
+        // State
+        // =====================================================================
+        let rfpicArrayBuffer = null;
+        let rfpicFilename = '';
+        let panoBlob = null;
+        let panoFilename = 'PANO_20260410_234709_0.jpg';
+        let pointsObject = null;
+        let insideMode = false;
+        let outsideOpacity = 0.5;
+        let sortedIntensities = null;
+        let totalPointCount = 0;
+        let storedIntensityBins = null;
+        let storedIMin = 0;
+        let storedIMax = 1;
+        let storedFrequencies = null;
+        let storedIntensitiesArr = null;
+        let storedFMin = 0;
+        let storedFMax = 1;
+
+        // Modifier-drag state
+        let ctrlHeld = false;
+        let shiftHeld = false;
+        let adjustDragging = false;
+        let lastPointerX = 0;
+        let lastPointerY = 0;
+        
+
+        // =====================================================================
+        // Three.js scene
+        // =====================================================================
+        const container = document.getElementById('canvas-container');
+        const scene = new THREE.Scene();
+
+        const camera = new THREE.PerspectiveCamera(
+            75, window.innerWidth / window.innerHeight, 0.1, 1000
+        );
+        // Z is zenith in the RF frame; OrbitControls azimuth follows camera.up.
+        camera.up.set(0, 0, 1);
+        camera.position.set(0, -2, 0);
+        camera.lookAt(0, 0, 0);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        container.appendChild(renderer.domElement);
+
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+        controls.minDistance = 0.01;
+        controls.saveState();
+
+        const axesHelper = new THREE.AxesHelper(1);
+        scene.add(axesHelper);
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            if (pointsObject && pointsObject.material.uniforms && pointsObject.material.uniforms.uScale) {
+                pointsObject.material.uniforms.uScale.value = renderer.domElement.height / 2;
+            }
+        });
+
+        // =====================================================================
+        // Panorama sphere
+        // =====================================================================
+        const panoGroup = new THREE.Group();
+        scene.add(panoGroup);
+
+        const panoGeometry = new THREE.SphereGeometry(SPHERE_RADIUS, 64, 48);
+        const panoMaterial = new THREE.MeshBasicMaterial({
+            transparent: true,
+            depthWrite: false,
+            opacity: outsideOpacity,
+            side: THREE.FrontSide
+        });
+        const panoSphereMesh = new THREE.Mesh(panoGeometry, panoMaterial);
+        panoSphereMesh.renderOrder = 0;
+        panoSphereMesh.visible = false;
+        panoGroup.add(panoSphereMesh);
+
+        // Load default panorama (with metadata extraction)
+        fetch('PANO_20260410_234709_0.jpg')
+            .then(r => r.blob())
+            .then(async (b) => {
+                panoBlob = b;
+                await loadPanoramaFromBlob(b);
+            })
+            .catch(() => { /* file:// or missing image — user can load via picker */ });
+
+        // =====================================================================
+        // Shader sources: per-vertex threshold cull + size-attenuated points
+        // =====================================================================
+        const VERTEX_SHADER = `
+            attribute vec3 color;
+            attribute float intensity;
+            uniform float uSize;
+            uniform float uScale;
+            uniform float uThreshold;
+            varying vec3 vColor;
+
+            void main() {
+                if (intensity < uThreshold) {
+                    gl_PointSize = 0.0;
+                    gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+                    return;
+                }
+                vColor = color;
+                vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+                gl_Position = projectionMatrix * mvPosition;
+                gl_PointSize = uSize * (uScale / -mvPosition.z);
+            }
+        `;
+
+        const FRAGMENT_SHADER = `
+            uniform sampler2D uMap;
+            uniform float uOpacity;
+            varying vec3 vColor;
+
+            void main() {
+                vec4 t = texture2D(uMap, gl_PointCoord);
+                gl_FragColor = vec4(vColor, t.a * uOpacity);
+                if (gl_FragColor.a < 0.01) discard;
+            }
+        `;
+
+        // =====================================================================
+        // Inline Worker — projection + histogram binning for large .rfpic files
+        // =====================================================================
+        const workerSrc = `
+            self.onmessage = function(e) {
+                const { payloadBuf, point_count, camera_mode, lo_start_mhz, lo_end_mhz } = e.data;
+
+                const D = 0.0455;
+                const C = 299.792458;
+                const FREQ_MIN_MHZ = 4900.0;
+                const FREQ_MAX_MHZ = 6100.0;
+                const FREQ_RANGE = FREQ_MAX_MHZ - FREQ_MIN_MHZ;
+                const TWO_PI_D_OVER_C = 2.0 * Math.PI * D / C;
+
+                function sf(f_mhz) { return TWO_PI_D_OVER_C * f_mhz; }
+
+                function recoverHue(r, g, b) {
+                    const mx = Math.max(r, g, b);
+                    const mn = Math.min(r, g, b);
+                    const delta = mx - mn;
+                    let hue;
+                    if (delta === 0) hue = 0;
+                    else if (mx === r) hue = (g - b) / delta;
+                    else if (mx === g) hue = 2 + (b - r) / delta;
+                    else hue = 4 + (r - g) / delta;
+                    hue = (hue / 6.0) % 1.0;
+                    if (hue < 0) hue += 1.0;
+                    return hue;
+                }
+
+                // Zero-copy view over the transferred point payload
+                const raw = new Float32Array(payloadBuf);
+                const positions = new Float32Array(point_count * 3);
+                const colors = new Float32Array(point_count * 3);
+                const intensities = new Float32Array(point_count);
+                const frequencies = new Float32Array(point_count);
+
+                const center_sf = sf((lo_start_mhz + lo_end_mhz) * 0.5);
+
+                let iMin = Infinity, iMax = -Infinity;
+                let fMin = Infinity, fMax = -Infinity;
+
+                for (let i = 0; i < point_count; i++) {
+                    const o = i * 6;
+                    const gx = raw[o];
+                    const gy = raw[o + 1];
+                    const r  = raw[o + 2];
+                    const g  = raw[o + 3];
+                    const b  = raw[o + 4];
+                    const raw_i = raw[o + 5];
+                    const inten = raw_i < 0 ? -raw_i : raw_i;
+                    intensities[i] = inten;
+                    if (inten < iMin) iMin = inten;
+                    if (inten > iMax) iMax = inten;
+
+                    const hue = recoverHue(r, g, b);
+                    const freq_mhz = hue * FREQ_RANGE + FREQ_MIN_MHZ;
+                    const f_hz = freq_mhz * 1e6;
+                    frequencies[i] = f_hz;
+                    if (f_hz < fMin) fMin = f_hz;
+                    if (f_hz > fMax) fMax = f_hz;
+
+                    const this_sf = camera_mode === 0 ? sf(freq_mhz) : center_sf;
+
+                    const u = gx / this_sf;
+                    const v = gy / this_sf;
+                    const w2 = 1 - u * u - v * v;
+                    let w = w2 >= 0 ? Math.sqrt(w2) : 0;
+                    if (raw_i < 0) w = -w;
+
+                    const p = i * 3;
+                    positions[p]     = u;
+                    positions[p + 1] = v;
+                    positions[p + 2] = w;
+                    colors[p]     = r;
+                    colors[p + 1] = g;
+                    colors[p + 2] = b;
+                }
+
+                const NUM_BINS = 50;
+                const intensityBins = new Uint32Array(NUM_BINS);
+                const freqBins = new Uint32Array(NUM_BINS);
+
+                const iRange = iMax - iMin;
+                if (iRange > 0) {
+                    const invIr = NUM_BINS / iRange;
+                    for (let i = 0; i < point_count; i++) {
+                        let bin = ((intensities[i] - iMin) * invIr) | 0;
+                        if (bin >= NUM_BINS) bin = NUM_BINS - 1;
+                        else if (bin < 0) bin = 0;
+                        intensityBins[bin]++;
+                    }
+                } else if (point_count > 0) {
+                    intensityBins[0] = point_count;
+                }
+
+                const fRange = fMax - fMin;
+                if (fRange > 0) {
+                    const invFr = NUM_BINS / fRange;
+                    for (let i = 0; i < point_count; i++) {
+                        let bin = ((frequencies[i] - fMin) * invFr) | 0;
+                        if (bin >= NUM_BINS) bin = NUM_BINS - 1;
+                        else if (bin < 0) bin = 0;
+                        freqBins[bin]++;
+                    }
+                } else if (point_count > 0) {
+                    freqBins[0] = point_count;
+                }
+
+                // Sorted copy for binary-search counts on slider drag
+                const sortedIntensities = new Float32Array(intensities);
+                sortedIntensities.sort();
+
+                self.postMessage({
+                    positions, colors, intensities, sortedIntensities,
+                    intensityBins, freqBins, frequencies,
+                    iMin, iMax, fMin, fMax,
+                    point_count
+                }, [
+                    positions.buffer, colors.buffer, intensities.buffer,
+                    sortedIntensities.buffer,
+                    intensityBins.buffer, freqBins.buffer, frequencies.buffer
+                ]);
+            };
+        `;
+
+        const workerBlob = new Blob([workerSrc], { type: 'application/javascript' });
+        const workerUrl = URL.createObjectURL(workerBlob);
+
+        function lowerBound(sortedArr, target) {
+            let lo = 0, hi = sortedArr.length;
+            while (lo < hi) {
+                const mid = (lo + hi) >>> 1;
+                if (sortedArr[mid] < target) lo = mid + 1;
+                else hi = mid;
+            }
+            return lo;
+        }
+
+        function updateFilteredCount() {
+            if (!sortedIntensities || totalPointCount === 0) return;
+            const threshold = parseFloat(document.getElementById('threshold-slider').value);
+            const idx = lowerBound(sortedIntensities, threshold);
+            const selectedCount = totalPointCount - idx;
+            document.getElementById('meta-points').textContent =
+                `${selectedCount.toLocaleString()} / ${totalPointCount.toLocaleString()}`;
+        }
+
+        // =====================================================================
+        // Point cloud parser — header on main, projection + histograms in Worker
+        // =====================================================================
+        function parseRFPIC(arrayBuffer, filename) {
+            const dataView = new DataView(arrayBuffer);
+
+            const magicBytes = new Uint8Array(arrayBuffer, 0, 6);
+            const magic = String.fromCharCode(...magicBytes);
+            if (magic !== "RFPIC\0") {
+                alert("Invalid file format. Magic string not found.");
+                return;
+            }
+
+            const version = dataView.getUint8(6);
+            const camera_mode = dataView.getUint8(7);
+            const timestamp = Number(dataView.getBigInt64(8, true));
+            const lo_start_mhz = dataView.getFloat64(16, true);
+            const lo_end_mhz = dataView.getFloat64(24, true);
+            const point_count = dataView.getUint32(32, true);
+
+            // v2 orientation metadata (offset 36-71)
+            let imu_valid = 0, cal_accel = 0, cal_gyro = 0, cal_mag = 0;
+            let orient_qw = 1, orient_qx = 0, orient_qy = 0, orient_qz = 0;
+            let orient_accuracy = 0;
+            let heading_deg = 0, pitch_deg = 0, roll_deg = 0;
+            let pointDataOffset = 40; // v1 default
+
+            if (version >= 2 && arrayBuffer.byteLength >= 72) {
+                imu_valid  = dataView.getUint8(36);
+                cal_accel  = dataView.getUint8(37);
+                cal_gyro   = dataView.getUint8(38);
+                cal_mag    = dataView.getUint8(39);
+                orient_qw  = dataView.getFloat32(40, true);
+                orient_qx  = dataView.getFloat32(44, true);
+                orient_qy  = dataView.getFloat32(48, true);
+                orient_qz  = dataView.getFloat32(52, true);
+                orient_accuracy = dataView.getFloat32(56, true);
+                heading_deg = dataView.getFloat32(60, true);
+                pitch_deg   = dataView.getFloat32(64, true);
+                roll_deg    = dataView.getFloat32(68, true);
+                pointDataOffset = 72;
+            }
+
+            document.getElementById('meta-filename').textContent = filename;
+            document.getElementById('meta-points').textContent = point_count.toLocaleString();
+            document.getElementById('meta-mode').textContent =
+                camera_mode === 0 ? "Antenna-frame (0)" : "IMU world-stabilized (1)";
+            document.getElementById('meta-time').textContent =
+                new Date(timestamp * 1000).toLocaleString();
+            document.getElementById('meta-freq').textContent =
+                `${lo_start_mhz.toFixed(1)} - ${lo_end_mhz.toFixed(1)} MHz`;
+
+            const calNames = ['?', 'Low', 'Med', 'High'];
+            if (imu_valid) {
+                const calStr = `A:${calNames[cal_accel] || '?'} G:${calNames[cal_gyro] || '?'} M:${calNames[cal_mag] || '?'}`;
+                document.getElementById('meta-orient').textContent =
+                    `H:${heading_deg.toFixed(1)}° P:${pitch_deg.toFixed(1)}° R:${roll_deg.toFixed(1)}° (${calStr})`;
+            } else {
+                document.getElementById('meta-orient').textContent = version >= 2 ? 'No IMU' : 'N/A (v1)';
+            }
+
+            // BNO080 axis remap: Three.js (x, y, z) = sensor (x, z, -y)
+            if (imu_valid) {
+                panoGroup.quaternion.set(orient_qx, orient_qz, -orient_qy, orient_qw);
+            }
+
+            // Slice off the point payload into a fresh ArrayBuffer so we can transfer
+            // it to the worker without losing the original (still needed by Save Bundle).
+            const payloadLen = point_count * 24;
+            if (pointDataOffset + payloadLen > arrayBuffer.byteLength) {
+                alert("File truncated: header claims more points than the file contains.");
+                document.getElementById('loading').style.display = 'none';
+                return;
+            }
+            const payloadBuf = arrayBuffer.slice(pointDataOffset, pointDataOffset + payloadLen);
+
+            const worker = new Worker(workerUrl);
+            worker.onmessage = (e) => {
+                finalizeFromWorker(e.data);
+                worker.terminate();
+                document.getElementById('loading').style.display = 'none';
+            };
+            worker.onerror = (err) => {
+                console.error('Worker error:', err);
+                alert('Worker error: ' + (err.message || 'unknown'));
+                worker.terminate();
+                document.getElementById('loading').style.display = 'none';
+            };
+
+            worker.postMessage({
+                payloadBuf,
+                point_count,
+                camera_mode,
+                lo_start_mhz,
+                lo_end_mhz
+            }, [payloadBuf]);
+        }
+
+        function finalizeFromWorker(data) {
+            const {
+                positions, colors, intensities, frequencies,
+                sortedIntensities: sortedI,
+                intensityBins, freqBins,
+                iMin, iMax, fMin, fMax, point_count
+            } = data;
+
+            totalPointCount = point_count;
+            sortedIntensities = sortedI;
+            storedIntensityBins = intensityBins;
+            storedIMin = iMin;
+            storedIMax = iMax;
+            storedFrequencies = frequencies;
+            storedIntensitiesArr = intensities;
+            storedFMin = fMin;
+            storedFMax = fMax;
+
+            configureThresholdControl(iMin, iMax);
+            setupPoints(positions, colors, intensities);
+            const initialThreshold = parseFloat(document.getElementById('threshold-slider').value);
+            drawHistogram(intensityBins, iMin, iMax, initialThreshold);
+            recomputeFreqHistogram(initialThreshold);
+            updateFilteredCount();
+        }
+
+        function setupPoints(positions, colors, intensities) {
+            if (pointsObject) {
+                scene.remove(pointsObject);
+                pointsObject.geometry.dispose();
+                pointsObject.material.dispose();
+            }
+
+            const geometry = new THREE.BufferGeometry();
+            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+            geometry.setAttribute('intensity', new THREE.BufferAttribute(intensities, 1));
+
+            pointsObject = new THREE.Points(geometry, makePointsMaterial());
+            pointsObject.renderOrder = 1;
+            scene.add(pointsObject);
+
+            document.getElementById('controls').style.display = 'block';
+        }
+
+        function makePointsMaterial() {
+            const uniforms = {
+                uSize:      { value: parseFloat(document.getElementById('size-slider').value) },
+                uScale:     { value: renderer.domElement.height / 2 },
+                uThreshold: { value: parseFloat(document.getElementById('threshold-slider').value) },
+                uMap:       { value: gaussianTexture },
+                uOpacity:   { value: parseFloat(document.getElementById('opacity-slider').value) }
+            };
+            const blending = document.getElementById('blending-checkbox').checked
+                ? THREE.AdditiveBlending : THREE.NormalBlending;
+            return new THREE.ShaderMaterial({
+                uniforms,
+                vertexShader: VERTEX_SHADER,
+                fragmentShader: FRAGMENT_SHADER,
+                transparent: true,
+                depthWrite: false,
+                blending
+            });
+        }
+
+        function configureThresholdControl(minV, maxV) {
+            const thresholdSlider = document.getElementById('threshold-slider');
+            const thresholdVal = document.getElementById('threshold-val');
+            if (!isFinite(minV) || !isFinite(maxV)) {
+                thresholdSlider.min = '0';
+                thresholdSlider.max = '1';
+                thresholdSlider.step = '0.001';
+                thresholdSlider.value = String(DEFAULT_INTENSITY_THRESHOLD);
+                thresholdSlider.disabled = true;
+                thresholdVal.textContent = DEFAULT_INTENSITY_THRESHOLD.toFixed(3);
+                return;
+            }
+
+            const range = maxV - minV;
+            const step = range > 0 ? Math.max(range / 1000, 0.000001) : 0.000001;
+            thresholdSlider.min = String(minV);
+            thresholdSlider.max = String(maxV);
+            thresholdSlider.step = String(step);
+            thresholdSlider.disabled = range === 0;
+            const initialT = range === 0
+                ? minV
+                : Math.min(Math.max(DEFAULT_INTENSITY_THRESHOLD, minV), maxV);
+            thresholdSlider.value = String(initialT);
+            thresholdVal.textContent = initialT.toFixed(3);
+        }
+
+        // =====================================================================
+        // Histograms (from index.html)
+        // =====================================================================
+        function drawHistogram(bins, min, max, threshold) {
+            const canvas = document.getElementById('histogram');
+            const ctx = canvas.getContext('2d');
+            const width = canvas.width;
+            const height = canvas.height;
+            ctx.clearRect(0, 0, width, height);
+            if (!bins || bins.length === 0) return;
+
+            const numBins = bins.length;
+            let maxBinCount = 0;
+            for (let i = 0; i < numBins; i++) {
+                if (bins[i] > maxBinCount) maxBinCount = bins[i];
+            }
+            if (maxBinCount === 0) return;
+
+            const range = max - min;
+            const binWidth = width / numBins;
+            const chartH = height - 15;
+
+            for (let i = 0; i < numBins; i++) {
+                const binMid = min + (i + 0.5) * (range / numBins);
+                const isAbove = threshold == null || binMid >= threshold;
+                ctx.fillStyle = isAbove ? '#4CAF50' : '#2a3a2a';
+                const binHeight = (bins[i] / maxBinCount) * chartH;
+                ctx.fillRect(i * binWidth, chartH - binHeight, binWidth - 1, binHeight);
+            }
+
+            // threshold line
+            if (threshold != null && range > 0) {
+                const tx = ((threshold - min) / range) * width;
+                ctx.strokeStyle = 'rgba(255, 200, 50, 0.85)';
+                ctx.lineWidth = 1.5;
+                ctx.setLineDash([3, 3]);
+                ctx.beginPath();
+                ctx.moveTo(tx, 0);
+                ctx.lineTo(tx, chartH);
+                ctx.stroke();
+                ctx.setLineDash([]);
+            }
+
+            ctx.fillStyle = '#ccc';
+            ctx.font = '10px sans-serif';
+            ctx.textAlign = 'left';
+            ctx.fillText(min.toFixed(2), 2, height - 2);
+            ctx.textAlign = 'right';
+            ctx.fillText(max.toFixed(2), width - 2, height - 2);
+        }
+
+        function recomputeFreqHistogram(threshold) {
+            if (!storedFrequencies || !storedIntensitiesArr) return;
+            const NUM_BINS = 50;
+            const bins = new Uint32Array(NUM_BINS);
+            const fRange = storedFMax - storedFMin;
+            if (fRange > 0) {
+                const invFr = NUM_BINS / fRange;
+                for (let i = 0; i < storedFrequencies.length; i++) {
+                    if (storedIntensitiesArr[i] < threshold) continue;
+                    let bin = ((storedFrequencies[i] - storedFMin) * invFr) | 0;
+                    if (bin >= NUM_BINS) bin = NUM_BINS - 1;
+                    else if (bin < 0) bin = 0;
+                    bins[bin]++;
+                }
+            }
+            drawFreqHistogram(bins, storedFMin, storedFMax);
+        }
+
+        function drawFreqHistogram(bins, min, max) {
+            const canvas = document.getElementById('freq-histogram');
+            const ctx = canvas.getContext('2d');
+            const width = canvas.width;
+            const height = canvas.height;
+            ctx.clearRect(0, 0, width, height);
+            if (!bins || bins.length === 0) return;
+
+            const numBins = bins.length;
+            let maxBinCount = 0;
+            for (let i = 0; i < numBins; i++) {
+                if (bins[i] > maxBinCount) maxBinCount = bins[i];
+            }
+            if (maxBinCount === 0) return;
+
+            const binWidth = width / numBins;
+            const range = max - min;
+            for (let i = 0; i < numBins; i++) {
+                const binHeight = (bins[i] / maxBinCount) * (height - 15);
+                const binFreq = min + (i + 0.5) * (range / numBins);
+                const freqMhz = binFreq / 1e6;
+                let hue = (freqMhz - FREQ_MIN_MHZ) / (FREQ_MAX_MHZ - FREQ_MIN_MHZ);
+                hue = Math.max(0, Math.min(1, hue));
+                ctx.fillStyle = `hsl(${hue * 360}, 100%, 50%)`;
+                ctx.fillRect(i * binWidth, height - 15 - binHeight, binWidth - 1, binHeight);
+            }
+
+            ctx.fillStyle = '#ccc';
+            ctx.font = '10px sans-serif';
+            ctx.textAlign = 'left';
+            ctx.fillText((min / 1e6).toFixed(2) + 'M', 2, height - 2);
+            ctx.textAlign = 'right';
+            ctx.fillText((max / 1e6).toFixed(2) + 'M', width - 2, height - 2);
+
+            canvas.onmousemove = (e) => {
+                const rect = canvas.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const scaleX = canvas.width / rect.width;
+                const canvasX = x * scaleX;
+                let bin = Math.floor(canvasX / binWidth);
+                if (bin < 0) bin = 0;
+                if (bin >= numBins) bin = numBins - 1;
+                const binFreq = min + (bin + 0.5) * (range / numBins);
+                const tooltip = document.getElementById('freq-tooltip');
+                tooltip.style.display = 'block';
+                tooltip.style.left = (e.clientX + 10) + 'px';
+                tooltip.style.top = (e.clientY - 20) + 'px';
+                tooltip.textContent = (binFreq / 1e6).toFixed(2) + ' MHz';
+            };
+            canvas.onmouseleave = () => {
+                document.getElementById('freq-tooltip').style.display = 'none';
+            };
+        }
+
+        // =====================================================================
+        // Animation loop — inside/outside detection, opacity, control switching
+        // =====================================================================
+        const viewLabel = document.getElementById('meta-view');
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const camDist = camera.position.length();
+
+            // Pano opacity and face-side based on camera position
+            if (camDist > SPHERE_RADIUS) {
+                panoMaterial.side = THREE.FrontSide;
+                panoMaterial.depthWrite = false;
+                panoMaterial.opacity = outsideOpacity;
+                viewLabel.textContent = 'Outside';
+            } else {
+                panoMaterial.side = THREE.BackSide;
+                panoMaterial.depthWrite = true;
+                panoMaterial.opacity = 1.0;
+                viewLabel.textContent = 'Inside';
+            }
+
+            // Control-mode switching with hysteresis
+            const nowInside = camDist < SPHERE_RADIUS;
+            if (nowInside !== insideMode) {
+                insideMode = nowInside;
+                if (insideMode) {
+                    controls.rotateSpeed = -0.25;
+                    controls.enablePan = false;
+                    controls.enableZoom = false;
+                } else {
+                    controls.rotateSpeed = 1.0;
+                    controls.enablePan = true;
+                    controls.enableZoom = true;
+                    // restore FOV when exiting sphere
+                    camera.fov = 75;
+                    camera.updateProjectionMatrix();
+                }
+            }
+
+            controls.update();
+
+            renderer.render(scene, camera);
+        }
+        animate();
+
+        // =====================================================================
+        // Wheel handler — FOV zoom when inside, dolly fallback to exit
+        // =====================================================================
+        renderer.domElement.addEventListener('wheel', (e) => {
+            if (!insideMode) return; // OrbitControls handles dolly when outside
+
+            // Scrolling "out" at max FOV: let OrbitControls dolly out
+            if (e.deltaY > 0 && camera.fov >= 99) {
+                controls.enableZoom = true;
+                return;
+            }
+
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            camera.fov = THREE.MathUtils.clamp(camera.fov + e.deltaY * 0.05, 30, 100);
+            camera.updateProjectionMatrix();
+        }, { passive: false, capture: true });
+
+        // =====================================================================
+        // Keyboard — modifier keys + Escape reset
+        // =====================================================================
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'Control') {
+                ctrlHeld = true;
+                controls.enabled = false;
+            }
+            if (e.key === 'Shift') {
+                shiftHeld = true;
+                controls.enabled = false;
+            }
+            if (e.key === 'Escape') {
+                controls.reset();
+                camera.fov = 75;
+                camera.updateProjectionMatrix();
+            }
+        });
+
+        window.addEventListener('keyup', (e) => {
+            if (e.key === 'Control') {
+                ctrlHeld = false;
+                if (!shiftHeld) controls.enabled = true;
+                adjustDragging = false;
+            }
+            if (e.key === 'Shift') {
+                shiftHeld = false;
+                if (!ctrlHeld) controls.enabled = true;
+                adjustDragging = false;
+            }
+        });
+
+        // =====================================================================
+        // Pointer handlers — Ctrl+drag pan image, Shift+drag rotate image
+        // =====================================================================
+        renderer.domElement.addEventListener('pointerdown', (e) => {
+            if (!ctrlHeld && !shiftHeld) return;
+            adjustDragging = true;
+            lastPointerX = e.clientX;
+            lastPointerY = e.clientY;
+        });
+
+        renderer.domElement.addEventListener('pointermove', (e) => {
+            if (!adjustDragging) return;
+
+            const dx = e.clientX - lastPointerX;
+            const dy = e.clientY - lastPointerY;
+            lastPointerX = e.clientX;
+            lastPointerY = e.clientY;
+
+            if (ctrlHeld) {
+                const sensitivity = 0.003;
+                const up = new THREE.Vector3();
+                const right = new THREE.Vector3();
+                up.setFromMatrixColumn(camera.matrixWorld, 1);
+                right.setFromMatrixColumn(camera.matrixWorld, 0);
+
+                if (Math.abs(dx) > 0) {
+                    const q = new THREE.Quaternion().setFromAxisAngle(up, dx * sensitivity);
+                    panoGroup.quaternion.premultiply(q);
+                }
+                if (Math.abs(dy) > 0) {
+                    const q = new THREE.Quaternion().setFromAxisAngle(right, -dy * sensitivity);
+                    panoGroup.quaternion.premultiply(q);
+                }
+
+            } else if (shiftHeld) {
+                const sensitivity = 0.003;
+                const forward = camera.getWorldDirection(new THREE.Vector3());
+                if (Math.abs(dx) > 0) {
+                    const q = new THREE.Quaternion().setFromAxisAngle(forward, -dx * sensitivity);
+                    panoGroup.quaternion.premultiply(q);
+                }
+            }
+        });
+
+        window.addEventListener('pointerup', () => {
+            adjustDragging = false;
+        });
+
+        // =====================================================================
+        // UI — file inputs
+        // =====================================================================
+        document.getElementById('rfpic-input').addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            document.getElementById('loading').style.display = 'block';
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+                try {
+                    rfpicArrayBuffer = ev.target.result;
+                    rfpicFilename = file.name;
+                    parseRFPIC(rfpicArrayBuffer, file.name);
+                } catch (err) {
+                    console.error(err);
+                    alert("Error parsing file: " + err.message);
+                } finally {
+                    document.getElementById('loading').style.display = 'none';
+                }
+            };
+            reader.readAsArrayBuffer(file);
+        });
+
+        document.getElementById('pano-input').addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            panoBlob = file;
+            panoFilename = file.name;
+            document.getElementById('pano-filename').textContent = file.name;
+            await loadPanoramaFromBlob(file);
+        });
+
+        document.getElementById('orientation-input').addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+                try {
+                    const data = JSON.parse(ev.target.result);
+                    if (data.pano_quaternion) {
+                        const q = data.pano_quaternion;
+                        panoGroup.quaternion.set(q.x, q.y, q.z, q.w);
+                    }
+                } catch (err) {
+                    console.error(err);
+                    alert('Error reading orientation file: ' + err.message);
+                }
+            };
+            reader.readAsText(file);
+        });
+
+        // UI — sliders
+        const sizeSlider = document.getElementById('size-slider');
+        const sizeVal = document.getElementById('size-val');
+        const opacitySlider = document.getElementById('opacity-slider');
+        const opacityVal = document.getElementById('opacity-val');
+        const blendingCheckbox = document.getElementById('blending-checkbox');
+        const panoOpacitySlider = document.getElementById('pano-opacity-slider');
+        const panoOpacityVal = document.getElementById('pano-opacity-val');
+        const thresholdSlider = document.getElementById('threshold-slider');
+        const thresholdVal = document.getElementById('threshold-val');
+
+        sizeSlider.addEventListener('input', (e) => {
+            const val = parseFloat(e.target.value);
+            sizeVal.textContent = val.toFixed(3);
+            if (pointsObject) pointsObject.material.uniforms.uSize.value = val;
+        });
+
+        opacitySlider.addEventListener('input', (e) => {
+            const val = parseFloat(e.target.value);
+            opacityVal.textContent = val.toFixed(2);
+            if (pointsObject) pointsObject.material.uniforms.uOpacity.value = val;
+        });
+
+        blendingCheckbox.addEventListener('change', (e) => {
+            if (pointsObject) {
+                pointsObject.material.blending = e.target.checked
+                    ? THREE.AdditiveBlending : THREE.NormalBlending;
+                pointsObject.material.needsUpdate = true;
+            }
+        });
+
+        thresholdSlider.addEventListener('input', (e) => {
+            const val = parseFloat(e.target.value);
+            thresholdVal.textContent = val.toFixed(3);
+            if (pointsObject) pointsObject.material.uniforms.uThreshold.value = val;
+            updateFilteredCount();
+            if (storedIntensityBins) drawHistogram(storedIntensityBins, storedIMin, storedIMax, val);
+            recomputeFreqHistogram(val);
+        });
+
+        panoOpacitySlider.addEventListener('input', (e) => {
+            outsideOpacity = parseFloat(e.target.value);
+            panoOpacityVal.textContent = outsideOpacity.toFixed(2);
+        });
+
+        // =====================================================================
+        // Save bundle
+        // =====================================================================
+        document.getElementById('save-btn').addEventListener('click', async () => {
+            if (!rfpicArrayBuffer && !panoBlob) {
+                alert('No files loaded yet. Load an .rfpic and/or panorama image first.');
+                return;
+            }
+
+            const btn = document.getElementById('save-btn');
+            btn.textContent = 'Saving...';
+            btn.disabled = true;
+
+            try {
+                const zip = new JSZip();
+
+                if (rfpicArrayBuffer) {
+                    zip.file(rfpicFilename, rfpicArrayBuffer);
+                }
+
+                if (panoBlob) {
+                    zip.file(panoFilename, panoBlob);
+                }
+
+                const orientation = {
+                    pano_quaternion: {
+                        x: panoGroup.quaternion.x,
+                        y: panoGroup.quaternion.y,
+                        z: panoGroup.quaternion.z,
+                        w: panoGroup.quaternion.w
+                    },
+                    rfpic_file: rfpicFilename || null,
+                    pano_file: panoFilename || null
+                };
+
+                zip.file('orientation.json', JSON.stringify(orientation, null, 2));
+
+                const blob = await zip.generateAsync({ type: 'blob' });
+                const baseName = rfpicFilename
+                    ? rfpicFilename.replace(/\.rfpic$/i, '')
+                    : 'rf_pano_bundle';
+
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = baseName + '_bundle.zip';
+                a.click();
+                URL.revokeObjectURL(a.href);
+            } catch (err) {
+                console.error(err);
+                alert('Error creating bundle: ' + err.message);
+            } finally {
+                btn.textContent = 'Save Bundle (.zip)';
+                btn.disabled = false;
+            }
+        });
+
+    </script>
+</body>
+</html>

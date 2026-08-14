@@ -1,0 +1,15 @@
+PACKAGE_NAME="quadrf-fpga"
+PACKAGE_VERSION="@VERSION@"
+
+BUILT_MODULE_NAME[0]="fpga-csi"
+BUILT_MODULE_LOCATION[0]="csi"
+DEST_MODULE_LOCATION[0]="/updates/dkms"
+
+BUILT_MODULE_NAME[1]="fpga-dsi"
+BUILT_MODULE_LOCATION[1]="dsi"
+DEST_MODULE_LOCATION[1]="/updates/dkms"
+
+MAKE[0]="make -C csi KDIR=${kernel_source_dir} && make -C dsi KDIR=${kernel_source_dir}"
+CLEAN="make -C csi clean KDIR=${kernel_source_dir}; make -C dsi clean KDIR=${kernel_source_dir}"
+
+AUTOINSTALL="yes"

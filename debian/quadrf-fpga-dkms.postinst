@@ -1,0 +1,24 @@
+#!/bin/sh
+set -e
+
+NAME=quadrf-fpga
+
+if [ "$1" = configure ]; then
+    VERSION="$(dpkg-query -W -f='${Version}' quadrf-fpga-dkms | cut -d- -f1)"
+
+    if dkms status -m "${NAME}" -v "${VERSION}" | grep -q .; then
+        dkms remove -m "${NAME}" -v "${VERSION}" --all >/dev/null 2>&1 || true
+    fi
+
+    dkms add -m "${NAME}" -v "${VERSION}"
+
+    if ! dkms build -m "${NAME}" -v "${VERSION}" ||
+       ! dkms install -m "${NAME}" -v "${VERSION}"; then
+        echo "quadrf-fpga-dkms: build failed for $(uname -r)." >&2
+        echo "Install the matching kernel headers and run:" >&2
+        echo "  dkms autoinstall -m ${NAME} -v ${VERSION}" >&2
+    fi
+fi
+
+#DEBHELPER#
+exit 0

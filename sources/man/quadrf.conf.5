@@ -1,0 +1,69 @@
+.TH QUADRF.CONF 5 "August 2026" "QuadRF" "QuadRF"
+.SH NAME
+quadrf.conf \- site configuration for a QuadRF appliance
+.SH SYNOPSIS
+.I /etc/quadrf/quadrf.conf
+.SH DESCRIPTION
+Plain shell assignments, read by the maintainer scripts of the quadrf-*
+packages, by the runtime helpers under
+.I /usr/lib/quadrf
+and by
+.BR quadrf (1).
+Nothing else may appear in the file: it is sourced, not parsed.
+.PP
+Run
+.B quadrf apply
+after editing. Settings that change the firmware configuration also need a
+reboot, which
+.B quadrf status
+will report.
+.SH SETTINGS
+.TP
+.B QUADRF_USER
+Account that owns the desktop session, the web control panel and the demo
+applications. The packages ship generic systemd units and override the user
+through a drop-in, so changing this and running
+.B quadrf apply
+moves the services to another account. Default:
+.BR dietpi .
+.TP
+.B QUADRF_BOOT_DIR
+Firmware partition holding
+.IR config.txt ,
+.I cmdline.txt
+and the
+.I overlays/
+directory. Default:
+.IR /boot/firmware .
+.TP
+.B QUADRF_TLS_DOMAIN
+Name on the certificate nginx serves, and the name dnsmasq publishes on the
+station interface. Default:
+.BR my.quadrf.com .
+.TP
+.B QUADRF_AP_SSID
+SSID of the fallback access point. Default:
+.BR QuadRF .
+.TP
+.B QUADRF_AP_ADDRESS
+Address the appliance takes on wlan0 in access point mode, and the target of
+the captive DNS wildcard. A /24 is assumed. Default:
+.BR 192.168.44.1 .
+.TP
+.B QUADRF_OPENOCD
+OpenOCD binary used to program the FPGA. When empty the first of
+.I /usr/lib/quadrf/openocd/bin/openocd
+or
+.I /usr/bin/openocd
+is used.
+.SH EXAMPLE
+.nf
+QUADRF_USER=operator
+QUADRF_BOOT_DIR=/boot/firmware
+QUADRF_TLS_DOMAIN=unit14.example.net
+QUADRF_AP_SSID=QuadRF-14
+QUADRF_AP_ADDRESS=192.168.44.1
+QUADRF_OPENOCD=
+.fi
+.SH SEE ALSO
+.BR quadrf (1)

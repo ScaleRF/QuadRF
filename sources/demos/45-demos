@@ -1,0 +1,11 @@
+#!/bin/sh
+# The demos keep their saved AR overlay settings under /var/lib/quadrf.
+set -eu
+
+. /usr/share/quadrf/functions.sh
+quadrf_load_conf
+
+install -d -m 755 /var/lib/quadrf/demos
+if getent passwd "${QUADRF_USER}" >/dev/null; then
+    chown "${QUADRF_USER}:$(id -gn "${QUADRF_USER}")" /var/lib/quadrf/demos
+fi

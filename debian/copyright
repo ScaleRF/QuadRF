@@ -1,0 +1,39 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: quadrf
+Source: https://github.com/ScaleRF/QuadRF
+
+Files: *
+Copyright: 2025-2026 Scale RF
+License: GPL-3
+ This program is free software: you can redistribute it and/or modify it under
+ the terms of the GNU General Public License as published by the Free Software
+ Foundation, either version 3 of the License, or (at your option) any later
+ version.
+ .
+ On Debian systems the full text of the GNU General Public License version 3
+ can be found in /usr/share/common-licenses/GPL-3.
+
+Files: sources/fpga/quadrf.svf
+Copyright: 2025-2026 Scale RF
+License: proprietary
+ The production FPGA bitstream is not published. This path is an empty
+ placeholder so the package layout stays stable. All rights reserved.
+
+Files: sources/demos/mongoose.c sources/demos/mongoose.h
+Copyright: 2004-2013 Sergey Lyubka
+           2013-2025 Cesanta Software Limited
+License: GPL-2
+ This program is free software: you can redistribute it and/or modify it under
+ the terms of the GNU General Public License version 2 as published by the Free
+ Software Foundation.
+ .
+ On Debian systems the full text of the GNU General Public License version 2
+ can be found in /usr/share/common-licenses/GPL-2.
+
+Files: sources/fpga/drivers/*
+Copyright: 2025-2026 Scale RF
+License: GPL-2
+ Linux kernel modules, licensed GPL-2 as declared in their MODULE_LICENSE.
+ .
+ On Debian systems the full text of the GNU General Public License version 2
+ can be found in /usr/share/common-licenses/GPL-2.

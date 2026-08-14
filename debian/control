@@ -1,0 +1,201 @@
+Source: quadrf
+Section: hamradio
+Priority: optional
+Maintainer: QuadRF Engineering <contact@ScaleRF.com>
+Build-Depends: debhelper-compat (= 13),
+               cmake,
+               device-tree-compiler,
+               libfftw3-dev,
+               libsdl2-dev,
+               libsoapysdr-dev,
+               libzmq3-dev,
+               pkgconf | pkg-config
+Standards-Version: 4.6.2
+Rules-Requires-Root: no
+Homepage: https://quadrf.com
+
+Package: quadrf
+Section: metapackages
+Architecture: all
+Depends: quadrf-boot (= ${binary:Version}),
+         quadrf-common (= ${binary:Version}),
+         quadrf-demos (= ${binary:Version}),
+         quadrf-desktop (= ${binary:Version}),
+         quadrf-fpga (= ${binary:Version}),
+         quadrf-gui (= ${binary:Version}),
+         quadrf-network (= ${binary:Version}),
+         quadrf-soapy (= ${binary:Version}),
+         quadrf-ups (= ${binary:Version}),
+         ${misc:Depends}
+Recommends: quadrf-phy, quadrf-meshtasticd
+Description: software-defined radio appliance for the Raspberry Pi 5
+ QuadRF turns a Raspberry Pi 5 and a Lattice ECP5 radio front-end into a
+ self-contained SDR appliance: FPGA bring-up at boot, SoapySDR drivers, a web
+ control panel, a remote desktop and the demo applications.
+ .
+ This metapackage pulls in the complete appliance. Install the individual
+ quadrf-* packages instead to build a smaller system.
+ .
+ Also recommends quadrf-phy and quadrf-meshtasticd, the LoRa PHY and
+ Meshtastic mesh daemon, so a plain apt-get install carries mesh support
+ on by default; drop them with --no-install-recommends if you don't want
+ it.
+
+Package: quadrf-headless
+Section: metapackages
+Architecture: all
+Depends: quadrf-boot (= ${binary:Version}),
+         quadrf-common (= ${binary:Version}),
+         quadrf-fpga (= ${binary:Version}),
+         quadrf-gui (= ${binary:Version}),
+         quadrf-network (= ${binary:Version}),
+         quadrf-soapy (= ${binary:Version}),
+         ${misc:Depends}
+Recommends: quadrf-phy, quadrf-meshtasticd
+Description: QuadRF appliance without the graphical desktop
+ Radio, SoapySDR, networking and the web control panel, with no KasmVNC
+ desktop, demo applications or GNU Radio. Suited to units that are only driven
+ over the network.
+ .
+ Also recommends quadrf-phy and quadrf-meshtasticd (see quadrf's
+ description); drop with --no-install-recommends if you don't want it.
+
+Package: quadrf-common
+Architecture: all
+Depends: ${misc:Depends}
+Description: QuadRF shared configuration and control command
+ Site configuration in /etc/quadrf/quadrf.conf, the shell helpers the other
+ quadrf-* packages use in their maintainer scripts, and the quadrf command for
+ checking state and re-applying configuration.
+
+Package: quadrf-boot
+Architecture: all
+Depends: quadrf-common (= ${binary:Version}), ${misc:Depends}
+Description: QuadRF firmware configuration and device-tree overlays
+ Installs the fpga-csi and fpga-dsi overlays into the firmware partition and
+ keeps the QuadRF block in config.txt and the USB gadget arguments in
+ cmdline.txt up to date.
+ .
+ Changes here only take effect after a reboot; the package records that in
+ /var/lib/quadrf/reboot-required.
+
+Package: quadrf-fpga
+Architecture: arm64
+Depends: quadrf-boot (= ${binary:Version}),
+         quadrf-common (= ${binary:Version}),
+         quadrf-fpga-dkms (= ${source:Version}),
+         quadrf-openocd | openocd,
+         ${misc:Depends},
+         ${shlibs:Depends}
+Description: QuadRF FPGA bring-up and front-end control
+ Bitstream, OpenOCD board configuration and the quadrf-jtag command that tunes
+ the MAX285x front-end. load-quadrf.service programs the FPGA, loads the CSI
+ and DSI drivers and initialises the radio at boot.
+
+Package: quadrf-fpga-dkms
+Architecture: all
+Depends: dkms,
+         linux-headers-rpi-2712 | linux-headers-rpi-v8 | raspberrypi-kernel-headers | linux-headers-arm64,
+         ${misc:Depends}
+Description: QuadRF CSI and DSI kernel drivers (DKMS)
+ Source for the fpga-csi and fpga-dsi out-of-tree drivers. DKMS rebuilds them
+ against each installed kernel, so a kernel upgrade does not need a manual
+ rebuild as long as the matching headers are present.
+
+Package: quadrf-soapy
+Architecture: arm64
+Depends: quadrf-common (= ${binary:Version}),
+         quadrf-fpga (= ${binary:Version}),
+         soapyremote-server,
+         soapysdr-tools,
+         ${misc:Depends},
+         ${shlibs:Depends}
+Description: SoapySDR drivers for the QuadRF front-end
+ The mipi and quadrf SoapySDR modules, which expose the appliance to
+ SoapySDRUtil, GNU Radio and any other SoapySDR client, plus a service that
+ publishes the radio over SoapyRemote.
+
+Package: quadrf-gui
+Architecture: all
+Depends: python3,
+         python3-flask,
+         python3-flask-socketio,
+         quadrf-common (= ${binary:Version}),
+         quadrf-fpga,
+         ${misc:Depends}
+Description: QuadRF web control panel
+ Flask application on port 8080 with the receive and transmit controls, live
+ status over WebSocket and the Wi-Fi provisioning form. nginx publishes it at
+ /GUI/ when quadrf-network is installed.
+
+Package: quadrf-network
+Architecture: all
+Depends: avahi-daemon,
+         dnsmasq,
+         hostapd,
+         isc-dhcp-server,
+         iw,
+         libnss-mdns,
+         nginx,
+         openssl,
+         quadrf-common (= ${binary:Version}),
+         sudo,
+         wpasupplicant,
+         ${misc:Depends}
+Description: QuadRF networking, hotspot and web front end
+ nginx in front of the control panel, the remote desktop and the AR page;
+ dnsmasq leases and names on the Ethernet, USB gadget and Wi-Fi interfaces;
+ mDNS as quadrf.local; and a fallback access point for when no known Wi-Fi
+ network answers.
+
+Package: quadrf-demos
+Architecture: arm64
+Depends: mpv,
+         quadrf-common (= ${binary:Version}),
+         quadrf-fpga (= ${binary:Version}),
+         ${misc:Depends},
+         ${shlibs:Depends}
+Suggests: quadrf-soapy
+Description: QuadRF demonstration applications
+ Spatial RF Vision (swept-LO phase scatter with a WebSocket feed for the
+ browser AR page), the PSD plot and the NTSC decoder, plus the phasegaze
+ sources under /usr/share/quadrf/phasegaze.
+
+Package: quadrf-desktop
+Architecture: all
+Depends: kasmvncserver,
+         libglib2.0-bin,
+         librsvg2-common,
+         openbox,
+         pcmanfm,
+         qradiolink,
+         quadrf-common (= ${binary:Version}),
+         quadrf-demos,
+         quadrf-gnuradio (= ${binary:Version}),
+         tint2,
+         xfce4-terminal,
+         ${misc:Depends}
+Recommends: lxde-icon-theme, xdg-utils
+Description: QuadRF remote desktop session
+ KasmVNC session on port 8444 running openbox with a tint2 panel and the
+ QuadRF launchers, branded to match the appliance. Reached through nginx at
+ the root of the web interface.
+
+Package: quadrf-gnuradio
+Architecture: all
+Depends: gir1.2-gtk-3.0,
+         gnuradio,
+         quadrf-common (= ${binary:Version}),
+         ${misc:Depends}
+Recommends: gr-osmosdr, quadrf-soapy
+Description: GNU Radio flowgraphs for QuadRF
+ Receive and transmit example flowgraphs for the QuadRF front-end, installed
+ under /usr/share/quadrf/grc.
+
+Package: quadrf-ups
+Architecture: all
+Depends: python3, python3-smbus, quadrf-common (= ${binary:Version}), ${misc:Depends}
+Recommends: i2c-tools
+Description: QuadRF UPS HAT monitor
+ Reads the battery state over I2C and writes /tmp/ups_status for the desktop
+ panel. Warns and shuts the appliance down when the cells run flat.

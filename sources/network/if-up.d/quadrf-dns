@@ -1,0 +1,8 @@
+#!/bin/sh
+# Refresh the wlan0 station aliases after a DHCP lease change.
+set -e
+
+[ "${IFACE:-}" = wlan0 ] || exit 0
+[ -x /usr/sbin/quadrf-dns-update ] || exit 0
+
+/usr/sbin/quadrf-dns-update

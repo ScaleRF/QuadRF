@@ -1,0 +1,15 @@
+#!/bin/sh
+set -e
+
+if [ "$1" = remove ]; then
+    # Hand SoapyRemote back to the Debian unit if that package remains.
+    if [ -x /usr/bin/deb-systemd-helper ]; then
+        deb-systemd-helper unmask soapyremote-server.service >/dev/null 2>&1 || true
+        if dpkg-query -W -f='${Status}' soapyremote-server 2>/dev/null | grep -q 'install ok installed'; then
+            deb-systemd-helper enable soapyremote-server.service >/dev/null 2>&1 || true
+        fi
+    fi
+fi
+
+#DEBHELPER#
+exit 0

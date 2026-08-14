@@ -1,0 +1,17 @@
+[Unit]
+Description=QuadRF SoapySDR remote server
+Wants=load-quadrf.service
+After=load-quadrf.service network.target
+# soapyremote-server ships the SoapySDRServer binary we exec, but also a
+# unit that binds the same port. Own the port exclusively.
+Conflicts=soapyremote-server.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/SoapySDRServer --bind=0.0.0.0
+KillMode=process
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,3 @@
+usr/share/quadrf/gui/
+usr/lib/quadrf/apply.d/30-gui
+lib/systemd/system/quadrf-gui.service

@@ -1,0 +1,58 @@
+#!/bin/sh
+# Program the FPGA, load the CSI/DSI drivers and initialise the RF front-end.
+# Run by load-quadrf.service at boot and safe to re-run by hand.
+#
+# fpga_csi has to go before OpenOCD touches the JTAG GPIOs; it re-probes once
+# the new bitstream is up.
+set -eu
+
+. /usr/share/quadrf/functions.sh
+quadrf_load_conf
+
+SEARCH_DIR=/usr/share/quadrf/openocd
+BOARD=board/rpi5_lfe5u45f.cfg
+BITSTREAM=/usr/share/quadrf/fpga/quadrf.svf
+
+if ! OPENOCD="$(quadrf_openocd)"; then
+    echo "quadrf-load: no openocd found; install quadrf-openocd or openocd" >&2
+    exit 1
+fi
+
+unload_csi() {
+    lsmod | grep -q '^fpga_csi' || return 0
+    if command -v fuser >/dev/null 2>&1; then
+        fuser -k /dev/csi_stream0 >/dev/null 2>&1 || true
+        sleep 1
+    fi
+    # rmmod can sit in D-state when the driver teardown wedges; that ignores
+    # signals, so a foreground timeout never returns. Fire it in the
+    # background and move on if it has not finished after a few seconds.
+    rmmod fpga_csi &
+    rmmod_pid=$!
+    i=0
+    while kill -0 "${rmmod_pid}" 2>/dev/null; do
+        i=$((i + 1))
+        [ "${i}" -ge 5 ] && return 1
+        sleep 1
+    done
+    wait "${rmmod_pid}" 2>/dev/null || true
+}
+
+unload_csi || true
+
+"${OPENOCD}" -s "${SEARCH_DIR}" -f "${BOARD}" \
+    -c "svf -tap lfe5u45f.tap -quiet -progress ${BITSTREAM}; exit"
+
+sleep 1
+# DKMS modules are absent until matching linux-headers are installed.
+# Program the FPGA and init the front-end anyway; quadrf status reports
+# whether the drivers actually loaded.
+modprobe fpga-dsi || echo "quadrf-load: fpga-dsi not loaded (install linux-headers and dkms autoinstall)" >&2
+
+# A CSI teardown that raced with the reflash above can leave the old
+# instance attached for a while after rmmod returns to us; don't let a
+# transient "Device or resource busy" here take the rest of bring-up down
+# with it. The driver settles in on its own once the hardware is quiet.
+modprobe fpga-csi || echo "quadrf-load: fpga-csi not (re)loaded this run, continuing" >&2
+
+exec /usr/bin/quadrf-jtag --init

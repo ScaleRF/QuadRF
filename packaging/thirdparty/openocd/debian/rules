@@ -1,0 +1,23 @@
+#!/usr/bin/make -f
+
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+
+PREFIX = /usr/lib/quadrf/openocd
+
+%:
+	dh $@
+
+override_dh_auto_configure:
+	[ -x configure ] || ./bootstrap nosubmodule
+	dh_auto_configure -- \
+		--prefix=$(PREFIX) \
+		--datarootdir=$(PREFIX)/share \
+		--disable-werror \
+		--enable-internal-jimtcl \
+		--enable-linuxgpiod \
+		--disable-doxygen-html
+
+override_dh_auto_test:
+
+override_dh_installdocs:
+	dh_installdocs --link-doc=quadrf-openocd

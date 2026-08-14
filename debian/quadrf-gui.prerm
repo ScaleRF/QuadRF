@@ -1,0 +1,10 @@
+#!/bin/sh
+set -e
+
+if [ "$1" = remove ]; then
+    . /usr/share/quadrf/functions.sh
+    quadrf_user_dropin_remove quadrf-gui.service
+fi
+
+#DEBHELPER#
+exit 0

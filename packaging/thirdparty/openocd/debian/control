@@ -1,0 +1,23 @@
+Source: quadrf-openocd
+Section: electronics
+Priority: optional
+Maintainer: QuadRF Engineering <contact@ScaleRF.com>
+Build-Depends: debhelper-compat (= 13),
+               autoconf,
+               automake,
+               libgpiod-dev,
+               libjaylink-dev,
+               libtool,
+               libusb-1.0-0-dev,
+               pkgconf | pkg-config,
+               texinfo
+Standards-Version: 4.6.2
+Homepage: https://github.com/raspberrypi/openocd
+
+Package: quadrf-openocd
+Architecture: any
+Depends: ${misc:Depends}, ${shlibs:Depends}
+Description: OpenOCD build used to program the QuadRF FPGA
+ The Raspberry Pi fork of OpenOCD, which supports bit-banging JTAG through the
+ RP1 GPIO controller on the Pi 5. Installed under /usr/lib/quadrf/openocd so it
+ does not collide with the distribution openocd package.

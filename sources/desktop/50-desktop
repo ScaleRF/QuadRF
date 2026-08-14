@@ -1,0 +1,97 @@
+#!/bin/sh
+# Lay out the KasmVNC session for the operator account: window manager config,
+# panel, desktop launchers and the QuadRF web UI overlay.
+set -eu
+
+. /usr/share/quadrf/functions.sh
+quadrf_load_conf
+
+SHARE=/usr/share/quadrf/desktop
+KASM_WWW=/usr/share/kasmvnc/www
+
+if ! getent passwd "${QUADRF_USER}" >/dev/null; then
+    echo "quadrf: user ${QUADRF_USER} does not exist, skipping desktop setup" >&2
+    exit 0
+fi
+
+HOME_DIR="$(getent passwd "${QUADRF_USER}" | cut -d: -f6)"
+GROUP="$(id -gn "${QUADRF_USER}")"
+
+quadrf_user_dropin quadrf-desktop.service
+
+# KasmVNC reads /etc/ssl/private/ssl-cert-snakeoil.key for its own TLS.
+if getent group ssl-cert >/dev/null; then
+    adduser --quiet "${QUADRF_USER}" ssl-cert || true
+fi
+
+# install -o takes a user name only; pair it with -g for the group.
+install -d -o "${QUADRF_USER}" -g "${GROUP}" -m 755 "${HOME_DIR}/.vnc" "${HOME_DIR}/Desktop"
+install -o "${QUADRF_USER}" -g "${GROUP}" -m 755 "${SHARE}/xstartup" "${HOME_DIR}/.vnc/xstartup"
+install -o "${QUADRF_USER}" -g "${GROUP}" -m 644 "${SHARE}/kasmvnc.yaml" "${HOME_DIR}/.vnc/kasmvnc.yaml"
+
+# KasmVNC otherwise prompts for a desktop environment on first start.
+touch "${HOME_DIR}/.vnc/.de-was-selected"
+chown "${QUADRF_USER}:${GROUP}" "${HOME_DIR}/.vnc/.de-was-selected"
+
+# install -d -o only owns the last component; intermediates stay root and
+# then qradiolink/GRC cannot create ~/.config/<app>.
+install -d -o "${QUADRF_USER}" -g "${GROUP}" -m 755 "${HOME_DIR}/.config"
+for entry in openbox/autostart tint2/tint2rc pcmanfm/LXDE/pcmanfm.conf libfm/libfm.conf; do
+    src="${SHARE}/config/${entry}"
+    dest="${HOME_DIR}/.config/${entry}"
+    [ -f "${src}" ] || continue
+    install -d -o "${QUADRF_USER}" -g "${GROUP}" -m 755 "$(dirname "${dest}")"
+    install -o "${QUADRF_USER}" -g "${GROUP}" -m 644 "${src}" "${dest}"
+done
+chown -R "${QUADRF_USER}:${GROUP}" "${HOME_DIR}/.config"
+chmod 755 "${HOME_DIR}/.config/openbox/autostart" 2>/dev/null || true
+
+# pcmanfm shows the desktop from ~/Desktop, and only runs entries it can execute.
+# Without metadata::trusted, GNOME/PCManFM may refuse to launch .desktop files
+# even when they are mode 755 (regression vs the pre-apt installer).
+# Skip (and drop stale copies of) entries whose TryExec is missing; otherwise
+# a double-click is "Invalid desktop entry file" rather than a hidden icon.
+for entry in /usr/share/applications/quadrf-*.desktop; do
+    [ -f "${entry}" ] || continue
+    dest="${HOME_DIR}/Desktop/$(basename "${entry}")"
+    tryexec="$(sed -n 's/^TryExec=//p' "${entry}" | head -n1)"
+    if [ -n "${tryexec}" ] && [ ! -x "${tryexec}" ] && ! command -v "${tryexec}" >/dev/null 2>&1; then
+        rm -f "${dest}"
+        continue
+    fi
+    install -o "${QUADRF_USER}" -g "${GROUP}" -m 755 "${entry}" "${dest}"
+    if command -v gio >/dev/null 2>&1; then
+        runuser -u "${QUADRF_USER}" -- gio set "${dest}" metadata::trusted true 2>/dev/null || true
+    fi
+done
+
+if [ ! -f "${HOME_DIR}/.kasmpasswd" ] && command -v kasmvncpasswd >/dev/null 2>&1; then
+    # Local session account. nginx fronts KasmVNC with -disableBasicAuth, so
+    # this is not the credential that protects the appliance.
+    printf 'quadrf\nquadrf\n' |
+        runuser -u "${QUADRF_USER}" -- kasmvncpasswd -u "${QUADRF_USER}" -w \
+            -o "${HOME_DIR}/.kasmpasswd" >/dev/null 2>&1 || true
+fi
+
+# QuadRF branding for the KasmVNC web client. Reapply after a kasmvncserver
+# upgrade restores the vendor files.
+if [ -d "${KASM_WWW}" ] && [ -d "${SHARE}/www" ]; then
+    cp -a "${SHARE}/www/." "${KASM_WWW}/"
+fi
+
+# SVG launchers need the rsvg pixbuf loader registered; otherwise icons are blank.
+loader="$(command -v gdk-pixbuf-query-loaders 2>/dev/null || true)"
+if [ -z "${loader}" ]; then
+    for cand in /usr/lib/*/gdk-pixbuf-2.0/gdk-pixbuf-query-loaders; do
+        [ -x "${cand}" ] || continue
+        loader="${cand}"
+        break
+    done
+fi
+if [ -n "${loader}" ]; then
+    "${loader}" --update-cache >/dev/null 2>&1 || true
+fi
+
+if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+    gtk-update-icon-cache -q /usr/share/icons/hicolor 2>/dev/null || true
+fi

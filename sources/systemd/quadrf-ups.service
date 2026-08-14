@@ -1,0 +1,16 @@
+[Unit]
+Description=QuadRF UPS HAT monitor
+After=network.target
+ConditionPathExists=/dev/i2c-1
+
+[Service]
+Type=simple
+# User, Group and HOME come from /etc/systemd/system/quadrf-ups.service.d/,
+# written from QUADRF_USER in /etc/quadrf/quadrf.conf.
+User=root
+ExecStart=/usr/bin/python3 /usr/lib/quadrf/ups-daemon
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

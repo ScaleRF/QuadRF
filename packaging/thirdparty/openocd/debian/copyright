@@ -1,0 +1,9 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: openocd
+Source: https://github.com/raspberrypi/openocd
+
+Files: *
+Copyright: OpenOCD contributors
+License: GPL-2+
+ On Debian systems the full text of the GNU General Public License version 2
+ can be found in /usr/share/common-licenses/GPL-2.

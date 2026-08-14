@@ -1,3 +1,0 @@
-../Core/Src/reg_rw.c:25:6:fpga_comms_init	16	static
-../Core/Src/reg_rw.c:37:17:fpga_comms_write	32	static
-../Core/Src/reg_rw.c:92:17:fpga_comms_read	32	static

@@ -1,0 +1,11 @@
+quadrf (1.0.0) bookworm; urgency=medium
+
+  * First public release: Debian packages for the QuadRF appliance on
+    Raspberry Pi 5 (DietPi / bookworm), published via GitHub Actions to
+    https://scalerf.github.io/QuadRF/
+  * Metapackages quadrf and quadrf-headless, plus quadrf-common, -boot,
+    -fpga, -fpga-dkms, -soapy, -gui, -network, -demos, -desktop,
+    -gnuradio and -ups.
+  * Signed apt repository; factory FPGA bitstream is not included.
+
+ -- QuadRF Engineering <contact@ScaleRF.com>  Fri, 14 Aug 2026 14:40:00 -0700

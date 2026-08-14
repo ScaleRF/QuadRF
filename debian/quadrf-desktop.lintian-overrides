@@ -1,0 +1,3 @@
+# Launchers for software that is not part of quadrf-desktop. Each entry carries
+# TryExec, so the menu hides it until the program is installed.
+quadrf-desktop: desktop-command-not-in-package * [usr/share/applications/*]

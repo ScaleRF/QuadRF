@@ -1,0 +1,12 @@
+[Unit]
+Description=Clear QuadRF pending-reboot flag
+After=local-fs.target
+ConditionPathExists=/var/lib/quadrf/reboot-required
+
+[Service]
+Type=oneshot
+ExecStart=/bin/rm -f /var/lib/quadrf/reboot-required
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

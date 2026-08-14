@@ -1,0 +1,70 @@
+# QuadRF front door. Generated from /usr/share/quadrf/network/nginx-site.in;
+# edit the template or /etc/quadrf/quadrf.conf, then run "quadrf apply".
+#
+#   /       remote desktop (KasmVNC on 8444)
+#   /GUI/   control panel (Flask on 8080)
+#   /AR/    browser AR overlay, static
+#   /ws     WebSocket from the Spatial RF Vision demo on 8000
+
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+
+# Captive portal answers, so phones and laptops on the QuadRF access point stop
+# nagging and land on the appliance instead.
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    server_name _;
+
+    location = /connecttest.txt {
+        add_header Content-Type text/plain;
+        return 200 "Microsoft Connect Test";
+    }
+
+    location = /ncsi.txt {
+        add_header Content-Type text/plain;
+        return 200 "Microsoft NCSI";
+    }
+
+    location = /hotspot-detect.html {
+        add_header Content-Type text/html;
+        return 200 "<html><body>Success</body></html>";
+    }
+
+    location = /generate_204 {
+        return 204;
+    }
+
+    location / {
+        return 302 http://@DOMAIN@/;
+    }
+}
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name @DOMAIN@ @AP_ADDRESS@ quadrf quadrf.local localhost;
+
+    # The certificate only covers @DOMAIN@, so plain HTTP stays available for
+    # quadrf.local and for direct addresses.
+    if ($host = @DOMAIN@) {
+        return 301 https://$host$request_uri;
+    }
+
+    include snippets/quadrf-locations.conf;
+}
+
+server {
+    listen 443 ssl default_server;
+    listen [::]:443 ssl default_server;
+    server_name @DOMAIN@ @AP_ADDRESS@ quadrf quadrf.local localhost;
+
+    ssl_certificate /etc/quadrf/tls/fullchain.pem;
+    ssl_certificate_key /etc/quadrf/tls/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+
+    include snippets/quadrf-locations.conf;
+}
