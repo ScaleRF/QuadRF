@@ -1,7 +1,14 @@
+quadrf (1.0.1) trixie; urgency=medium
+
+  * Rebuild for Debian Trixie / DietPi. qradiolink and KasmVNC now match
+    Trixie library SONAMEs so apt install quadrf works on a current Pi 5.
+
+ -- QuadRF Engineering <contact@ScaleRF.com>  Fri, 14 Aug 2026 15:28:00 -0700
+
 quadrf (1.0.0) bookworm; urgency=medium
 
   * First public release: Debian packages for the QuadRF appliance on
-    Raspberry Pi 5 (DietPi / bookworm), published via GitHub Actions to
+    Raspberry Pi 5, published via GitHub Actions to
     https://scalerf.github.io/QuadRF/
   * Metapackages quadrf and quadrf-headless, plus quadrf-common, -boot,
     -fpga, -fpga-dkms, -soapy, -gui, -network, -demos, -desktop,

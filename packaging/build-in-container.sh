@@ -1,5 +1,5 @@
 #!/bin/bash
-# Build arm64 packages inside a Debian bookworm container.
+# Build arm64 packages inside a Debian trixie container.
 # Used when the host is not arm64. Requires docker with binfmt arm64.
 #
 # Uses a cached builder image (packaging/Dockerfile.builder) so apt and
@@ -51,7 +51,7 @@ hash="$(
         sha256sum |
         awk '{print substr($1, 1, 12)}'
 )"
-image="${QUADRF_BUILD_IMAGE:-${base_name}:bookworm-${hash}}"
+image="${QUADRF_BUILD_IMAGE:-${base_name}:trixie-${hash}}"
 
 need_build=0
 if [ "${rebuild_image}" -eq 1 ]; then

@@ -9,7 +9,7 @@ set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 top="${here}/../.."
 OUT="${OUT:-${here}/../out}"
-SUITE="${SUITE:-bookworm}"
+SUITE="${SUITE:-trixie}"
 export GNUPGHOME="${GNUPGHOME:-${here}/.gnupg}"
 
 command -v reprepro >/dev/null || { echo "reprepro is not installed" >&2; exit 1; }

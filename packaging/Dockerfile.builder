@@ -3,7 +3,7 @@
 #
 # Build context is a tiny staging dir (Dockerfile + debian/control), not the
 # full repo, so packaging/out and other large trees never enter the image.
-FROM debian:bookworm
+FROM debian:trixie
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -54,7 +54,7 @@ RUN apt-get update \
         libpulse-dev \
         libsndfile1-dev \
         libspeexdsp-dev \
-        libvolk2-dev \
+        libvolk-dev \
         protobuf-compiler \
         qt5-qmake \
         qtbase5-dev \

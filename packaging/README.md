@@ -1,7 +1,7 @@
 # Building QuadRF packages
 
 Releases are built and published by GitHub Actions (`.github/workflows/release.yml`).
-A tag matching `v*` (for example `v1.0.0`) builds the arm64 Debian bookworm
+A tag matching `v*` (for example `v1.0.1`) builds the arm64 Debian trixie
 packages, signs the apt repository with the packaging GPG key, attaches `.deb`
 files to the GitHub Release, writes release notes on that GitHub Release, and
 deploys the signed apt tree to GitHub Pages at
@@ -9,26 +9,26 @@ deploys the signed apt tree to GitHub Pages at
 
 That Pages URL is the apt source. After adding it, `sudo apt install quadrf`
 works like any other Debian repository. The GPG signature is created in CI
-(reprepro signs `dists/bookworm/Release`); Pages only hosts the already-signed
+(reprepro signs `dists/trixie/Release`); Pages only hosts the already-signed
 files plus `quadrf.gpg`.
 
 Pull requests and pushes to `main` run `.github/workflows/ci.yml`, which builds
-the QuadRF packages in the same bookworm arm64 container without publishing.
+the QuadRF packages in the same trixie arm64 container without publishing.
 
 ## GitHub Actions
 
 ### Publishing a release
 
 ```bash
-git tag v1.0.0
-git push origin v1.0.0
+git tag v1.0.1
+git push origin v1.0.1
 ```
 
 Or run **Actions → Release packages → Run workflow**.
 
 The workflow:
 
-- pulls or builds a cached `debian:bookworm` arm64 builder image
+- pulls or builds a cached `debian:trixie` arm64 builder image
   (`packaging/Dockerfile.builder`)
 - runs `make -C packaging quadrf openocd qradiolink kasmvnc repo`
 - skips `quadrf-mesh` (that tree is a separate repository)
@@ -43,7 +43,7 @@ The same container path used in CI:
 ./packaging/build-in-container.sh quadrf openocd qradiolink kasmvnc
 ```
 
-On an arm64 Debian bookworm machine, without Docker:
+On an arm64 Debian trixie machine, without Docker:
 
 ```bash
 sudo apt build-dep .
@@ -55,6 +55,6 @@ make -C packaging openocd qradiolink kasmvnc
 packages from a sibling checkout when `QUADRF_MESH_DIR` is set.
 
 Artefacts land in `packaging/out/`. The builder image is tagged
-`quadrf-builder:bookworm-<hash>` from `Dockerfile.builder` and `debian/control`.
+`quadrf-builder:trixie-<hash>` from `Dockerfile.builder` and `debian/control`.
 Override the image name with `QUADRF_BUILD_IMAGE`, or set `DEB_BUILD_OPTIONS`
 (default `parallel=$(nproc)`).

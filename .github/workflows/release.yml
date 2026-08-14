@@ -47,7 +47,7 @@ jobs:
         run: |
           owner=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')
           hash=$(cat packaging/Dockerfile.builder debian/control | sha256sum | awk '{print substr($1, 1, 12)}')
-          echo "name=ghcr.io/${owner}/quadrf-builder:bookworm-${hash}" >> "$GITHUB_OUTPUT"
+          echo "name=ghcr.io/${owner}/quadrf-builder:trixie-${hash}" >> "$GITHUB_OUTPUT"
 
       - name: Pull cached builder
         run: docker pull "${{ steps.image.outputs.name }}" || true
@@ -83,7 +83,7 @@ jobs:
           </head>
           <body>
             <h1>QuadRF apt repository</h1>
-            <p>Debian bookworm / arm64 packages for the Raspberry Pi 5.</p>
+            <p>Debian trixie / arm64 packages for the Raspberry Pi 5.</p>
             <p>Install instructions:
               <a href="https://github.com/ScaleRF/QuadRF/blob/main/install/README.md">install/README.md</a>
             </p>

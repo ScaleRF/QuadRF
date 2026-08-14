@@ -36,7 +36,7 @@ Serving ${here} on ${bind}:${port}
 Install on a unit with:
 
   curl -fsSL ${hint}/quadrf.gpg | sudo tee /etc/apt/keyrings/quadrf.gpg >/dev/null
-  echo 'deb [signed-by=/etc/apt/keyrings/quadrf.gpg] ${hint} bookworm main' \\
+  echo 'deb [signed-by=/etc/apt/keyrings/quadrf.gpg] ${hint} trixie main' \\
     | sudo tee /etc/apt/sources.list.d/quadrf.list
   sudo apt update
   sudo apt install quadrf

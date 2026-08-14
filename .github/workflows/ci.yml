@@ -31,7 +31,7 @@ jobs:
         run: |
           owner=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')
           hash=$(cat packaging/Dockerfile.builder debian/control | sha256sum | awk '{print substr($1, 1, 12)}')
-          echo "name=ghcr.io/${owner}/quadrf-builder:bookworm-${hash}" >> "$GITHUB_OUTPUT"
+          echo "name=ghcr.io/${owner}/quadrf-builder:trixie-${hash}" >> "$GITHUB_OUTPUT"
 
       - name: Pull cached builder
         run: docker pull "${{ steps.image.outputs.name }}" || true

@@ -10,7 +10,7 @@
 
 TOP    := $(CURDIR)/..
 OUT    := $(CURDIR)/out
-SUITE  ?= bookworm
+SUITE  ?= trixie
 PORT   ?= 8080
 
 all: quadrf thirdparty

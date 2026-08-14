@@ -11,7 +11,7 @@ On a Raspberry Pi 5 running [DietPi](https://dietpi.com/):
 sudo install -d -m 0755 /etc/apt/keyrings
 curl -fsSL https://scalerf.github.io/QuadRF/quadrf.gpg \
   | sudo tee /etc/apt/keyrings/quadrf.gpg >/dev/null
-echo "deb [signed-by=/etc/apt/keyrings/quadrf.gpg] https://scalerf.github.io/QuadRF bookworm main" \
+echo "deb [signed-by=/etc/apt/keyrings/quadrf.gpg] https://scalerf.github.io/QuadRF trixie main" \
   | sudo tee /etc/apt/sources.list.d/quadrf.list >/dev/null
 
 # install
