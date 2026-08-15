@@ -2,7 +2,7 @@
 
 ### What you need
 - the QuadRF Kit, of course  _(with its built-in Raspberry Pi 5)_
-- a 16 GB or larger microSD card _(e.g., the one that came with your QuadRF Kit)_
+- a 16 GB or larger microSD card _(e.g., or the 32 GB one that came with your QuadRF Kit)_
 - a microSD card writer
 
 
