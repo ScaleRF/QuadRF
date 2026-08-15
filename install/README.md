@@ -1,4 +1,4 @@
-<img align="left" src="microsd.png" width="150px">The [QuadRF Kit](https://www.crowdsupply.com/scale-rf/quadrf#) ships with a microSD card will all software pre-installed. But if you want to start fresh or build your own image containing the latest QuadRF software, this is your guide!<br clear="all">
+<img align="left" src="microsd.png" width="150px">The [QuadRF Kit](https://www.crowdsupply.com/scale-rf/quadrf#) ships with a microSD card with all software pre-installed. But if you want to start fresh or build your own image containing the latest QuadRF software, this is your guide!<br clear="all">
 
 ### What you need
 - the QuadRF Kit, of course  _(with its built-in Raspberry Pi 5)_
