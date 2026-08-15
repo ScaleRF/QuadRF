@@ -61,8 +61,7 @@ sudo apt update
 sudo apt install quadrf
 
 # required once after install
-# `quadrf-boot` updates `config.txt` and the device-tree overlays, taking effect after a reboot
-sudo reboot
+sudo reboot  # `quadrf-boot` updates `config.txt` and the device-tree overlays, taking effect after a reboot
 ```
 
 After reboot you can check `quadrf status` for more about services, CSI/DSI drivers, SoapySDR devices and interface addresses.
