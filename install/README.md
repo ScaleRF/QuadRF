@@ -43,6 +43,7 @@ The default username (if you didn't change it in the config earlier) is,<br/>
 Username: `root`<br/>
 Password: `dietpi`<br/>
 
+At first boot, you will be prompted to update passwords and install software. You can safely skip installing any extra software if you want a minimal build.
 
 ## Install the QuadRF Builder!
 
