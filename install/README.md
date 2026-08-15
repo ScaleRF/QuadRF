@@ -49,6 +49,8 @@ At first boot, you will be prompted to update passwords and install software. Yo
 
 Once you're logged into your QuadRF Pi 5 using SSH (or a keyboard and monitor), simply run (as root): <br/>
 ```bash
+# Install open-ssh
+dietpi-software install 105
 # trust key + add repo
 sudo install -d -m 0755 /etc/apt/keyrings
 curl -fsSL https://scalerf.github.io/QuadRF/quadrf.gpg \
