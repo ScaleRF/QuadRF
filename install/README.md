@@ -46,7 +46,7 @@ Password: `dietpi`<br/>
 
 ## Install the QuadRF Builder!
 
-Once you're logged into your QuadRF Pi 5 using SSH, simply run: <br/>
+Once you're logged into your QuadRF Pi 5 using SSH (or a keyboard and monitor), simply run: <br/>
 ```bash
 # trust key + add repo
 sudo install -d -m 0755 /etc/apt/keyrings
