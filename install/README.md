@@ -71,7 +71,7 @@ After reboot you can check `quadrf status` for more about services, CSI/DSI driv
 ### That's it!
 You should now have an up-to-date QuadRF microSD image and can get started on the many applications! <br/> Check out https://scalerf.com/docs/ for more information.
 
-The web UI is at `http://quadrf.local`
+Note after reboot the new host name is `quadrf` or `quadrf.local` and you can access the web interface at `http://quadrf.local`
 
 Details: [docs/install.md](../docs/install.md).
 
