@@ -38,7 +38,7 @@ Pop your fresh DietPi image into the QuadRF Raspberry Pi 5 using the rear slot. 
 
 After 30 seconds or so you should be able to connect via SSH (if you don't have Linux or macOS, you can use tools like [Putty](https://www.chiark.greenend.org.uk/~sgtatham/putty/latest.html) for Windows).
 
-The hostname is typically `DietPi` or `DietPi.local` (may be case-sensitive!), but if those don't work you may need to connect to the IP address assigned by your router. You can also just plug in a Micro-HDMI cable and a USB keyboard directly.<br/>
+The hostname is typically `DietPi` or `DietPi.local` (case-sensitive!), but if those don't work you may need to connect to the IP address assigned by your router. You can also just plug in a Micro-HDMI cable and a USB keyboard directly.<br/>
 The default username (if you didn't change it in the config earlier) is,<br/>
 Username: `root`<br/>
 Password: `dietpi`<br/>
