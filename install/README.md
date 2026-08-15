@@ -73,7 +73,7 @@ You should now have an up-to-date QuadRF microSD image and can get started on th
 
 Note after reboot the new host name is `quadrf` or `quadrf.local` and you can access the web interface at `http://quadrf.local`
 
-If you want to put the QuadRF back into 'AP Mode' that you can connect with your phone, open the control GUI and set a blank Wi-Fi SSID.
+If you want to put the QuadRF back into 'AP Mode' that you can connect with your phone, open the control GUI and set the Wi-Fi SSID to `none`.
 
 
 ## Packages
