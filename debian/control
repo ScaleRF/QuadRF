@@ -163,7 +163,8 @@ Description: QuadRF demonstration applications
 
 Package: quadrf-desktop
 Architecture: all
-Depends: kasmvncserver,
+Depends: dbus-x11,
+         kasmvncserver,
          libglib2.0-bin,
          librsvg2-common,
          openbox,
@@ -173,6 +174,9 @@ Depends: kasmvncserver,
          quadrf-demos,
          quadrf-gnuradio (= ${binary:Version}),
          tint2,
+         wmctrl,
+         x11-utils,
+         x11-xserver-utils,
          xfce4-terminal,
          ${misc:Depends}
 Recommends: lxde-icon-theme, xdg-utils

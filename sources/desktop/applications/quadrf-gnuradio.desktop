@@ -2,7 +2,7 @@
 Type=Application
 Version=1.0
 Name=GNU Radio
-Comment=Flowgraph editor with the QuadRF examples in /usr/share/quadrf/grc
+Comment=Flowgraph editor; File Open bookmark GNURadio QuadRF Examples
 Exec=gnuradio-companion
 TryExec=gnuradio-companion
 Icon=quadrf-gnuradio

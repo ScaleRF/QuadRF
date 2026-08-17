@@ -23,6 +23,13 @@ quadrf_user_dropin quadrf-desktop.service
 if getent group ssl-cert >/dev/null; then
     adduser --quiet "${QUADRF_USER}" ssl-cert || true
 fi
+# renderD128 is 0660 root:render. Xvnc is started as QUADRF_USER with
+# -drinode /dev/dri/renderD128. Do not add video: that is card*/HDMI KMS,
+# and Qt/SDL/mpv will then become DRM master on a plugged-in monitor
+# instead of drawing on KasmVNC :1.
+if getent group render >/dev/null; then
+    adduser --quiet "${QUADRF_USER}" render || true
+fi
 
 # install -o takes a user name only; pair it with -g for the group.
 install -d -o "${QUADRF_USER}" -g "${GROUP}" -m 755 "${HOME_DIR}/.vnc" "${HOME_DIR}/Desktop"
@@ -45,6 +52,50 @@ for entry in openbox/autostart tint2/tint2rc pcmanfm/LXDE/pcmanfm.conf libfm/lib
 done
 chown -R "${QUADRF_USER}:${GROUP}" "${HOME_DIR}/.config"
 chmod 755 "${HOME_DIR}/.config/openbox/autostart" 2>/dev/null || true
+
+# GRC File Open lists GTK bookmarks in the left pane. Keep one entry for the
+# packaged flowgraphs; drop the unlabeled "grc" cwd shortcut by not setting
+# Path= on the launcher.
+gtk_dir="${HOME_DIR}/.config/gtk-3.0"
+install -d -o "${QUADRF_USER}" -g "${GROUP}" -m 755 "${gtk_dir}"
+bookmarks="${gtk_dir}/bookmarks"
+grc_uri="file:///usr/share/quadrf/grc"
+grc_label="GNURadio QuadRF Examples"
+bookmark_tmp="$(mktemp)"
+if [ -f "${bookmarks}" ]; then
+    grep -vF "${grc_uri}" "${bookmarks}" > "${bookmark_tmp}" || true
+else
+    : > "${bookmark_tmp}"
+fi
+printf '%s %s\n' "${grc_uri}" "${grc_label}" >> "${bookmark_tmp}"
+install -o "${QUADRF_USER}" -g "${GROUP}" -m 644 "${bookmark_tmp}" "${bookmarks}"
+rm -f "${bookmark_tmp}"
+
+# Generated qt_gui flowgraphs are a separate python3 process. GRC is nearly
+# fullscreen on the VNC framebuffer, so without raise the spectrum window
+# maps behind the editor.
+ob_dir="${HOME_DIR}/.config/openbox"
+install -d -o "${QUADRF_USER}" -g "${GROUP}" -m 755 "${ob_dir}"
+ob_rc="${ob_dir}/rc.xml"
+if [ ! -f "${ob_rc}" ] && [ -f /etc/xdg/openbox/rc.xml ]; then
+    install -o "${QUADRF_USER}" -g "${GROUP}" -m 644 /etc/xdg/openbox/rc.xml "${ob_rc}"
+fi
+if [ -f "${ob_rc}" ] && ! grep -q "quadrf: raise GNU Radio" "${ob_rc}"; then
+    ob_tmp="$(mktemp)"
+    awk '
+        /<\/applications>/ && !done {
+            print "  <!-- quadrf: raise GNU Radio generated Qt windows -->"
+            print "  <application class=\"python3\">"
+            print "    <focus>yes</focus>"
+            print "    <raise>yes</raise>"
+            print "  </application>"
+            done = 1
+        }
+        { print }
+    ' "${ob_rc}" > "${ob_tmp}"
+    install -o "${QUADRF_USER}" -g "${GROUP}" -m 644 "${ob_tmp}" "${ob_rc}"
+    rm -f "${ob_tmp}"
+fi
 
 # pcmanfm shows the desktop from ~/Desktop, and only runs entries it can execute.
 # Without metadata::trusted, GNOME/PCManFM may refuse to launch .desktop files
