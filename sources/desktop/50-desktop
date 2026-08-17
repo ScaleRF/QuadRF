@@ -53,6 +53,29 @@ done
 chown -R "${QUADRF_USER}:${GROUP}" "${HOME_DIR}/.config"
 chmod 755 "${HOME_DIR}/.config/openbox/autostart" 2>/dev/null || true
 
+# Compiled default is Pluto. The Soapy dropdown also offers the ZMQ thin
+# client (driver=quadrf), which has no quadrfd. Seed MIPI on first run;
+# rewrite those leftovers on apply.
+# 4e6 Hz / 8192-pt FFT: (the default 1 Msps and 65536-pt FFT is too much.
+qrl_cfg="${HOME_DIR}/.config/qradiolink/qradiolink.cfg"
+qrl_src="${SHARE}/config/qradiolink/qradiolink.cfg"
+if [ -f "${qrl_src}" ]; then
+    install -d -o "${QUADRF_USER}" -g "${GROUP}" -m 755 "$(dirname "${qrl_cfg}")"
+    if [ ! -f "${qrl_cfg}" ]; then
+        install -o "${QUADRF_USER}" -g "${GROUP}" -m 644 "${qrl_src}" "${qrl_cfg}"
+    elif grep -qE 'driver=plutosdr|driver=quadrf' "${qrl_cfg}"; then
+        sed -i \
+            -e 's|^rx_device_args = .*|rx_device_args = "soapy=0,driver=mipi";|' \
+            -e 's|^tx_device_args = .*|tx_device_args = "soapy=0,driver=mipi";|' \
+            -e 's|^rx_antenna = .*|rx_antenna = "RX";|' \
+            -e 's|^tx_antenna = .*|tx_antenna = "TX";|' \
+            -e 's|^rx_sample_rate = .*|rx_sample_rate = 4000000L;|' \
+            -e 's|^fft_size = .*|fft_size = 8192;|' \
+            "${qrl_cfg}"
+        chown "${QUADRF_USER}:${GROUP}" "${qrl_cfg}"
+    fi
+fi
+
 # GRC File Open lists GTK bookmarks in the left pane. Keep one entry for the
 # packaged flowgraphs; drop the unlabeled "grc" cwd shortcut by not setting
 # Path= on the launcher.

@@ -223,6 +223,8 @@ install-desktop:
 	$(INSTALL) -D -m 644 $(SRC)/desktop/pcmanfm-LXDE.conf \
 		$(DESTDIR)$(datadir)/desktop/config/pcmanfm/LXDE/pcmanfm.conf
 	$(INSTALL) -D -m 644 $(SRC)/desktop/libfm.conf $(DESTDIR)$(datadir)/desktop/config/libfm/libfm.conf
+	$(INSTALL) -D -m 644 $(SRC)/desktop/qradiolink.cfg \
+		$(DESTDIR)$(datadir)/desktop/config/qradiolink/qradiolink.cfg
 	cp -a $(SRC)/kasmvnc/www $(DESTDIR)$(datadir)/desktop/www
 	$(INSTALL) -D -m 755 $(SRC)/desktop/50-desktop $(DESTDIR)$(libdir)/apply.d/50-desktop
 	$(INSTALL) -D -m 644 $(SRC)/systemd/quadrf-desktop.service $(DESTDIR)$(unitdir)/quadrf-desktop.service
