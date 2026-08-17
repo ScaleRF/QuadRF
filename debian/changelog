@@ -1,3 +1,18 @@
+quadrf (1.0.2) trixie; urgency=medium
+
+  * KasmVNC session keeps GRC Qt windows on DISPLAY :1. dbus-launch now
+    execs the session so the bus survives; Qt/SDL/GTK are forced onto X11
+    so HDMI/vc4 KMS does not steal the framebuffer.
+  * quadrf-desktop depends on dbus-x11, wmctrl, x11-utils and
+    x11-xserver-utils (xev/xrandr/wmctrl were invoked without packages).
+  * Seed QRadioLink with Soapy MIPI (driver=mipi, RX/TX, 4 Msps, 8192-pt
+    FFT). Rewrite leftover Pluto and ZMQ thin-client (driver=quadrf)
+    device args on apply.
+  * GRC File Open bookmark for /usr/share/quadrf/grc; Openbox raises
+    generated python3 Qt windows.
+
+ -- QuadRF Engineering <contact@ScaleRF.com>  Mon, 17 Aug 2026 13:54:00 -0700
+
 quadrf (1.0.1) trixie; urgency=medium
 
   * Rebuild for Debian Trixie / DietPi. qradiolink and KasmVNC now match
