@@ -594,6 +594,10 @@ typedef struct {
     // Dynamically scale the top-K bins
     volatile float output_fraction;
 
+    int headless;
+    volatile int ws_clients;
+    volatile int ws_ever;
+
     telemetry_t telem;
 } ctx_t;
 
@@ -760,6 +764,7 @@ static void web_ev_handler(struct mg_connection *c, int ev, void *ev_data) {
 static void *web_thread(void *arg) {
     ctx_t *ctx = (ctx_t *)arg;
     struct mg_mgr mgr;
+    struct timespec zero_since = {0, 0};
     mg_mgr_init(&mgr);
     
     // Listen on port 8000
@@ -791,6 +796,32 @@ if (web_frame_ready) {
     web_frame_ready = false;
 }
 pthread_mutex_unlock(&web_mtx);
+
+        int nws = 0;
+        for (struct mg_connection *c = mgr.conns; c != NULL; c = c->next) {
+            if (c->is_websocket) nws++;
+        }
+        ctx->ws_clients = nws;
+        if (nws > 0) ctx->ws_ever = 1;
+
+        // Headless AR: last browser tab gone -> drop CSI and exit.
+        // 2s grace so a refresh can reopen /ws. Do not exit if nobody
+        // ever connected (Launch from the panel with a blocked popup).
+        if (ctx->headless && ctx->ws_ever && ctx->ws_clients <= 0) {
+            struct timespec now;
+            clock_gettime(CLOCK_MONOTONIC, &now);
+            if (zero_since.tv_sec == 0)
+                zero_since = now;
+            else if ((now.tv_sec - zero_since.tv_sec) * 1000L +
+                     (now.tv_nsec - zero_since.tv_nsec) / 1000000L >= 2000) {
+                printf("[Web] last AR client gone, stopping sweep\n");
+                ctx->quit = 1;
+                sig_quit = 1;
+            }
+        } else {
+            zero_since.tv_sec = 0;
+            zero_since.tv_nsec = 0;
+        }
     }
     
     mg_mgr_free(&mgr);
@@ -1709,6 +1740,7 @@ int main(int argc, char **argv)
     ctx.mirror_display = 1;
     ctx.sweep_mode = MODE_SWEEP;
     ctx.output_fraction = 0.25f; // 1.0: output 100% of top bins
+    ctx.headless = headless;
 
     ar_settings_load_file();
 
@@ -1734,7 +1766,7 @@ int main(int argc, char **argv)
 
     SDL_Rect dst = {0, 0, WIN_WIDTH, WIN_HEIGHT};
 
-    while (!quit && !sig_quit)
+    while (!quit && !sig_quit && !ctx.quit)
     {
         if (!headless) {
             int win_w, win_h;
@@ -1995,6 +2027,7 @@ int main(int argc, char **argv)
     }
     
     camera_stop(&cam);
+    ioctl(fd, CSI_IOC_JTAG_RELEASE);
     munmap(ring, map_len);
     close(fd);
 

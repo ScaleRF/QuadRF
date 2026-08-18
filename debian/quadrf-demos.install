@@ -5,6 +5,9 @@ usr/bin/quadrf-ntsc
 usr/share/quadrf/ar/
 usr/share/quadrf/phasegaze/
 usr/lib/quadrf/apply.d/45-demos
+lib/systemd/system/quadrf-rf-vision.service
+lib/systemd/system/quadrf-ntsc.service
+lib/systemd/system/quadrf-psd.service
 usr/share/man/man1/quadrf-rf-vision.1
 usr/share/man/man1/quadrf-psd.1
 usr/share/man/man1/quadrf-ntsc.1

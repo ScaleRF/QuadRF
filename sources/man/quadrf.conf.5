@@ -41,9 +41,33 @@ Name on the certificate nginx serves, and the name dnsmasq publishes on the
 station interface. Default:
 .BR my.quadrf.com .
 .TP
+.B QUADRF_HOSTNAME
+mDNS and nginx name. Clients reach the appliance at
+.IR HOSTNAME.local .
+Change this when several QuadRFs share a LAN; avahi otherwise collides and
+renames one unit to
+.IR quadrf-2.local .
+The remote desktop is also published as
+.IR HOSTNAME-desktop.local
+and
+.IR HOSTNAMEd.local
+(single-label mDNS names;
+.IR quadrfd.local
+and
+.IR quadrfD.local
+are the same name). Browsers do not resolve
+.IR desktop.HOSTNAME.local .
+Default:
+.BR quadrf .
+.TP
 .B QUADRF_AP_SSID
 SSID of the fallback access point. Default:
 .BR QuadRF .
+.TP
+.B QUADRF_AP_PASS
+WPA2 passphrase for the fallback access point. Empty (the default) leaves the
+AP open. Set from the control panel or with
+.BR quadrf-apply-ap (8).
 .TP
 .B QUADRF_AP_ADDRESS
 Address the appliance takes on wlan0 in access point mode, and the target of
@@ -61,7 +85,9 @@ is used.
 QUADRF_USER=operator
 QUADRF_BOOT_DIR=/boot/firmware
 QUADRF_TLS_DOMAIN=unit14.example.net
+QUADRF_HOSTNAME=quadrf-14
 QUADRF_AP_SSID=QuadRF-14
+QUADRF_AP_PASS=
 QUADRF_AP_ADDRESS=192.168.44.1
 QUADRF_OPENOCD=
 .fi

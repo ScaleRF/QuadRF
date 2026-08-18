@@ -58,6 +58,7 @@
             border-top: 3px solid;
         }
         .panel-rx { border-top-color: var(--rx-color); }
+        #receive { scroll-margin-top: 0.5rem; }
         .panel-tx { border-top-color: var(--tx-color); }
         .panel-console { border-top-color: #10b981; }
 
@@ -266,7 +267,8 @@
 
         /* Wi-Fi Panel & Banner Styles */
         .panel-wifi { border-top-color: #f59e0b; }
-        
+        .panel-apps { border-top-color: #8b5cf6; }
+
         .banner {
             padding: 0.75rem;
             margin-bottom: 1rem;
@@ -289,6 +291,36 @@
             font-size: 0.85rem;
         }
         .wifi-input:focus { outline: none; border-color: #f59e0b !important; }
+
+        .net-tabs { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+        .net-tabs button.outline.active {
+            background: rgba(245, 158, 11, 0.15) !important;
+        }
+        .app-list {
+            display: flex;
+            flex-direction: row;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin: 0;
+        }
+        .app-row {
+            display: flex; flex-wrap: nowrap; align-items: center; justify-content: space-between;
+            gap: 0.5rem; background: var(--card-bg); padding: 0.45rem 0.65rem;
+            border-radius: var(--border-radius); border: 1px solid rgba(255,255,255,0.05);
+            flex: 1 1 10rem; min-width: 10rem;
+        }
+        .app-meta { display: flex; flex-direction: row; align-items: center; gap: 0.4rem; min-width: 0; flex: 1; }
+        .app-name { font-weight: 600; font-size: 0.85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .app-blurb { display: none; }
+        .app-actions { display: flex; flex-wrap: nowrap; gap: 0.3rem; align-items: center; flex-shrink: 0; }
+        .panel-apps button.outline { color: #c4b5fd; border: 1px solid #8b5cf6; padding: 0.25rem 0.55rem; font-size: 0.75rem; }
+        .panel-apps button.outline.stop { color: #fecdd3; border-color: #f43f5e; }
+        .app-pill {
+            font-size: 0.6rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+            padding: 0.1rem 0.4rem; border-radius: 999px; background: rgba(0,0,0,0.35); color: #94a3b8;
+            white-space: nowrap;
+        }
+        .app-pill.on { color: #a7f3d0; background: rgba(16, 185, 129, 0.2); }
 
         /* Beam Steering Visualizer */
         .beam-container {
@@ -361,7 +393,15 @@
         <div class="banner error">{{ wifi_error_msg }}</div>
         {% endif %}
 
-        <article class="panel panel-rx">
+        <article class="panel panel-apps">
+            <div class="header-row">
+                <h2><span class="indicator" style="background-color: #8b5cf6;"></span> Applications</h2>
+                <button type="button" class="outline" id="openDesktopBtn">Open Desktop</button>
+            </div>
+            <div id="appList" class="app-list"></div>
+        </article>
+
+        <article class="panel panel-rx" id="receive">
             <div class="header-row">
                 <h2><span class="indicator" style="background-color: var(--rx-color);"></span> Receive</h2>
                 <div class="controls-row">
@@ -649,28 +689,60 @@
         <article class="panel panel-wifi">
             <div class="header-row">
                 <h2><span class="indicator" style="background-color: #f59e0b;"></span> Network Setup</h2>
-                <div class="status-pill">Connect to Router/Hotspot</div>
+                <div class="net-tabs">
+                    <button type="button" class="outline net-tab active" data-tab="join">Join Wi-Fi</button>
+                    <button type="button" class="outline net-tab" data-tab="ap">Configure Hotspot</button>
+                </div>
             </div>
 
-            <form method="POST" action="" style="margin-bottom: 0;">
-                <div class="fluid-grid" style="align-items: end; margin-bottom: 0;">
-                    <div class="control-group">
-                        <label style="margin-bottom: 0.5rem;">Network Name (SSID)</label>
-                        <input type="text" name="ssid" class="wifi-input" required placeholder="e.g. MyHomeNetwork">
+            <div id="netJoin" class="net-pane">
+                <form method="POST" action="" style="margin-bottom: 0;">
+                    <input type="hidden" name="intent" value="wifi">
+                    <div class="fluid-grid" style="align-items: end; margin-bottom: 0;">
+                        <div class="control-group">
+                            <label style="margin-bottom: 0.5rem;">Network Name (SSID)</label>
+                            <input type="text" name="ssid" class="wifi-input" required placeholder="e.g. MyHomeNetwork">
+                        </div>
+                        
+                        <div class="control-group">
+                            <label style="margin-bottom: 0.5rem;">Password</label>
+                            <input type="password" name="password" class="wifi-input" placeholder="(Leave blank if open)">
+                        </div>
+                        
+                        <div class="control-group" style="background: transparent; border: none; padding: 0;">
+                            <button type="submit" class="outline" style="width: 100% !important; padding: 0.7rem !important; border-color: #f59e0b; color: #f59e0b; font-size: 0.9rem !important;">
+                                Connect & Reboot
+                            </button>
+                        </div>
                     </div>
-                    
-                    <div class="control-group">
-                        <label style="margin-bottom: 0.5rem;">Password</label>
-                        <input type="password" name="password" class="wifi-input" placeholder="(Leave blank if open)">
+                </form>
+            </div>
+
+            <div id="netAp" class="net-pane hidden">
+                <p class="hint">
+                    Current hotspot SSID: <strong>{{ ap_ssid }}</strong>
+                    {% if hotspot_active %}(this QuadRF is the access point now){% else %}(used when no saved Wi-Fi answers){% endif %}.
+                    Changing these settings while you are connected through the hotspot will drop you; reconnect to the new network.
+                </p>
+                <form method="POST" action="" style="margin-bottom: 0;">
+                    <input type="hidden" name="intent" value="ap">
+                    <div class="fluid-grid" style="align-items: end; margin-bottom: 0;">
+                        <div class="control-group">
+                            <label style="margin-bottom: 0.5rem;">Hotspot Name (SSID)</label>
+                            <input type="text" name="ap_ssid" class="wifi-input" required maxlength="32" value="{{ ap_ssid }}" placeholder="QuadRF">
+                        </div>
+                        <div class="control-group">
+                            <label style="margin-bottom: 0.5rem;">Hotspot Password</label>
+                            <input type="password" name="ap_password" class="wifi-input" minlength="8" maxlength="63" placeholder="(Leave blank for an open network)">
+                        </div>
+                        <div class="control-group" style="background: transparent; border: none; padding: 0;">
+                            <button type="submit" class="outline" style="width: 100% !important; padding: 0.7rem !important; border-color: #f59e0b; color: #f59e0b; font-size: 0.9rem !important;">
+                                Save Hotspot
+                            </button>
+                        </div>
                     </div>
-                    
-                    <div class="control-group" style="background: transparent; border: none; padding: 0;">
-                        <button type="submit" class="outline" style="width: 100% !important; padding: 0.7rem !important; border-color: #f59e0b; color: #f59e0b; font-size: 0.9rem !important;">
-                            Connect & Reboot
-                        </button>
-                    </div>
-                </div>
-            </form>
+                </form>
+            </div>
         </article>
 
         <article class="panel panel-console" style="padding: 0;">
@@ -1132,7 +1204,129 @@
                 }
             });
             socket.on('sdr_status', applyState);
+            socket.on('app_state', applyAppState);
         }
+
+        const appListEl = document.getElementById('appList');
+        const appsApi = '{{ url_for("apps_status") }}';
+        const appsStartApi = '{{ url_for("apps_start") }}';
+        const appsStopApi = '{{ url_for("apps_stop") }}';
+
+        const desktopHost = '{{ desktop_host }}';
+
+        function desktopUrl() {
+            const host = window.location.hostname;
+            if (host.endsWith('-desktop.local') || host === desktopHost || host.startsWith('desktop.')) {
+                return `${window.location.protocol}//${host}/`;
+            }
+            // Single-label mDNS (quadrfd.local / quadrf-desktop.local).
+            // desktop.quadrf.local is two labels; browsers get NXDOMAIN.
+            if (host.endsWith('.local') && desktopHost) {
+                return `${window.location.protocol}//${desktopHost}/`;
+            }
+            return `http://${host}:6080/`;
+        }
+
+        function resolveOpen(open) {
+            if (!open || open === 'desktop') return desktopUrl();
+            return open;
+        }
+
+        function applyAppState(data) {
+            if (!data || !Array.isArray(data.apps)) return;
+            data.apps.forEach((app) => {
+                let row = appListEl.querySelector(`[data-app="${app.id}"]`);
+                if (!row) {
+                    row = document.createElement('div');
+                    row.className = 'app-row';
+                    row.dataset.app = app.id;
+                    row.innerHTML = `
+                        <div class="app-meta">
+                            <span class="app-name"></span>
+                        </div>
+                        <div class="app-actions">
+                            <span class="app-pill">stopped</span>
+                            <button type="button" class="outline app-start">Launch</button>
+                            <button type="button" class="outline stop app-stop">Stop</button>
+                            <button type="button" class="outline app-open">Open</button>
+                        </div>`;
+                    appListEl.appendChild(row);
+                    row.querySelector('.app-start').addEventListener('click', () => controlApp(app.id, 'start', row.dataset.open));
+                    row.querySelector('.app-stop').addEventListener('click', () => controlApp(app.id, 'stop'));
+                    row.querySelector('.app-open').addEventListener('click', () => window.open(resolveOpen(row.dataset.open), '_blank'));
+                }
+                row.querySelector('.app-name').textContent = app.name;
+                const pill = row.querySelector('.app-pill');
+                pill.textContent = app.running ? 'running' : (app.installed ? 'stopped' : 'not installed');
+                pill.classList.toggle('on', !!app.running);
+                row.querySelector('.app-start').classList.toggle('hidden', !app.installed || app.running);
+                row.querySelector('.app-stop').classList.toggle('hidden', !app.running);
+                row.querySelector('.app-open').classList.toggle('hidden', !app.open || !app.running);
+                row.dataset.open = app.open || '';
+            });
+            scrollToReceiveOnce();
+        }
+
+        let receiveScrolled = false;
+        function scrollToReceiveOnce() {
+            if (receiveScrolled || location.hash !== '#receive') return;
+            const el = document.getElementById('receive');
+            if (!el) return;
+            el.scrollIntoView({ block: 'start' });
+            receiveScrolled = true;
+        }
+
+        async function controlApp(appId, action, openPath) {
+            const url = action === 'start' ? appsStartApi : appsStopApi;
+            const dest = action === 'start' ? resolveOpen(openPath) : '';
+            let popup = null;
+            if (dest) {
+                popup = window.open(dest, '_blank');
+            }
+            try {
+                const res = await fetch(`${url}?app=${encodeURIComponent(appId)}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ app: appId })
+                });
+                const result = await res.json();
+                if (!res.ok || result.status === 'error') {
+                    if (popup) popup.close();
+                    logToConsole(`app ${action} ${appId}`, result.message || 'failed', true);
+                    return;
+                }
+                applyAppState(result);
+                logToConsole(`app ${action} ${appId}`, result.status || 'ok');
+            } catch (error) {
+                logToConsole(`app ${action} ${appId}`, error.message, true);
+            }
+        }
+
+        async function fetchApps() {
+            try {
+                const res = await fetch(appsApi);
+                if (!res.ok) throw new Error('app status failed');
+                applyAppState(await res.json());
+            } catch (e) {
+                console.error('Failed to fetch apps', e);
+            }
+        }
+
+        fetchApps();
+        setInterval(fetchApps, 3000);
+        window.addEventListener('load', scrollToReceiveOnce);
+
+        document.getElementById('openDesktopBtn').addEventListener('click', () => {
+            window.open(desktopUrl(), '_blank');
+        });
+
+        document.querySelectorAll('.net-tab').forEach((btn) => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.net-tab').forEach((b) => b.classList.toggle('active', b === btn));
+                document.getElementById('netJoin').classList.toggle('hidden', btn.dataset.tab !== 'join');
+                document.getElementById('netAp').classList.toggle('hidden', btn.dataset.tab !== 'ap');
+            });
+        });
 
         function throttle(func, limit) {
             let lastFunc; let lastRan;

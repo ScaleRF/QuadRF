@@ -598,6 +598,47 @@
 
     // Initialize global WebSocket variable
     let reconnectTimeout = null;
+    let attachTimer = null;
+    const arClient = (window.crypto && crypto.randomUUID)
+        ? crypto.randomUUID()
+        : String(Date.now()) + '-' + Math.random().toString(16).slice(2);
+    let arLeaving = false;
+
+    function arAttach() {
+        if (arLeaving) return;
+        fetch('/api/apps/attach?app=ar&client=' + encodeURIComponent(arClient), {
+            method: 'POST',
+            keepalive: true
+        }).catch(() => {});
+    }
+
+    function arDetach() {
+        if (arLeaving) return;
+        arLeaving = true;
+        if (attachTimer) {
+            clearInterval(attachTimer);
+            attachTimer = null;
+        }
+        if (reconnectTimeout) {
+            clearTimeout(reconnectTimeout);
+            reconnectTimeout = null;
+        }
+        if (ws) {
+            try { ws.close(); } catch (e) {}
+            ws = null;
+        }
+        const url = '/api/apps/detach?app=ar&client=' + encodeURIComponent(arClient);
+        try {
+            if (navigator.sendBeacon) navigator.sendBeacon(url);
+        } catch (e) {}
+        fetch(url, { method: 'POST', keepalive: true }).catch(() => {});
+    }
+
+    arAttach();
+    attachTimer = setInterval(arAttach, 1000);
+    window.addEventListener('pagehide', arDetach);
+    window.addEventListener('beforeunload', arDetach);
+    window.addEventListener('freeze', arDetach);
 
     function connectStream() {
         ws = new WebSocket(wsUrl);
@@ -619,8 +660,9 @@
             statusDiv.innerText = "RF Stream: RECONNECTING...";
             statusDiv.style.color = "#ff0";
             
-            ws = null; 
-            
+            ws = null;
+
+            if (arLeaving) return;
             if (reconnectTimeout) clearTimeout(reconnectTimeout);
             reconnectTimeout = setTimeout(connectStream, 1000);
         };

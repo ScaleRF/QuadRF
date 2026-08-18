@@ -48,7 +48,7 @@ Replace the game cursor button with a link to the control panel:
 
 ```bash
 cd /usr/share/kasmvnc/www
-sudo perl -pi -e 's|<div class="noVNC_button_div[^>]*><input type="image" alt="Game Mode".*?id="noVNC_game_mode_button".*?Game Cursor Mode</div>|<div id="noVNC_game_mode_button" style="display:none"></div><a href="#" target="_blank" style="color:inherit; text-decoration:none;" onmouseover="this.href=\x27http://\x27 + window.location.hostname + \x27/GUI/\x27;"><div class="noVNC_button_div noVNC_hide_on_disconnect" style="cursor:pointer;"><svg style="vertical-align:middle; margin:10px 4px 10px 0; padding:4px;" xmlns="http://www.w3.org/2000/svg" width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg> QuadRF Control</div></a>|g' *.html
+sudo perl -pi -e 's|<div class="noVNC_button_div[^>]*><input type="image" alt="Game Mode".*?id="noVNC_game_mode_button".*?Game Cursor Mode</div>|<div id="noVNC_game_mode_button" style="display:none"></div><a href="#" target="_blank" style="color:inherit; text-decoration:none;" onmouseover="this.href=\x27http://\x27 + window.location.hostname + \x27/\x27;"><div class="noVNC_button_div noVNC_hide_on_disconnect" style="cursor:pointer;"><svg style="vertical-align:middle; margin:10px 4px 10px 0; padding:4px;" xmlns="http://www.w3.org/2000/svg" width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg> QuadRF Control</div></a>|g' *.html
 ```
 
 The button may already be gone in a newer client; if the substitution matches

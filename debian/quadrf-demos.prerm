@@ -1,0 +1,13 @@
+#!/bin/sh
+set -e
+
+if [ "$1" = remove ]; then
+    . /usr/share/quadrf/functions.sh
+    for unit in quadrf-rf-vision.service quadrf-ntsc.service quadrf-psd.service; do
+        rm -f "/etc/systemd/system/${unit}.d/20-display.conf"
+        quadrf_user_dropin_remove "${unit}"
+    done
+fi
+
+#DEBHELPER#
+exit 0

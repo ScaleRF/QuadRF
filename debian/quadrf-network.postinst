@@ -7,7 +7,7 @@ if [ "$1" = configure ]; then
         if nginx -t >/dev/null 2>&1; then
             deb-systemd-invoke reload-or-restart nginx.service || true
         fi
-        deb-systemd-invoke try-restart dnsmasq.service avahi-daemon.service || true
+        deb-systemd-invoke try-restart dnsmasq.service avahi-daemon.service quadrf-mdns.service || true
     fi
 fi
 

@@ -33,8 +33,10 @@ cat > "${tmp}" <<EOF
 interface=wlan0
 no-dhcp-interface=wlan0
 interface-name=${QUADRF_TLS_DOMAIN},wlan0
-interface-name=quadrf.local,wlan0
-interface-name=quadrf,wlan0
+interface-name=${QUADRF_HOSTNAME}.local,wlan0
+interface-name=${QUADRF_HOSTNAME},wlan0
+interface-name=$(quadrf_desktop_mdns),wlan0
+interface-name=$(quadrf_desktop_mdns_short),wlan0
 EOF
 
 if [[ ! -f "${DEST}" ]] || ! cmp -s "${tmp}" "${DEST}"; then
@@ -42,3 +44,5 @@ if [[ ! -f "${DEST}" ]] || ! cmp -s "${tmp}" "${DEST}"; then
     reload_dnsmasq
 fi
 rm -f "${tmp}"
+
+systemctl try-restart quadrf-mdns.service 2>/dev/null || true

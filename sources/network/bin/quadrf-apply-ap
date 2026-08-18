@@ -1,0 +1,44 @@
+#!/bin/bash
+# Write the fallback access-point SSID/passphrase and reload hostapd if it is
+# already up. Called by the web GUI through the sudoers rule in
+# /etc/sudoers.d/quadrf.
+set -euo pipefail
+
+. /usr/share/quadrf/functions.sh
+quadrf_load_conf
+
+SSID="${1:?usage: quadrf-apply-ap <ssid> [passphrase]}"
+PSK="${2:-}"
+
+if [ "${#SSID}" -lt 1 ] || [ "${#SSID}" -gt 32 ]; then
+    echo "quadrf-apply-ap: SSID must be 1-32 characters" >&2
+    exit 1
+fi
+if printf '%s' "${SSID}" | grep -q '[[:cntrl:]]'; then
+    echo "quadrf-apply-ap: SSID contains a control character" >&2
+    exit 1
+fi
+if [ -n "${PSK}" ]; then
+    if [ "${#PSK}" -lt 8 ] || [ "${#PSK}" -gt 63 ]; then
+        echo "quadrf-apply-ap: password must be 8-63 characters, or empty for an open network" >&2
+        exit 1
+    fi
+    if printf '%s' "${PSK}" | grep -q '[[:cntrl:]]'; then
+        echo "quadrf-apply-ap: password contains a control character" >&2
+        exit 1
+    fi
+fi
+
+quadrf_conf_set QUADRF_AP_SSID "${SSID}"
+quadrf_conf_set QUADRF_AP_PASS "${PSK}"
+
+QUADRF_CONF="${QUADRF_CONF:-/etc/quadrf/quadrf.conf}"
+quadrf_load_conf
+quadrf_write_hostapd /etc/hostapd/quadrf.conf
+
+if systemctl is-active --quiet hostapd.service; then
+    systemctl restart hostapd.service
+    echo "hostapd restarted with SSID ${SSID}"
+else
+    echo "saved SSID ${SSID}; applies the next time the fallback AP starts"
+fi

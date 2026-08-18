@@ -1,5 +1,6 @@
 #!/bin/sh
-# The demos keep their saved AR overlay settings under /var/lib/quadrf.
+# Demos keep their saved AR overlay settings under /var/lib/quadrf.
+# Exclusive demo units run as the operator account on the KasmVNC display.
 set -eu
 
 . /usr/share/quadrf/functions.sh
@@ -8,4 +9,21 @@ quadrf_load_conf
 install -d -m 755 /var/lib/quadrf/demos
 if getent passwd "${QUADRF_USER}" >/dev/null; then
     chown "${QUADRF_USER}:$(id -gn "${QUADRF_USER}")" /var/lib/quadrf/demos
+fi
+
+home="$(quadrf_home)"
+for unit in quadrf-rf-vision.service quadrf-ntsc.service quadrf-psd.service; do
+    [ -f "/lib/systemd/system/${unit}" ] || [ -f "/usr/lib/systemd/system/${unit}" ] || continue
+    quadrf_user_dropin "${unit}"
+done
+
+if [ -n "${home}" ]; then
+    for unit in quadrf-ntsc.service quadrf-psd.service; do
+        dir="/etc/systemd/system/${unit}.d"
+        [ -d "${dir}" ] || continue
+        cat > "${dir}/20-display.conf" <<EOF
+[Service]
+Environment=XAUTHORITY=${home}/.Xauthority
+EOF
+    done
 fi

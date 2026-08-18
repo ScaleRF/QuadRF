@@ -1,3 +1,6 @@
 usr/share/quadrf/gui/
+usr/share/quadrf/apps.json
+usr/sbin/quadrf-app
 usr/lib/quadrf/apply.d/30-gui
 lib/systemd/system/quadrf-gui.service
+usr/share/man/man8/quadrf-app.8

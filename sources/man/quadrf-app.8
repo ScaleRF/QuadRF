@@ -1,0 +1,43 @@
+.TH QUADRF-APP 8 "August 2026" "QuadRF" "QuadRF"
+.SH NAME
+quadrf-app \- start and stop exclusive QuadRF demo applications
+.SH SYNOPSIS
+.B quadrf-app
+.B status
+.br
+.B quadrf-app
+.B start
+.I app
+.br
+.B quadrf-app
+.B stop
+.I app
+.SH DESCRIPTION
+Starts or stops a demo from the catalog in
+.IR /usr/share/quadrf/apps.json .
+The CSI and DSI front-end is single-client, so
+.B start
+stops every other exclusive app in that catalog, waits for the kernel to
+release the device nodes, then starts the requested unit.
+.PP
+.B status
+prints JSON with the installed and running state of each app. The web control
+panel calls this helper through the sudoers rule in
+.IR /etc/sudoers.d/quadrf .
+.PP
+Known
+.I app
+ids are
+.BR ar
+(Spatial RF Vision, headless WebSocket feed for
+.IR /AR/ ),
+.BR ntsc
+(Camera Decoder) and
+.BR psd
+(PSD Plot). Desktop-launched copies of the same binaries are also killed, so a
+session started from the VNC desktop does not keep the radio locked.
+.SH SEE ALSO
+.BR quadrf (1),
+.BR quadrf-rf-vision (1),
+.BR quadrf-ntsc (1),
+.BR quadrf-psd (1)

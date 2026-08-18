@@ -1,3 +1,16 @@
+quadrf (1.0.3) trixie; urgency=medium
+
+  * nginx serves the control panel at / and KasmVNC at /VNC/ (and
+    desktop.HOSTNAME.local). /GUI/ redirects to /.
+  * Control panel Applications panel starts/stops Spatial RF Vision, the
+    camera decoder and the PSD plot through quadrf-app, which stops other
+    exclusive CSI/DSI users first.
+  * Network Setup can set the fallback AP SSID and WPA2 passphrase.
+  * QUADRF_HOSTNAME is the mDNS/nginx name so several units on one LAN can
+    be given distinct names later.
+
+ -- QuadRF Engineering <contact@ScaleRF.com>  Tue, 18 Aug 2026 00:00:00 -0700
+
 quadrf (1.0.2) trixie; urgency=medium
 
   * KasmVNC session keeps GRC Qt windows on DISPLAY :1. dbus-launch now

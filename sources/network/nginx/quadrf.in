@@ -1,10 +1,15 @@
 # QuadRF front door. Generated from /usr/share/quadrf/network/nginx-site.in;
 # edit the template or /etc/quadrf/quadrf.conf, then run "quadrf apply".
 #
-#   /       remote desktop (KasmVNC on 8444)
-#   /GUI/   control panel (Flask on 8080)
-#   /AR/    browser AR overlay, static
-#   /ws     WebSocket from the Spatial RF Vision demo on 8000
+#   /                         control panel (Flask on 8080)
+#   HOSTNAME-desktop.local    remote desktop (KasmVNC on 8444)
+#   HOSTNAMEd.local           same desktop, short alias (quadrfd.local)
+#   :6080                     same desktop, for IP access and as a fallback
+#   /AR/                      browser AR overlay, static
+#   /ws                       WebSocket from Spatial RF Vision on 8000
+#
+# KasmVNC's client assumes it is at the root of a host. Do not put it under
+# a path prefix.
 
 map $http_upgrade $connection_upgrade {
     default upgrade;
@@ -45,10 +50,10 @@ server {
 server {
     listen 80;
     listen [::]:80;
-    server_name @DOMAIN@ @AP_ADDRESS@ quadrf quadrf.local localhost;
+    server_name @DOMAIN@ @AP_ADDRESS@ @HOSTNAME@ @HOSTNAME@.local localhost;
 
     # The certificate only covers @DOMAIN@, so plain HTTP stays available for
-    # quadrf.local and for direct addresses.
+    # @HOSTNAME@.local and for direct addresses.
     if ($host = @DOMAIN@) {
         return 301 https://$host$request_uri;
     }
@@ -59,7 +64,7 @@ server {
 server {
     listen 443 ssl default_server;
     listen [::]:443 ssl default_server;
-    server_name @DOMAIN@ @AP_ADDRESS@ quadrf quadrf.local localhost;
+    server_name @DOMAIN@ @AP_ADDRESS@ @HOSTNAME@ @HOSTNAME@.local localhost;
 
     ssl_certificate /etc/quadrf/tls/fullchain.pem;
     ssl_certificate_key /etc/quadrf/tls/privkey.pem;
@@ -67,4 +72,35 @@ server {
     ssl_ciphers HIGH:!aNULL:!MD5;
 
     include snippets/quadrf-locations.conf;
+}
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name @DESKTOP@ @DESKTOP_SHORT@ desktop.@HOSTNAME@.local;
+
+    include snippets/quadrf-vnc.conf;
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    server_name @DESKTOP@ @DESKTOP_SHORT@ desktop.@HOSTNAME@.local;
+
+    ssl_certificate /etc/quadrf/tls/fullchain.pem;
+    ssl_certificate_key /etc/quadrf/tls/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+
+    include snippets/quadrf-vnc.conf;
+}
+
+# Same KasmVNC root, reachable as http://<any-address>:6080/ when mDNS
+# extra names are not available (raw IP, some phones).
+server {
+    listen 6080 default_server;
+    listen [::]:6080 default_server;
+    server_name _;
+
+    include snippets/quadrf-vnc.conf;
 }

@@ -1,0 +1,18 @@
+[Unit]
+Description=QuadRF Spatial RF Vision
+Wants=load-quadrf.service
+After=load-quadrf.service
+
+[Service]
+Type=simple
+# User, Group and HOME come from /etc/systemd/system/quadrf-rf-vision.service.d/
+User=root
+WorkingDirectory=/var/lib/quadrf/demos
+ExecStart=/usr/bin/quadrf-rf-vision --headless
+KillMode=control-group
+KillSignal=SIGINT
+TimeoutStopSec=5
+Restart=no
+
+[Install]
+WantedBy=multi-user.target

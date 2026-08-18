@@ -169,21 +169,36 @@ install-gui:
 	$(INSTALL) -D -m 644 $(SRC)/flask/app.py $(DESTDIR)$(datadir)/gui/app.py
 	$(INSTALL) -D -m 644 -t $(DESTDIR)$(datadir)/gui/templates $(SRC)/flask/templates/*
 	$(INSTALL) -D -m 644 -t $(DESTDIR)$(datadir)/gui/static $(SRC)/flask/static/*
+	$(INSTALL) -D -m 755 $(SRC)/flask/quadrf-app $(DESTDIR)$(sbindir)/quadrf-app
+	$(INSTALL) -D -m 644 $(SRC)/flask/apps.json $(DESTDIR)$(datadir)/apps.json
 	$(INSTALL) -D -m 644 $(SRC)/systemd/quadrf-gui.service $(DESTDIR)$(unitdir)/quadrf-gui.service
 	$(INSTALL) -D -m 755 $(SRC)/flask/30-gui $(DESTDIR)$(libdir)/apply.d/30-gui
+	$(INSTALL) -D -m 644 $(SRC)/man/quadrf-app.8 $(DESTDIR)$(mandir)/man8/quadrf-app.8
 
 install-network:
 	$(INSTALL) -D -m 755 $(SRC)/network/bin/quadrf-hotspot $(DESTDIR)$(sbindir)/quadrf-hotspot
 	$(INSTALL) -D -m 755 $(SRC)/network/bin/quadrf-ethernet $(DESTDIR)$(sbindir)/quadrf-ethernet
 	$(INSTALL) -D -m 755 $(SRC)/network/bin/quadrf-apply-wifi $(DESTDIR)$(sbindir)/quadrf-apply-wifi
+	$(INSTALL) -D -m 755 $(SRC)/network/bin/quadrf-apply-ap $(DESTDIR)$(sbindir)/quadrf-apply-ap
 	$(INSTALL) -D -m 755 $(SRC)/network/bin/quadrf-dns-update $(DESTDIR)$(sbindir)/quadrf-dns-update
+	$(INSTALL) -D -m 755 $(SRC)/network/bin/quadrf-mdns-alias $(DESTDIR)$(sbindir)/quadrf-mdns-alias
 	$(INSTALL) -D -m 755 $(SRC)/network/if-up.d/quadrf-dns $(DESTDIR)$(sysconfdir)/network/if-up.d/quadrf-dns
 	$(INSTALL) -D -m 644 $(SRC)/network/dnsmasq/quadrf.conf $(DESTDIR)$(sysconfdir)/dnsmasq.d/quadrf.conf
 	$(INSTALL) -D -m 644 $(SRC)/network/modprobe.d/quadrf-g-ether.conf \
 		$(DESTDIR)$(sysconfdir)/modprobe.d/quadrf-g-ether.conf
 	$(INSTALL) -D -m 644 $(SRC)/network/nginx/quadrf-locations.conf \
 		$(DESTDIR)$(sysconfdir)/nginx/snippets/quadrf-locations.conf
+	$(INSTALL) -D -m 644 $(SRC)/network/nginx/quadrf-kasm-proxy.conf \
+		$(DESTDIR)$(sysconfdir)/nginx/snippets/quadrf-kasm-proxy.conf
+	$(INSTALL) -D -m 644 $(SRC)/network/nginx/quadrf-vnc.conf \
+		$(DESTDIR)$(sysconfdir)/nginx/snippets/quadrf-vnc.conf
 	$(INSTALL) -D -m 644 $(SRC)/network/nginx/quadrf.in $(DESTDIR)$(datadir)/network/nginx-site.in
+	$(INSTALL) -D -m 644 $(SRC)/network/nginx/quadrf-locations.conf \
+		$(DESTDIR)$(datadir)/network/nginx-locations.conf
+	$(INSTALL) -D -m 644 $(SRC)/network/nginx/quadrf-kasm-proxy.conf \
+		$(DESTDIR)$(datadir)/network/nginx-kasm-proxy.conf
+	$(INSTALL) -D -m 644 $(SRC)/network/nginx/quadrf-vnc.conf \
+		$(DESTDIR)$(datadir)/network/nginx-vnc.conf
 	$(INSTALL) -D -m 644 $(SRC)/network/hostapd/quadrf.conf.in $(DESTDIR)$(datadir)/network/hostapd.conf.in
 	$(INSTALL) -D -m 644 $(SRC)/network/dhcp/dhcpd.conf.in $(DESTDIR)$(datadir)/network/dhcpd.conf.in
 	$(INSTALL) -D -m 644 $(SRC)/network/sudoers.in $(DESTDIR)$(datadir)/network/sudoers.in
@@ -191,12 +206,13 @@ install-network:
 	$(INSTALL) -D -m 644 -t $(DESTDIR)$(datadir)/network/interfaces.d $(SRC)/network/interfaces.d/*.cfg
 	$(INSTALL) -D -m 644 $(SRC)/systemd/quadrf-hotspot.service $(DESTDIR)$(unitdir)/quadrf-hotspot.service
 	$(INSTALL) -D -m 644 $(SRC)/systemd/quadrf-ethernet.service $(DESTDIR)$(unitdir)/quadrf-ethernet.service
+	$(INSTALL) -D -m 644 $(SRC)/systemd/quadrf-mdns.service $(DESTDIR)$(unitdir)/quadrf-mdns.service
 	$(INSTALL) -D -m 644 $(SRC)/network/systemd/hostapd.service.d/quadrf.conf \
 		$(DESTDIR)$(unitdir)/hostapd.service.d/quadrf.conf
 	$(INSTALL) -D -m 755 $(SRC)/network/40-network $(DESTDIR)$(libdir)/apply.d/40-network
 	$(INSTALL) -D -m 644 -t $(DESTDIR)$(mandir)/man8 $(SRC)/man/quadrf-hotspot.8 \
 		$(SRC)/man/quadrf-ethernet.8 $(SRC)/man/quadrf-dns-update.8 \
-		$(SRC)/man/quadrf-apply-wifi.8
+		$(SRC)/man/quadrf-apply-wifi.8 $(SRC)/man/quadrf-apply-ap.8
 
 install-demos: demos
 	$(INSTALL) -D -m 755 $(BUILD)/demos/quadrf-rf-vision $(DESTDIR)$(bindir)/quadrf-rf-vision
@@ -208,6 +224,9 @@ install-demos: demos
 	$(INSTALL) -D -m 644 $(SRC)/demos/icon-192.png $(DESTDIR)$(datadir)/ar/icon-192.png
 	$(INSTALL) -D -m 644 $(SRC)/demos/icon-512.png $(DESTDIR)$(datadir)/ar/icon-512.png
 	$(INSTALL) -D -m 755 $(SRC)/demos/45-demos $(DESTDIR)$(libdir)/apply.d/45-demos
+	$(INSTALL) -D -m 644 $(SRC)/systemd/quadrf-rf-vision.service $(DESTDIR)$(unitdir)/quadrf-rf-vision.service
+	$(INSTALL) -D -m 644 $(SRC)/systemd/quadrf-ntsc.service $(DESTDIR)$(unitdir)/quadrf-ntsc.service
+	$(INSTALL) -D -m 644 $(SRC)/systemd/quadrf-psd.service $(DESTDIR)$(unitdir)/quadrf-psd.service
 	$(INSTALL) -D -m 644 -t $(DESTDIR)$(mandir)/man1 $(SRC)/man/quadrf-rf-vision.1 \
 		$(SRC)/man/quadrf-psd.1 $(SRC)/man/quadrf-ntsc.1
 	cp -a $(SRC)/phasegaze-demo $(DESTDIR)$(datadir)/phasegaze

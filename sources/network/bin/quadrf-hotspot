@@ -93,8 +93,10 @@ cat > "${AP_CONF}" <<EOF
 interface=wlan0
 no-dhcp-interface=wlan0
 interface-name=${QUADRF_TLS_DOMAIN},wlan0
-interface-name=quadrf.local,wlan0
-interface-name=quadrf,wlan0
+interface-name=${QUADRF_HOSTNAME}.local,wlan0
+interface-name=${QUADRF_HOSTNAME},wlan0
+interface-name=$(quadrf_desktop_mdns),wlan0
+interface-name=$(quadrf_desktop_mdns_short),wlan0
 EOF
 
 systemctl unmask hostapd.service 2>/dev/null || true

@@ -1,0 +1,13 @@
+[Unit]
+Description=QuadRF mDNS alias for the remote desktop
+After=avahi-daemon.service network-online.target
+Wants=avahi-daemon.service
+
+[Service]
+Type=simple
+ExecStart=/usr/sbin/quadrf-mdns-alias
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

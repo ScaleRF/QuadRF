@@ -61,21 +61,28 @@ flowchart TB
 | Home LAN | `quadrf.local` | mDNS through avahi. Ethernet or Wi-Fi with a router DHCP lease. `http://` |
 | Ethernet direct-connect | `10.55.1.1` | No router on the cable: Pi is `10.55.1.1`, the PC gets a lease from dnsmasq. No gateway. |
 | USB gadget | `10.55.0.1` | `g_ether` on `usb0` when a host enumerates the gadget; lease from dnsmasq |
-| Fallback access point | `192.168.44.1` | Open SSID `QuadRF` (no password), started when no saved Wi-Fi answers |
-| TLS name | `my.quadrf.com` | Default `QUADRF_TLS_DOMAIN` for the self-signed CN|
+| Fallback access point | `192.168.44.1` | SSID `QuadRF`, open unless `QUADRF_AP_PASS` is set, started when no saved Wi-Fi answers |
+| TLS name | `my.quadrf.com` | Default `QUADRF_TLS_DOMAIN` for the self-signed CN |
 
 ## Web entry points
 
 nginx answers on ports 80 and 443.
 
-| Path | Serves | Backend |
+| Path / name | Serves | Backend |
 |------|--------|---------|
-| `/` | Remote desktop | KasmVNC on 8444 |
-| `/GUI/` | Control panel, receive and transmit | Flask on 8080 |
+| `/` | Control panel | Flask on 8080 |
+| `quadrfd.local`, `quadrf-desktop.local`, or `:6080` | Remote desktop | KasmVNC on 8444 |
+| `quadrfd.local/split` | Desktop + control panel | Kasm iframe + Flask |
 | `/AR/` | Browser AR overlay | Static, `/usr/share/quadrf/ar/` |
 | `/ws` | WebSocket for Spatial RF Vision | `quadrf-rf-vision` on 8000 |
 
-The control panel also exposes `/GUI/api/status` and `/GUI/api/control`.
+`/GUI/` redirects to `/`. `/GUI/split` on the desktop host redirects to `/split`.
+`/VNC/` redirects to port 6080. KasmVNC is not served
+under a path prefix; it needs the root of a host (or port). The desktop
+hostname is `HOSTNAMEd.local` (and `HOSTNAME-desktop.local`) rather than `desktop.HOSTNAME.local`
+because browsers only multicast-resolve a single label under `.local`.
+
+The control panel also exposes `/api/status`, `/api/control` and `/api/apps`.
 
 ## Service chain
 
@@ -85,7 +92,7 @@ load-quadrf.service          OpenOCD -> bitstream -> drivers -> quadrf-jtag --in
 quadrf-gui.service           control panel on 8080 (starts even if the radio is missing)
 quadrf-soapy-server.service  SoapyRemote on 55132
         |
-nginx.service                front end for /, /GUI/, /AR/, /ws
+nginx.service                front end for /, HOSTNAMEd.local, HOSTNAME-desktop.local, :6080, /AR/, /ws
 quadrf-desktop.service       KasmVNC on 8444
 quadrf-ups.service           UPS HAT state for the desktop panel
 quadrf-hotspot.service       access point when no known network answers

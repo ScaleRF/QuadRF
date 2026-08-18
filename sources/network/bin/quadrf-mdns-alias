@@ -1,0 +1,53 @@
+#!/bin/bash
+# Advertise HOSTNAME-desktop.local so KasmVNC can live at the root of a host.
+# A two-label name like desktop.HOSTNAME.local is ignored by browser mDNS.
+# avahi-publish stays in the foreground; systemd restarts us if addresses change.
+set -euo pipefail
+
+. /usr/share/quadrf/functions.sh
+quadrf_load_conf
+
+NAME="$(quadrf_desktop_mdns)"
+NAME_SHORT="$(quadrf_desktop_mdns_short)"
+AP_ADDR="${QUADRF_AP_ADDRESS}"
+
+if ! command -v avahi-publish >/dev/null; then
+    echo "quadrf-mdns-alias: avahi-publish missing (install avahi-utils)" >&2
+    exit 0
+fi
+
+pids=()
+cleanup() {
+    kill "${pids[@]}" 2>/dev/null || true
+}
+trap cleanup EXIT INT TERM
+
+# usb0 and the AP island are not reachable from the LAN. Publishing them as
+# extra A records for this name makes clients pick 192.168.44.1 and fail.
+# AP clients already get HOSTNAME-desktop.local from dnsmasq on wlan0.
+mapfile -t addrs < <(
+    ip -4 -o addr show scope global | awk '{print $2, $4}' | while read -r iface cidr; do
+        addr="${cidr%/*}"
+        [ "${iface}" = "usb0" ] && continue
+        [ -n "${AP_ADDR}" ] && [ "${addr}" = "${AP_ADDR}" ] && continue
+        printf '%s\n' "${addr}"
+    done | sort -u
+)
+if [ "${#addrs[@]}" -eq 0 ] && [ -n "${AP_ADDR}" ] &&
+   ip -4 -o addr show | grep -q " ${AP_ADDR}/"; then
+    addrs=("${AP_ADDR}")
+fi
+if [ "${#addrs[@]}" -eq 0 ]; then
+    echo "quadrf-mdns-alias: no IPv4 addresses yet" >&2
+    exit 1
+fi
+
+for addr in "${addrs[@]}"; do
+    avahi-publish -a -R "${NAME}" "${addr}" &
+    pids+=("$!")
+    avahi-publish -a -R "${NAME_SHORT}" "${addr}" &
+    pids+=("$!")
+done
+
+wait -n "${pids[@]}"
+exit 1

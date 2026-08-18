@@ -1,0 +1,19 @@
+[Unit]
+Description=QuadRF Camera Decoder
+Wants=load-quadrf.service quadrf-desktop.service
+After=load-quadrf.service quadrf-desktop.service
+
+[Service]
+Type=simple
+# User, Group and HOME come from /etc/systemd/system/quadrf-ntsc.service.d/
+User=root
+Environment=DISPLAY=:1
+Environment=SDL_VIDEODRIVER=x11
+Environment=QT_QPA_PLATFORM=xcb
+Environment=GDK_BACKEND=x11
+ExecStart=/usr/bin/quadrf-ntsc
+TimeoutStopSec=8
+Restart=no
+
+[Install]
+WantedBy=multi-user.target

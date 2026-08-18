@@ -1,0 +1,187 @@
+#!/usr/bin/python3
+"""Start, stop and report the exclusive QuadRF demo applications.
+
+CSI/DSI are single-client. Starting one app stops the others in the catalog
+before the new unit is brought up. Invoked by the web GUI through sudoers.
+"""
+import json
+import os
+import socket
+import subprocess
+import sys
+import time
+
+CATALOG_PATH = os.environ.get("QUADRF_APPS_JSON", "/usr/share/quadrf/apps.json")
+CSI_RELEASE_S = 0.5
+STOP_WAIT_S = 4.0
+START_WAIT_S = 8.0
+
+
+def die(msg, code=1):
+    print(msg, file=sys.stderr)
+    sys.exit(code)
+
+
+def load_catalog():
+    try:
+        with open(CATALOG_PATH, encoding="utf-8") as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        die(f"catalog missing: {CATALOG_PATH}")
+    except json.JSONDecodeError as e:
+        die(f"catalog invalid: {e}")
+    apps = data.get("apps") or []
+    by_id = {}
+    for app in apps:
+        app_id = app.get("id")
+        if not app_id or not app.get("service"):
+            continue
+        by_id[app_id] = app
+    return by_id
+
+
+def run(cmd, check=False):
+    return subprocess.run(cmd, check=check, capture_output=True, text=True)
+
+
+def unit_exists(unit):
+    r = run(["systemctl", "list-unit-files", "--no-legend", unit])
+    return r.returncode == 0 and unit in (r.stdout or "")
+
+
+def unit_active(unit):
+    return run(["systemctl", "is-active", "--quiet", unit]).returncode == 0
+
+
+def binary_running(name):
+    return run(["pgrep", "-x", name]).returncode == 0
+
+
+def port_open(port):
+    try:
+        with socket.create_connection(("127.0.0.1", int(port)), timeout=0.2):
+            return True
+    except OSError:
+        return False
+
+
+def wait_until(pred, timeout, interval=0.1):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if pred():
+            return True
+        time.sleep(interval)
+    return pred()
+
+
+def stop_binaries(app):
+    for name in app.get("binaries") or []:
+        run(["pkill", "-x", name])
+
+
+def stop_app(app):
+    unit = app["service"]
+    if unit_exists(unit):
+        run(["systemctl", "stop", unit])
+        run(["systemctl", "reset-failed", unit])
+        wait_until(lambda: not unit_active(unit), STOP_WAIT_S)
+    stop_binaries(app)
+    wait_until(lambda: not any(binary_running(b) for b in (app.get("binaries") or [])), 2.0)
+
+
+def start_app(app):
+    unit = app["service"]
+    if not unit_exists(unit):
+        die(f"{app['id']}: {unit} is not installed", 2)
+    r = run(["systemctl", "start", unit])
+    if r.returncode != 0:
+        err = (r.stderr or r.stdout or "").strip() or f"systemctl start {unit} failed"
+        die(err, 1)
+    if not wait_until(lambda: unit_active(unit), START_WAIT_S):
+        st = run(["systemctl", "is-active", unit])
+        die(f"{app['id']}: {unit} did not become active ({(st.stdout or '').strip()})", 1)
+    ready_port = app.get("ready_port")
+    if ready_port:
+        if not wait_until(lambda: port_open(ready_port), START_WAIT_S):
+            die(f"{app['id']}: listening port {ready_port} did not open", 1)
+
+
+def status_payload(catalog):
+    apps = []
+    for app_id, app in catalog.items():
+        unit = app["service"]
+        installed = unit_exists(unit)
+        running = False
+        if installed:
+            running = unit_active(unit)
+        if not running:
+            running = any(binary_running(b) for b in (app.get("binaries") or []))
+        apps.append({
+            "id": app_id,
+            "name": app.get("name") or app_id,
+            "blurb": app.get("blurb") or "",
+            "open": app.get("open") or "",
+            "exclusive": bool(app.get("exclusive")),
+            "installed": installed,
+            "running": running,
+        })
+    return {"status": "ok", "apps": apps}
+
+
+def cmd_status(catalog):
+    json.dump(status_payload(catalog), sys.stdout)
+    sys.stdout.write("\n")
+    return 0
+
+
+def cmd_start(catalog, app_id):
+    app = catalog.get(app_id)
+    if not app:
+        die(f"unknown app: {app_id}", 2)
+    for other_id, other in catalog.items():
+        if other_id == app_id:
+            continue
+        if app.get("exclusive") and other.get("exclusive"):
+            stop_app(other)
+    time.sleep(CSI_RELEASE_S)
+    start_app(app)
+    json.dump(status_payload(catalog), sys.stdout)
+    sys.stdout.write("\n")
+    return 0
+
+
+def cmd_stop(catalog, app_id):
+    app = catalog.get(app_id)
+    if not app:
+        die(f"unknown app: {app_id}", 2)
+    stop_app(app)
+    json.dump(status_payload(catalog), sys.stdout)
+    sys.stdout.write("\n")
+    return 0
+
+
+def usage():
+    print("usage: quadrf-app status | start <app> | stop <app>", file=sys.stderr)
+    return 2
+
+
+def main(argv=None):
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if not argv or argv[0] in ("-h", "--help"):
+        return usage()
+    catalog = load_catalog()
+    cmd = argv[0]
+    if cmd in ("status", "list"):
+        return cmd_status(catalog)
+    if cmd in ("start", "stop"):
+        if len(argv) < 2:
+            return usage()
+        app_id = argv[1]
+        if cmd == "start":
+            return cmd_start(catalog, app_id)
+        return cmd_stop(catalog, app_id)
+    return usage()
+
+
+if __name__ == "__main__":
+    sys.exit(main())

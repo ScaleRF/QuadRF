@@ -13,7 +13,12 @@ SHARE=/usr/share/quadrf/network
 AP_PREFIX="${QUADRF_AP_ADDRESS%.*}"
 
 render() {
+    desktop="$(quadrf_desktop_mdns)"
+    desktop_short="$(quadrf_desktop_mdns_short)"
     sed -e "s|@DOMAIN@|${QUADRF_TLS_DOMAIN}|g" \
+        -e "s|@HOSTNAME@|${QUADRF_HOSTNAME}|g" \
+        -e "s|@DESKTOP@|${desktop}|g" \
+        -e "s|@DESKTOP_SHORT@|${desktop_short}|g" \
         -e "s|@SSID@|${QUADRF_AP_SSID}|g" \
         -e "s|@AP_ADDRESS@|${QUADRF_AP_ADDRESS}|g" \
         -e "s|@AP_PREFIX@|${AP_PREFIX}|g" \
@@ -155,7 +160,7 @@ configure_tls() {
 apply() {
     render "${SHARE}/nginx-site.in" /etc/nginx/sites-available/quadrf
     render "${SHARE}/dnsmasq/quadrf-usb0.conf.in" /etc/dnsmasq.d/quadrf-usb0.conf
-    render "${SHARE}/hostapd.conf.in" /etc/hostapd/quadrf.conf
+    quadrf_write_hostapd /etc/hostapd/quadrf.conf
     render "${SHARE}/dhcpd.conf.in" /etc/quadrf/dhcpd.conf
 
     render "${SHARE}/sudoers.in" /etc/sudoers.d/quadrf.tmp
@@ -192,11 +197,11 @@ apply() {
     systemctl unmask hostapd.service 2>/dev/null || true
     systemctl disable hostapd.service isc-dhcp-server.service 2>/dev/null || true
 
-    # Publish quadrf.local regardless of the system hostname, and keep the
+    # Publish HOSTNAME.local regardless of the system hostname, and keep the
     # reflector off: with several interfaces up it echoes our own announcement
-    # back and avahi renames itself to quadrf-2.
+    # back and avahi renames itself to HOSTNAME-2.
     if [ -f /etc/avahi/avahi-daemon.conf ]; then
-        quadrf_setting_set /etc/avahi/avahi-daemon.conf host-name quadrf
+        quadrf_setting_set /etc/avahi/avahi-daemon.conf host-name "${QUADRF_HOSTNAME}"
         quadrf_setting_set /etc/avahi/avahi-daemon.conf enable-reflector no
     fi
 
@@ -207,6 +212,10 @@ apply() {
     fi
 
     configure_tls
+
+    install -D -m 644 "${SHARE}/nginx-locations.conf" /etc/nginx/snippets/quadrf-locations.conf
+    install -D -m 644 "${SHARE}/nginx-kasm-proxy.conf" /etc/nginx/snippets/quadrf-kasm-proxy.conf
+    install -D -m 644 "${SHARE}/nginx-vnc.conf" /etc/nginx/snippets/quadrf-vnc.conf
 
     ln -sfn /etc/nginx/sites-available/quadrf /etc/nginx/sites-enabled/quadrf
     rm -f /etc/nginx/sites-enabled/default

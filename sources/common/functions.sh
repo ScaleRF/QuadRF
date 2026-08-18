@@ -12,13 +12,28 @@ quadrf_load_conf() {
     QUADRF_USER=dietpi
     QUADRF_BOOT_DIR=/boot/firmware
     QUADRF_TLS_DOMAIN=my.quadrf.com
+    QUADRF_HOSTNAME=quadrf
     QUADRF_AP_SSID=QuadRF
+    QUADRF_AP_PASS=
     QUADRF_AP_ADDRESS=192.168.44.1
     QUADRF_OPENOCD=
 
     if [ -r "${QUADRF_CONF}" ]; then
         . "${QUADRF_CONF}"
     fi
+}
+
+# Single-label mDNS names for the KasmVNC vhost.
+# desktop.quadrf.local is two labels; browsers send that to unicast DNS and
+# get NXDOMAIN. DNS is case-insensitive
+quadrf_desktop_mdns() {
+    quadrf_load_conf
+    printf '%s-desktop.local\n' "${QUADRF_HOSTNAME}"
+}
+
+quadrf_desktop_mdns_short() {
+    quadrf_load_conf
+    printf '%sd.local\n' "${QUADRF_HOSTNAME}"
 }
 
 quadrf_home() {
@@ -95,6 +110,61 @@ quadrf_setting_set() {
     else
         printf '%s=%s\n' "${key}" "${value}" >> "${file}"
     fi
+}
+
+quadrf_sh_quote() {
+    printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
+}
+
+# Write a quoted assignment into /etc/quadrf/quadrf.conf.
+quadrf_conf_set() {
+    key="$1"
+    value="$2"
+    file="${QUADRF_CONF:-/etc/quadrf/quadrf.conf}"
+    quoted="$(quadrf_sh_quote "${value}")"
+    [ -f "${file}" ] || return 1
+
+    if grep -qE "^[[:space:]]*#?[[:space:]]*${key}=" "${file}"; then
+        tmp="$(mktemp)"
+        awk -v key="${key}" -v val="${quoted}" '
+            $0 ~ "^[[:space:]]*#?[[:space:]]*" key "=" { print key "=" val; next }
+            { print }
+        ' "${file}" > "${tmp}"
+        cat "${tmp}" > "${file}"
+        rm -f "${tmp}"
+    else
+        printf '%s=%s\n' "${key}" "${quoted}" >> "${file}"
+    fi
+}
+
+# hostapd.conf for the fallback AP. Empty QUADRF_AP_PASS means open.
+quadrf_write_hostapd() {
+    dest="${1:-/etc/hostapd/quadrf.conf}"
+    tmp="$(mktemp)"
+
+    cat > "${tmp}" <<EOF
+interface=wlan0
+driver=nl80211
+ssid=${QUADRF_AP_SSID}
+hw_mode=g
+channel=6
+country_code=US
+ieee80211n=1
+wmm_enabled=1
+auth_algs=1
+EOF
+    if [ -n "${QUADRF_AP_PASS}" ]; then
+        cat >> "${tmp}" <<EOF
+wpa=2
+wpa_key_mgmt=WPA-PSK
+rsn_pairwise=CCMP
+wpa_passphrase=${QUADRF_AP_PASS}
+EOF
+    else
+        echo "wpa=0" >> "${tmp}"
+    fi
+    install -m 644 "${tmp}" "${dest}"
+    rm -f "${tmp}"
 }
 
 # Units that act on behalf of the operator account get their User=/Group= from

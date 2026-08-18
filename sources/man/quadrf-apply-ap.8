@@ -1,0 +1,37 @@
+.TH QUADRF-APPLY-AP 8 "August 2026" "QuadRF" "QuadRF"
+.SH NAME
+quadrf-apply-ap \- set the fallback access point SSID and passphrase
+.SH SYNOPSIS
+.B quadrf-apply-ap
+.I ssid
+.RI [ passphrase ]
+.SH DESCRIPTION
+Writes
+.B QUADRF_AP_SSID
+and
+.B QUADRF_AP_PASS
+into
+.IR /etc/quadrf/quadrf.conf ,
+regenerates
+.IR /etc/hostapd/quadrf.conf
+and restarts
+.B hostapd
+when the fallback access point is already running. An empty
+.I passphrase
+leaves the AP open
+.RB ( wpa=0 ).
+A passphrase must be 8–63 characters.
+.PP
+This does not reboot. Clients associated to the hotspot will be dropped and
+have to join the new SSID. If the radio is in station mode, the new settings
+are used the next time
+.BR quadrf-hotspot (8)
+brings the AP up.
+.PP
+The web control panel invokes this through the sudoers rule in
+.IR /etc/sudoers.d/quadrf .
+.SH SEE ALSO
+.BR quadrf (1),
+.BR quadrf-hotspot (8),
+.BR quadrf-apply-wifi (8),
+.BR hostapd.conf (5)
