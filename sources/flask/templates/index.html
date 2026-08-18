@@ -296,6 +296,19 @@
         .net-tabs button.outline.active {
             background: rgba(245, 158, 11, 0.15) !important;
         }
+        .ap-status {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: baseline;
+            gap: 0.5rem 0.85rem;
+            margin: 0 0 0.85rem 0;
+        }
+        .ap-copy {
+            margin: 0;
+            color: #94a3b8;
+            font-size: 0.8rem;
+            flex: 1 1 14rem;
+        }
         .app-list {
             display: flex;
             flex-direction: row;
@@ -719,11 +732,15 @@
             </div>
 
             <div id="netAp" class="net-pane hidden">
-                <p class="hint">
-                    Current hotspot SSID: <strong>{{ ap_ssid }}</strong>
-                    {% if hotspot_active %}(this QuadRF is the access point now){% else %}(used when no saved Wi-Fi answers){% endif %}.
-                    Changing these settings while you are connected through the hotspot will drop you; reconnect to the new network.
-                </p>
+                <div class="ap-status">
+                    {% if hotspot_active %}
+                    <div class="status-pill"><div class="indicator locked"></div> Hotspot up</div>
+                    <p class="ap-copy">SSID <strong>{{ ap_ssid }}</strong>. Clients on this network will have to reconnect if you change the name or password.</p>
+                    {% else %}
+                    <div class="status-pill"><div class="indicator"></div> Hotspot standby</div>
+                    <p class="ap-copy">SSID <strong>{{ ap_ssid }}</strong>. Broadcasts when no saved Wi-Fi is in range.</p>
+                    {% endif %}
+                </div>
                 <form method="POST" action="" style="margin-bottom: 0;">
                     <input type="hidden" name="intent" value="ap">
                     <div class="fluid-grid" style="align-items: end; margin-bottom: 0;">
