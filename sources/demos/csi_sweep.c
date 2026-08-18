@@ -531,6 +531,23 @@ static int adjust_rx_gain(int fd, int adjust)
     return 0;
 }
 
+static void jtag_cli(const char *args)
+{
+    char cmd[256];
+    snprintf(cmd, sizeof(cmd), "quadrf-jtag %s", args);
+    int r = system(cmd);
+    if (r != 0)
+        fprintf(stderr, "Warning: jtag call returned %d: %s\n", r, cmd);
+}
+
+// Same --rx as the control panel's "4 ants interleaved": all four MAX2851
+// paths on, FPGA packing four channels, no test tone, AGC off via manual gain.
+static void rf_vision_lockdown_rx(void)
+{
+    jtag_cli("--rx antennas=15,interleave=1,tone_en=0,autosteer=0,gain=34,bw=16.0,pol=rhcp");
+    jtag_cli("--tx off");
+}
+
 // ------------------------------------------------------------
 // Telemetry structures (worker -> UI)
 // ------------------------------------------------------------
@@ -1620,26 +1637,7 @@ int main(int argc, char **argv)
 
     ioctl(fd, CSI_IOC_JTAG_SETUP);
 
-    uint16_t val_6a = 0;
-    
-    // 1. Disable AGC, set RX gain 34 (reg 0x6A)
-    jtag_read_u16(fd, 0x6A, &val_6a);
-    val_6a = (val_6a & ~0x0080 & 0xFF80) | (34 & 0x7F);
-    jtag_write_u16(fd, 0x6A, val_6a);
-
-    // 2. Enable 4-channel interleave mode (reg 0x25 = 1)
-    jtag_write_u16(fd, 0x25, 0x0001);
-
-    // 3. Change digital filter BW to 16 MHz 
-    //    k = 240 / target_bw = 240 / 16 = 15 (reg 0x27)
-    jtag_write_u16(fd, 0x27, 15);
-
-    // 4. Switch to RHCP (reg 0x24 = 1)
-    jtag_write_u16(fd, 0x24, 0x0001);
-
-    // 5. TX off (ignore failure)
-    if (system("quadrf-jtag --tx off") != 0)
-        fprintf(stderr, "Warning: jtag --tx off failed\n");
+    rf_vision_lockdown_rx();
 
     struct csi_ring_info ri;
     if (ioctl(fd, CSI_IOC_GET_RING_INFO, &ri) < 0) die("CSI_IOC_GET_RING_INFO");
@@ -1743,6 +1741,9 @@ int main(int argc, char **argv)
     ctx.headless = headless;
 
     ar_settings_load_file();
+
+    // Drop samples captured before --rx took effect.
+    flush_ring_buffer(fd, ri.ring_size);
 
     // main worker thread
     pthread_t th;
