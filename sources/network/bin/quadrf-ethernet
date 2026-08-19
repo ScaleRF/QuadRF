@@ -1,7 +1,7 @@
 #!/bin/bash
 # Bring eth0 up as a LAN client when DHCP answers, otherwise as a
-# direct-connect island at 10.55.1.1. Run from ifup and from
-# quadrf-ethernet.service.
+# direct-connect island at 10.55.1.1. quadrf-ethernet.service runs
+# "watch" and follows carrier; ifup and "quadrf apply" call start.
 set -euo pipefail
 
 . /usr/share/quadrf/functions.sh
@@ -13,6 +13,8 @@ DIRECT_CONF=/etc/dnsmasq.d/quadrf-eth0-direct.conf
 LAN_CONF=/etc/dnsmasq.d/quadrf-eth0-lan.conf
 DHCP_WAIT=12
 CARRIER_WAIT=5
+PIDFILE=/run/quadrf-ethernet.pid
+LOCKFILE=/run/quadrf-ethernet.lock
 
 log() { logger -t quadrf-ethernet -- "$*"; echo "$*"; }
 
@@ -54,9 +56,23 @@ lan_v4() {
     global_v4 | grep -v '^10\.55\.1\.' || true
 }
 
+has_direct() {
+    global_v4 | grep -q '^10\.55\.1\.'
+}
+
 has_carrier() {
     [[ -f /sys/class/net/${IFACE}/carrier ]] &&
         [[ "$(cat /sys/class/net/${IFACE}/carrier 2>/dev/null || echo 0)" = 1 ]]
+}
+
+watch_pid() {
+    local pid
+    pid="$(cat "${PIDFILE}" 2>/dev/null)" || return 1
+    [[ -n "${pid}" ]] && kill -0 "${pid}" 2>/dev/null
+}
+
+kick_watch() {
+    kill -USR1 "$(cat "${PIDFILE}")" 2>/dev/null || true
 }
 
 enter_lan() {
@@ -65,8 +81,10 @@ enter_lan() {
 interface=${IFACE}
 no-dhcp-interface=${IFACE}
 interface-name=${QUADRF_TLS_DOMAIN},${IFACE}
-interface-name=quadrf.local,${IFACE}
-interface-name=quadrf,${IFACE}
+interface-name=${QUADRF_HOSTNAME}.local,${IFACE}
+interface-name=${QUADRF_HOSTNAME},${IFACE}
+interface-name=$(quadrf_desktop_mdns),${IFACE}
+interface-name=$(quadrf_desktop_mdns_short),${IFACE}
 EOF
     log "${IFACE} on LAN at $(lan_v4 | tr '\n' ' ')"
     refresh_mdns
@@ -83,8 +101,10 @@ dhcp-option=tag:${IFACE},6,${DIRECT_ADDR}
 dhcp-option=tag:${IFACE},15,link
 domain=link
 interface-name=${QUADRF_TLS_DOMAIN},${IFACE}
-interface-name=quadrf.local,${IFACE}
-interface-name=quadrf,${IFACE}
+interface-name=${QUADRF_HOSTNAME}.local,${IFACE}
+interface-name=${QUADRF_HOSTNAME},${IFACE}
+interface-name=$(quadrf_desktop_mdns),${IFACE}
+interface-name=$(quadrf_desktop_mdns_short),${IFACE}
 EOF
     log "${IFACE} direct-connect at ${DIRECT_ADDR}"
     refresh_mdns
@@ -100,7 +120,7 @@ try_dhcp() {
 
 stop_dhcp() {
     if command -v dhclient >/dev/null; then
-        dhclient -r "${IFACE}" >/dev/null 2>&1 || true
+        timeout 2 dhclient -r "${IFACE}" >/dev/null 2>&1 || true
         pkill -f "dhclient.*${IFACE}" >/dev/null 2>&1 || true
     fi
     if command -v dhcpcd >/dev/null; then
@@ -108,40 +128,81 @@ stop_dhcp() {
     fi
 }
 
-do_stop() {
+# DHCP server / router still on this L2. ICMP may be filtered; ARP
+# completed by ping is enough. Ignore STALE — that is the old hop
+# after the cable moved.
+on_link() {
+    local t="$1"
+    ping -n -c 1 -W 1 -I "${IFACE}" "${t}" >/dev/null 2>&1 && return 0
+    ip -4 neigh show to "${t}" dev "${IFACE}" 2>/dev/null |
+        grep -qE ' (REACHABLE|DELAY|PERMANENT)$'
+}
+
+lease_targets() {
+    local t lease
+    t="$(ip -4 route show default dev "${IFACE}" 2>/dev/null | awk '{print $3; exit}')"
+    [[ -n "${t}" ]] && printf '%s\n' "${t}"
+    for lease in "/var/lib/dhcp/dhclient.${IFACE}.leases" /var/lib/dhcp/dhclient.leases; do
+        [[ -f "${lease}" ]] || continue
+        awk -v iface="${IFACE}" '
+            $1 == "lease" { inlease = 1; ours = 0 }
+            inlease && /interface/ && index($0, iface) { ours = 1 }
+            inlease && ours && /dhcp-server-identifier|option routers/ {
+                gsub(/;/, "", $3)
+                print $3
+            }
+        ' "${lease}"
+    done
+}
+
+lease_alive() {
+    [[ -n "$(lan_v4)" ]] || return 1
+    local t seen="|"
+    while read -r t; do
+        [[ -z "${t}" || "${seen}" == *"|${t}|"* ]] && continue
+        seen+="${t}|"
+        on_link "${t}" && return 0
+    done < <(lease_targets)
+    return 1
+}
+
+leave_link() {
     stop_dhcp
-    ip addr del "${DIRECT_ADDR}/24" dev "${IFACE}" 2>/dev/null || true
+    ip addr flush dev "${IFACE}" scope global 2>/dev/null || true
     drop_conf "${DIRECT_CONF}"
     drop_conf "${LAN_CONF}"
     refresh_mdns
 }
 
-do_start() {
+configure_locked() {
     ip link show "${IFACE}" &>/dev/null || {
         log "no ${IFACE}, skipping"
-        exit 0
+        return
     }
     ip link set dev "${IFACE}" up || true
-
-    deadline=$((SECONDS + CARRIER_WAIT))
-    while (( SECONDS < deadline )); do
-        has_carrier && break
-        sleep 1
-    done
     if ! has_carrier; then
         log "no carrier on ${IFACE}"
-        exit 0
+        leave_link
+        return
     fi
 
     if [[ -n "$(lan_v4)" ]]; then
-        enter_lan
-        exit 0
+        if lease_alive; then
+            enter_lan
+            return
+        fi
+        log "dropping stale ${IFACE} address $(lan_v4 | tr '\n' ' ')"
+        stop_dhcp
+        ip addr flush dev "${IFACE}" scope global || true
+    elif has_direct; then
+        enter_direct
+        return
     fi
 
     try_dhcp
     if [[ -n "$(lan_v4)" ]]; then
         enter_lan
-        exit 0
+        return
     fi
 
     stop_dhcp
@@ -149,8 +210,93 @@ do_start() {
     enter_direct
 }
 
+do_configure() {
+    need_cfg=1
+    if [[ "${busy:-0}" -eq 1 ]]; then
+        return
+    fi
+    busy=1
+    while [[ "${need_cfg}" -eq 1 ]]; do
+        need_cfg=0
+        configure_locked
+    done
+    busy=0
+}
+
+wait_carrier() {
+    local deadline=$((SECONDS + CARRIER_WAIT))
+    while (( SECONDS < deadline )); do
+        has_carrier && return 0
+        sleep 1
+    done
+    return 1
+}
+
+do_start() {
+    if watch_pid; then
+        kick_watch
+        return 0
+    fi
+    ip link show "${IFACE}" &>/dev/null || {
+        log "no ${IFACE}, skipping"
+        return 0
+    }
+    ip link set dev "${IFACE}" up || true
+    wait_carrier || {
+        log "no carrier on ${IFACE}"
+        return 0
+    }
+    do_configure
+}
+
+do_watch() {
+    exec 9>"${LOCKFILE}"
+    if ! flock -n 9; then
+        log "already running"
+        exit 0
+    fi
+    echo $$ > "${PIDFILE}"
+    trap 'rm -f "${PIDFILE}"; leave_link; exit 0' EXIT
+    trap 'exit 0' TERM INT
+    trap 'do_configure' USR1
+
+    ip link show "${IFACE}" &>/dev/null && ip link set dev "${IFACE}" up || true
+
+    local prev="init" cur
+    while true; do
+        if ! ip link show "${IFACE}" &>/dev/null; then
+            if [[ "${prev}" != "gone" ]]; then
+                log "no ${IFACE}"
+                leave_link
+                prev="gone"
+            fi
+            sleep 2
+            continue
+        fi
+        ip link set dev "${IFACE}" up 2>/dev/null || true
+        if has_carrier; then
+            cur="up"
+        else
+            cur="down"
+        fi
+        if [[ "${cur}" != "${prev}" ]]; then
+            if [[ "${cur}" == "up" ]]; then
+                # PHY can report carrier before frames flow.
+                sleep 1
+                do_configure
+            else
+                log "carrier lost on ${IFACE}"
+                leave_link
+            fi
+            prev="${cur}"
+        fi
+        sleep 1
+    done
+}
+
 case "${1:-start}" in
-    stop|down) do_stop ;;
+    stop|down) leave_link ;;
     start|up|"") do_start ;;
-    *) echo "usage: $0 [start|stop]" >&2; exit 1 ;;
+    watch) do_watch ;;
+    *) echo "usage: $0 [start|stop|watch]" >&2; exit 1 ;;
 esac

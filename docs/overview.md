@@ -96,7 +96,7 @@ nginx.service                front end for /, HOSTNAMEd.local, HOSTNAME-desktop.
 quadrf-desktop.service       KasmVNC on 8444
 quadrf-ups.service           UPS HAT state for the desktop panel
 quadrf-hotspot.service       access point when no known network answers
-quadrf-ethernet.service      eth0 DHCP client, or 10.55.1.1 if no lease
+quadrf-ethernet.service      eth0 DHCP client, or 10.55.1.1 if no lease; follows carrier
 ```
 
 `quadrf-soapy-server` wants `load-quadrf` but still starts if the FPGA bring-up

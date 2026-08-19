@@ -146,7 +146,7 @@ overlays; reboot afterward.
 | `networking.service` / `misplaced option`       | Comment leftover `wireless-power` / `wpa-conf` lines in `/etc/network/interfaces`. |
 | apt/HTTPS fails while the AP is up              | Remove `address=/#/` from `/etc/dnsmasq.d/quadrf-wlan0-ap.conf` and `systemctl reload dnsmasq`. |
 | USB `10.55.0.1` listed but unreachable          | The gadget address is configured even with no carrier. Plug the Pi USB-C data port into a host so `usb0` gets a link.              |
-| Laptop on ethernet has only IPv6                | Wait ~12s for `quadrf-ethernet` to give up on DHCP and assign `10.55.1.1`. On a home router, eth0 stays a DHCP client.           |
+| Laptop on ethernet has only IPv6                | `quadrf-ethernet` follows carrier: ~12s with no DHCP then `10.55.1.1`. A leftover router lease is dropped if that gateway is gone. |
 | nginx will not start                            | `nginx -t`. Site is generated at `/etc/nginx/sites-available/quadrf`; regenerate with `sudo quadrf apply`.                         |
 | QuadRF services show `disabled`                 | Packages enable them on install. On a unit that predates this tree: `sudo systemctl enable --now load-quadrf quadrf-gui quadrf-hotspot quadrf-ethernet quadrf-desktop quadrf-ups quadrf-soapy-server`. |
 

@@ -5,10 +5,10 @@ Wants=sys-subsystem-net-devices-eth0.device
 ConditionPathExists=/sys/class/net/eth0
 
 [Service]
-Type=oneshot
-RemainAfterExit=yes
-ExecStart=/usr/sbin/quadrf-ethernet
-ExecStop=/usr/sbin/quadrf-ethernet stop
+Type=simple
+ExecStart=/usr/sbin/quadrf-ethernet watch
+Restart=on-failure
+RestartSec=2
 
 [Install]
 WantedBy=multi-user.target
