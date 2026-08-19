@@ -1,0 +1,13 @@
+[Unit]
+Description=QuadRF USB gadget (direct-connect)
+After=network.target
+# usb0 is created by g_ether and may appear after this unit starts.
+
+[Service]
+Type=simple
+ExecStart=/usr/sbin/quadrf-usb watch
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

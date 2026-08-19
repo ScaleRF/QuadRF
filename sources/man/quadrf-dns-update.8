@@ -9,7 +9,7 @@ When wlan0 holds a global address, writes a dnsmasq snippet that resolves
 .B quadrf.local
 and
 .B quadrf
-to whatever address wlan0 currently has, then reloads dnsmasq. When wlan0 has
+to whatever address wlan0 currently has, then restarts dnsmasq. When wlan0 has
 no address the snippet is removed instead.
 .PP
 .I /etc/network/if-up.d/quadrf-dns
@@ -18,7 +18,7 @@ calls this whenever wlan0 comes up, and
 calls it once at install time. The file is only rewritten when its contents
 change, so repeated calls do not disturb running clients.
 .PP
-The reload is deliberately detached from the caller: at boot
+The restart is deliberately detached from the caller: at boot
 .B network.target
 waits on ifup@wlan0 while dnsmasq waits on
 .BR network-online.target ,

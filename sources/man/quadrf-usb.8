@@ -1,0 +1,59 @@
+.TH QUADRF-USB 8 "August 2026" "QuadRF" "QuadRF"
+.SH NAME
+quadrf-usb \- USB-gadget island on usb0
+.SH SYNOPSIS
+.B quadrf-usb
+.RI [ start | stop | watch ]
+.SH DESCRIPTION
+Follows the USB gadget link on usb0.
+.B g_ether
+creates the interface; a host is present when sysfs carrier is up or the
+UDC reports
+.BR configured .
+On link the appliance takes
+.B 10.55.0.1/24
+and dnsmasq hands
+.B 10.55.0.2
+through
+.B 10.55.0.10
+to the attached machine. There is no default route, so a USB session
+cannot take over outbound traffic. The published names match Ethernet
+and Wi-Fi:
+.BR quadrf.local ,
+.BR quadrfd.local ,
+.B quadrf-desktop.local
+and
+.BR QUADRF_TLS_DOMAIN .
+.PP
+usb0 is only ever an island. A gadget host is not a router, so there
+is no DHCP-client path the way
+.BR quadrf-ethernet (8)
+has on eth0.
+.PP
+When the host unplugs, the address and the dnsmasq snippet are dropped
+so avahi does not keep advertising
+.B 10.55.0.1
+on a dead link.
+.PP
+.B quadrf-usb.service
+runs
+.B watch
+and re-evaluates when the gadget appears, enumerates or disconnects.
+.B start
+configures once, or signals the watcher if it is already running. The
+ifupdown stanza in
+.I /etc/network/interfaces.d/quadrf-usb0.cfg
+calls
+.B start
+when usb0 appears.
+.PP
+Power the Pi from the UPS or pack. The Pi 5 USB-C jack is the gadget
+data port and the power inlet; a laptop port must not supply the unit.
+.SH FILES
+.TP
+.I /etc/dnsmasq.d/quadrf-usb0-direct.conf
+DHCP range and names, only while a host is enumerated.
+.SH SEE ALSO
+.BR quadrf-ethernet (8),
+.BR quadrf-hotspot (8),
+.BR quadrf (1)

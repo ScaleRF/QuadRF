@@ -18,11 +18,10 @@ LOCKFILE=/run/quadrf-ethernet.lock
 
 log() { logger -t quadrf-ethernet -- "$*"; echo "$*"; }
 
-reload_dnsmasq() {
-    if systemctl is-active --quiet dnsmasq.service; then
-        systemctl reload dnsmasq.service 2>/dev/null ||
-            systemctl try-restart dnsmasq.service &
-    fi
+restart_dnsmasq() {
+    # SIGHUP only refreshes dnsmasq's hosts and leases; it does not reread
+    # snippets in /etc/dnsmasq.d. Do not block the link watcher on the restart.
+    systemctl restart --no-block dnsmasq.service 2>/dev/null || true
 }
 
 refresh_mdns() {
@@ -35,7 +34,7 @@ write_conf() {
     cat > "${tmp}"
     if [[ ! -f "${dest}" ]] || ! cmp -s "${tmp}" "${dest}"; then
         install -m 644 "${tmp}" "${dest}"
-        reload_dnsmasq
+        restart_dnsmasq
     fi
     rm -f "${tmp}"
 }
@@ -44,7 +43,7 @@ drop_conf() {
     dest="$1"
     if [[ -f "${dest}" ]]; then
         rm -f "${dest}"
-        reload_dnsmasq
+        restart_dnsmasq
     fi
 }
 

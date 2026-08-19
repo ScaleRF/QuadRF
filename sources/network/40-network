@@ -159,7 +159,6 @@ configure_tls() {
 
 apply() {
     render "${SHARE}/nginx-site.in" /etc/nginx/sites-available/quadrf
-    render "${SHARE}/dnsmasq/quadrf-usb0.conf.in" /etc/dnsmasq.d/quadrf-usb0.conf
     quadrf_write_hostapd /etc/hostapd/quadrf.conf
     render "${SHARE}/dhcpd.conf.in" /etc/quadrf/dhcpd.conf
 
@@ -173,16 +172,18 @@ apply() {
     fi
 
     # Take eth0/wlan0 from the DietPi image so the drop-ins are the only
-    # stanzas. quadrf-ethernet / quadrf-hotspot decide DHCP vs island / AP.
+    # stanzas. quadrf-ethernet / quadrf-hotspot / quadrf-usb decide
+    # DHCP vs island / AP / gadget.
     steal_iface eth0
     steal_iface wlan0
     install_interface eth0 || true
     install_interface wlan0 || true
     rm -f /etc/dnsmasq.d/quadrf-eth0.conf \
           /etc/dnsmasq.d/quadrf-eth0-direct.conf \
-          /etc/dnsmasq.d/quadrf-eth0-lan.conf
-    install -D -m 644 "${SHARE}/interfaces.d/quadrf-usb0.cfg" \
-        /etc/network/interfaces.d/quadrf-usb0.cfg
+          /etc/dnsmasq.d/quadrf-eth0-lan.conf \
+          /etc/dnsmasq.d/quadrf-usb0.conf \
+          /etc/dnsmasq.d/quadrf-usb0-direct.conf
+    install_interface usb0 || true
 
     if [ -f /etc/network/interfaces ] &&
        ! grep -qs 'interfaces\.d' /etc/network/interfaces; then
@@ -222,6 +223,7 @@ apply() {
 
     [ -x /usr/sbin/quadrf-dns-update ] && /usr/sbin/quadrf-dns-update || true
     [ -x /usr/sbin/quadrf-ethernet ] && /usr/sbin/quadrf-ethernet || true
+    [ -x /usr/sbin/quadrf-usb ] && /usr/sbin/quadrf-usb || true
 }
 
 remove() {
@@ -233,6 +235,7 @@ remove() {
           /etc/dnsmasq.d/quadrf-eth0-direct.conf \
           /etc/dnsmasq.d/quadrf-eth0-lan.conf \
           /etc/dnsmasq.d/quadrf-usb0.conf \
+          /etc/dnsmasq.d/quadrf-usb0-direct.conf \
           /etc/dnsmasq.d/quadrf-wlan0-ap.conf \
           /etc/dnsmasq.d/quadrf-wlan0-lan.conf \
           /etc/hostapd/quadrf.conf \

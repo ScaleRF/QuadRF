@@ -60,7 +60,7 @@ flowchart TB
 |---------|---------|-------|
 | Home LAN | `quadrf.local` | mDNS through avahi. Ethernet or Wi-Fi with a router DHCP lease. `http://` |
 | Ethernet direct-connect | `10.55.1.1` | No router on the cable: Pi is `10.55.1.1`, the PC gets a lease from dnsmasq. No gateway. |
-| USB gadget | `10.55.0.1` | `g_ether` on `usb0` when a host enumerates the gadget; lease from dnsmasq |
+| USB gadget | `10.55.0.1` | `g_ether` on `usb0` when a host enumerates the gadget. Same names as Ethernet. Most laptops cannot provide 5V at 5A, causing possible brownouts. Please isolate the Pi's power from the usb connection to a device. |
 | Fallback access point | `192.168.44.1` | SSID `QuadRF`, open unless `QUADRF_AP_PASS` is set, started when no saved Wi-Fi answers |
 | TLS name | `my.quadrf.com` | Default `QUADRF_TLS_DOMAIN` for the self-signed CN |
 
@@ -97,6 +97,7 @@ quadrf-desktop.service       KasmVNC on 8444
 quadrf-ups.service           UPS HAT state for the desktop panel
 quadrf-hotspot.service       access point when no known network answers
 quadrf-ethernet.service      eth0 DHCP client, or 10.55.1.1 if no lease; follows carrier
+quadrf-usb.service           usb0 island at 10.55.0.1 while a gadget host is attached
 ```
 
 `quadrf-soapy-server` wants `load-quadrf` but still starts if the FPGA bring-up

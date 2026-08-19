@@ -1,0 +1,223 @@
+#!/bin/bash
+# Bring usb0 up as the USB-gadget island at 10.55.0.1 when a host
+# enumerates g_ether. quadrf-usb.service runs "watch" and follows the
+# gadget link; ifup and "quadrf apply" call start.
+set -euo pipefail
+
+. /usr/share/quadrf/functions.sh
+quadrf_load_conf
+
+IFACE=usb0
+DIRECT_ADDR=10.55.0.1
+DIRECT_CONF=/etc/dnsmasq.d/quadrf-usb0-direct.conf
+LEGACY_CONF=/etc/dnsmasq.d/quadrf-usb0.conf
+LINK_WAIT=5
+PIDFILE=/run/quadrf-usb.pid
+LOCKFILE=/run/quadrf-usb.lock
+
+log() { logger -t quadrf-usb -- "$*"; echo "$*"; }
+
+restart_dnsmasq() {
+    # SIGHUP only refreshes dnsmasq's hosts and leases; it does not reread
+    # snippets in /etc/dnsmasq.d. Queue a full restart without blocking a
+    # network hook that may be running while the boot network is still coming up.
+    systemctl restart --no-block dnsmasq.service 2>/dev/null || true
+}
+
+refresh_mdns() {
+    systemctl try-restart quadrf-mdns.service 2>/dev/null || true
+}
+
+write_conf() {
+    dest="$1"
+    tmp="$(mktemp)"
+    cat > "${tmp}"
+    if [[ ! -f "${dest}" ]] || ! cmp -s "${tmp}" "${dest}"; then
+        install -m 644 "${tmp}" "${dest}"
+        restart_dnsmasq
+    fi
+    rm -f "${tmp}"
+}
+
+drop_conf() {
+    dest="$1"
+    if [[ -f "${dest}" ]]; then
+        rm -f "${dest}"
+        restart_dnsmasq
+    fi
+}
+
+global_v4() {
+    ip -4 -o addr show dev "${IFACE}" scope global 2>/dev/null | awk '{print $4}'
+}
+
+has_direct() {
+    global_v4 | grep -q '^10\.55\.0\.'
+}
+
+# g_ether sets carrier when the host selects the configuration. The UDC
+# state is the same signal if sysfs carrier is missing or stuck.
+gadget_configured() {
+    local s
+    for s in /sys/class/udc/*/state; do
+        [[ -f "${s}" ]] || continue
+        [[ "$(cat "${s}" 2>/dev/null || true)" = configured ]] && return 0
+    done
+    return 1
+}
+
+has_carrier() {
+    [[ -f /sys/class/net/${IFACE}/carrier ]] &&
+        [[ "$(cat /sys/class/net/${IFACE}/carrier 2>/dev/null || echo 0)" = 1 ]]
+}
+
+has_link() {
+    has_carrier || gadget_configured
+}
+
+watch_pid() {
+    local pid
+    pid="$(cat "${PIDFILE}" 2>/dev/null)" || return 1
+    [[ -n "${pid}" ]] && kill -0 "${pid}" 2>/dev/null
+}
+
+kick_watch() {
+    kill -USR1 "$(cat "${PIDFILE}")" 2>/dev/null || true
+}
+
+enter_direct() {
+    ip addr add "${DIRECT_ADDR}/24" dev "${IFACE}" 2>/dev/null || true
+    drop_conf "${LEGACY_CONF}"
+    write_conf "${DIRECT_CONF}" <<EOF
+interface=${IFACE}
+dhcp-range=set:${IFACE},10.55.0.2,10.55.0.10,255.255.255.0,12h
+dhcp-option=tag:${IFACE},3
+dhcp-option=tag:${IFACE},6,${DIRECT_ADDR}
+dhcp-option=tag:${IFACE},15,link
+domain=link
+interface-name=${QUADRF_TLS_DOMAIN},${IFACE}
+interface-name=${QUADRF_HOSTNAME}.local,${IFACE}
+interface-name=${QUADRF_HOSTNAME},${IFACE}
+interface-name=$(quadrf_desktop_mdns),${IFACE}
+interface-name=$(quadrf_desktop_mdns_short),${IFACE}
+EOF
+    log "${IFACE} gadget host at ${DIRECT_ADDR}"
+    refresh_mdns
+}
+
+leave_link() {
+    ip addr flush dev "${IFACE}" scope global 2>/dev/null || true
+    drop_conf "${DIRECT_CONF}"
+    drop_conf "${LEGACY_CONF}"
+    refresh_mdns
+}
+
+configure_locked() {
+    ip link show "${IFACE}" &>/dev/null || {
+        log "no ${IFACE}, skipping"
+        leave_link
+        return
+    }
+    ip link set dev "${IFACE}" up || true
+    if ! has_link; then
+        log "no host on ${IFACE}"
+        leave_link
+        return
+    fi
+    if has_direct; then
+        enter_direct
+        return
+    fi
+    ip addr flush dev "${IFACE}" scope global 2>/dev/null || true
+    enter_direct
+}
+
+do_configure() {
+    need_cfg=1
+    if [[ "${busy:-0}" -eq 1 ]]; then
+        return
+    fi
+    busy=1
+    while [[ "${need_cfg}" -eq 1 ]]; do
+        need_cfg=0
+        configure_locked
+    done
+    busy=0
+}
+
+wait_link() {
+    local deadline=$((SECONDS + LINK_WAIT))
+    while (( SECONDS < deadline )); do
+        has_link && return 0
+        sleep 1
+    done
+    return 1
+}
+
+do_start() {
+    if watch_pid; then
+        kick_watch
+        return 0
+    fi
+    ip link show "${IFACE}" &>/dev/null || {
+        log "no ${IFACE}, skipping"
+        return 0
+    }
+    ip link set dev "${IFACE}" up || true
+    wait_link || {
+        log "no host on ${IFACE}"
+        return 0
+    }
+    do_configure
+}
+
+do_watch() {
+    exec 9>"${LOCKFILE}"
+    if ! flock -n 9; then
+        log "already running"
+        exit 0
+    fi
+    echo $$ > "${PIDFILE}"
+    trap 'rm -f "${PIDFILE}"; leave_link; exit 0' EXIT
+    trap 'exit 0' TERM INT
+    trap 'do_configure' USR1
+
+    ip link show "${IFACE}" &>/dev/null && ip link set dev "${IFACE}" up || true
+
+    local prev="init" cur
+    while true; do
+        if ! ip link show "${IFACE}" &>/dev/null; then
+            if [[ "${prev}" != "gone" ]]; then
+                log "no ${IFACE}"
+                leave_link
+                prev="gone"
+            fi
+            sleep 2
+            continue
+        fi
+        ip link set dev "${IFACE}" up 2>/dev/null || true
+        if has_link; then
+            cur="up"
+        else
+            cur="down"
+        fi
+        if [[ "${cur}" != "${prev}" ]]; then
+            if [[ "${cur}" == "up" ]]; then
+                sleep 1
+                do_configure
+            else
+                log "gadget host gone on ${IFACE}"
+                leave_link
+            fi
+            prev="${cur}"
+        fi
+        sleep 1
+    done
+}
+
+case "${1:-start}" in
+    stop|down) leave_link ;;
+    start|up|"") do_start ;;
+    watch) do_watch ;;
+    *) echo "usage: $0 [start|stop|watch]" >&2; exit 1 ;;
+esac

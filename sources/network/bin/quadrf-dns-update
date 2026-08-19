@@ -8,21 +8,17 @@ quadrf_load_conf
 
 DEST=/etc/dnsmasq.d/quadrf-wlan0-lan.conf
 
-reload_dnsmasq() {
-    # Do not block if-up on a dnsmasq start: at boot network.target waits for
-    # ifup@wlan0 while dnsmasq waits for network-online.target, and a restart
-    # here deadlocks the pair for about 45 seconds.
-    if systemctl is-active --quiet dnsmasq.service; then
-        systemctl reload dnsmasq.service 2>/dev/null ||
-            systemctl try-restart dnsmasq.service &
-    fi
+restart_dnsmasq() {
+    # SIGHUP does not reread dnsmasq configuration snippets. Queue the full
+    # restart so if-up does not deadlock with network-online.target at boot.
+    systemctl restart --no-block dnsmasq.service 2>/dev/null || true
 }
 
 if ! ip link show wlan0 &>/dev/null ||
    ! ip -4 -o addr show dev wlan0 scope global 2>/dev/null | grep -q .; then
     if [[ -f "${DEST}" ]]; then
         rm -f "${DEST}"
-        reload_dnsmasq
+        restart_dnsmasq
     fi
     exit 0
 fi
@@ -41,7 +37,7 @@ EOF
 
 if [[ ! -f "${DEST}" ]] || ! cmp -s "${tmp}" "${DEST}"; then
     install -m 644 "${tmp}" "${DEST}"
-    reload_dnsmasq
+    restart_dnsmasq
 fi
 rm -f "${tmp}"
 

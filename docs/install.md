@@ -144,11 +144,11 @@ overlays; reboot afterward.
 | `quadrf-soapy-server` bind fails / restart loop | Stock `soapyremote-server` must stay masked; `quadrf-soapy` owns port 55132.                                                       |
 | No fallback access point                        | Default SSID `QuadRF` is open unless `QUADRF_AP_PASS` is set. `hostapd` must be active (`journalctl -u hostapd`). Trixie skips the unit unless `/etc/hostapd/quadrf.conf` satisfies the condition drop-in. |
 | `networking.service` / `misplaced option`       | Comment leftover `wireless-power` / `wpa-conf` lines in `/etc/network/interfaces`. |
-| apt/HTTPS fails while the AP is up              | Remove `address=/#/` from `/etc/dnsmasq.d/quadrf-wlan0-ap.conf` and `systemctl reload dnsmasq`. |
-| USB `10.55.0.1` listed but unreachable          | The gadget address is configured even with no carrier. Plug the Pi USB-C data port into a host so `usb0` gets a link.              |
+| apt/HTTPS fails while the AP is up              | Remove `address=/#/` from `/etc/dnsmasq.d/quadrf-wlan0-ap.conf` and `systemctl restart dnsmasq`. |
+| USB `10.55.0.1` listed but unreachable          | `quadrf-usb` only assigns the island while a host is enumerated. Plug the Pi USB-C data port (not the UPS charge jack). Most laptops cannot provide 5V at 5A, causing possible brownouts. Please isolate the Pi's power from the usb connection to a device. |
 | Laptop on ethernet has only IPv6                | `quadrf-ethernet` follows carrier: ~12s with no DHCP then `10.55.1.1`. A leftover router lease is dropped if that gateway is gone. |
 | nginx will not start                            | `nginx -t`. Site is generated at `/etc/nginx/sites-available/quadrf`; regenerate with `sudo quadrf apply`.                         |
-| QuadRF services show `disabled`                 | Packages enable them on install. On a unit that predates this tree: `sudo systemctl enable --now load-quadrf quadrf-gui quadrf-hotspot quadrf-ethernet quadrf-desktop quadrf-ups quadrf-soapy-server`. |
+| QuadRF services show `disabled`                 | Packages enable them on install. On a unit that predates this tree: `sudo systemctl enable --now load-quadrf quadrf-gui quadrf-hotspot quadrf-ethernet quadrf-usb quadrf-desktop quadrf-ups quadrf-soapy-server`. |
 
 
 Service logs: `journalctl -u load-quadrf -u quadrf-gui -b`.

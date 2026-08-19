@@ -7,7 +7,8 @@ set -eu
 APPLY_DIR=/usr/lib/quadrf/apply.d
 UNITS="load-quadrf.service quadrf-gui.service quadrf-soapy-server.service
        quadrf-desktop.service quadrf-hotspot.service quadrf-ethernet.service
-       quadrf-ups.service nginx.service dnsmasq.service avahi-daemon.service
+       quadrf-usb.service quadrf-ups.service nginx.service dnsmasq.service
+       avahi-daemon.service
        quadrf-rf-vision.service quadrf-ntsc.service quadrf-psd.service"
 
 usage() {

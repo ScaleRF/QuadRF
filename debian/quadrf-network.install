@@ -1,5 +1,6 @@
 usr/sbin/quadrf-hotspot
 usr/sbin/quadrf-ethernet
+usr/sbin/quadrf-usb
 usr/sbin/quadrf-apply-wifi
 usr/sbin/quadrf-apply-ap
 usr/sbin/quadrf-dns-update
@@ -8,6 +9,7 @@ usr/share/quadrf/network/
 usr/lib/quadrf/apply.d/40-network
 lib/systemd/system/quadrf-hotspot.service
 lib/systemd/system/quadrf-ethernet.service
+lib/systemd/system/quadrf-usb.service
 lib/systemd/system/quadrf-mdns.service
 lib/systemd/system/hostapd.service.d/quadrf.conf
 etc/network/if-up.d/quadrf-dns
@@ -18,6 +20,7 @@ etc/nginx/snippets/quadrf-kasm-proxy.conf
 etc/nginx/snippets/quadrf-vnc.conf
 usr/share/man/man8/quadrf-hotspot.8
 usr/share/man/man8/quadrf-ethernet.8
+usr/share/man/man8/quadrf-usb.8
 usr/share/man/man8/quadrf-dns-update.8
 usr/share/man/man8/quadrf-apply-wifi.8
 usr/share/man/man8/quadrf-apply-ap.8

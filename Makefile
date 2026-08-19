@@ -178,6 +178,7 @@ install-gui:
 install-network:
 	$(INSTALL) -D -m 755 $(SRC)/network/bin/quadrf-hotspot $(DESTDIR)$(sbindir)/quadrf-hotspot
 	$(INSTALL) -D -m 755 $(SRC)/network/bin/quadrf-ethernet $(DESTDIR)$(sbindir)/quadrf-ethernet
+	$(INSTALL) -D -m 755 $(SRC)/network/bin/quadrf-usb $(DESTDIR)$(sbindir)/quadrf-usb
 	$(INSTALL) -D -m 755 $(SRC)/network/bin/quadrf-apply-wifi $(DESTDIR)$(sbindir)/quadrf-apply-wifi
 	$(INSTALL) -D -m 755 $(SRC)/network/bin/quadrf-apply-ap $(DESTDIR)$(sbindir)/quadrf-apply-ap
 	$(INSTALL) -D -m 755 $(SRC)/network/bin/quadrf-dns-update $(DESTDIR)$(sbindir)/quadrf-dns-update
@@ -206,12 +207,14 @@ install-network:
 	$(INSTALL) -D -m 644 -t $(DESTDIR)$(datadir)/network/interfaces.d $(SRC)/network/interfaces.d/*.cfg
 	$(INSTALL) -D -m 644 $(SRC)/systemd/quadrf-hotspot.service $(DESTDIR)$(unitdir)/quadrf-hotspot.service
 	$(INSTALL) -D -m 644 $(SRC)/systemd/quadrf-ethernet.service $(DESTDIR)$(unitdir)/quadrf-ethernet.service
+	$(INSTALL) -D -m 644 $(SRC)/systemd/quadrf-usb.service $(DESTDIR)$(unitdir)/quadrf-usb.service
 	$(INSTALL) -D -m 644 $(SRC)/systemd/quadrf-mdns.service $(DESTDIR)$(unitdir)/quadrf-mdns.service
 	$(INSTALL) -D -m 644 $(SRC)/network/systemd/hostapd.service.d/quadrf.conf \
 		$(DESTDIR)$(unitdir)/hostapd.service.d/quadrf.conf
 	$(INSTALL) -D -m 755 $(SRC)/network/40-network $(DESTDIR)$(libdir)/apply.d/40-network
 	$(INSTALL) -D -m 644 -t $(DESTDIR)$(mandir)/man8 $(SRC)/man/quadrf-hotspot.8 \
-		$(SRC)/man/quadrf-ethernet.8 $(SRC)/man/quadrf-dns-update.8 \
+		$(SRC)/man/quadrf-ethernet.8 $(SRC)/man/quadrf-usb.8 \
+		$(SRC)/man/quadrf-dns-update.8 \
 		$(SRC)/man/quadrf-apply-wifi.8 $(SRC)/man/quadrf-apply-ap.8
 
 install-demos: demos
