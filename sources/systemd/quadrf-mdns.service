@@ -1,7 +1,8 @@
 [Unit]
 Description=QuadRF mDNS alias for the remote desktop
-After=avahi-daemon.service network-online.target
+After=avahi-daemon.service dbus.service network-online.target
 Wants=avahi-daemon.service
+Requires=avahi-daemon.service
 
 [Service]
 Type=simple

@@ -110,5 +110,6 @@ rm -f /run/dhcp-server/dhcpd.pid /var/run/dhcpd.pid
 systemctl start isc-dhcp-server || log "isc-dhcp-server failed, clients will not get leases"
 systemctl reload-or-restart dnsmasq || log "dnsmasq reload failed"
 restore_lan_dns
+systemctl try-restart quadrf-mdns.service 2>/dev/null || true
 
 log "access point up: SSID ${QUADRF_AP_SSID} on ${QUADRF_AP_ADDRESS}"

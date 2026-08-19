@@ -1,53 +1,159 @@
-#!/bin/bash
-# Advertise HOSTNAME-desktop.local so KasmVNC can live at the root of a host.
+#!/usr/bin/python3
+# Advertise HOSTNAME-desktop.local / HOSTNAMEd.local with each A record
+# bound to the interface that owns the address. avahi-publish cannot set
+# an ifindex, so nss-mdns picks usb0 or the AP address on the LAN.
 # A two-label name like desktop.HOSTNAME.local is ignored by browser mDNS.
-# avahi-publish stays in the foreground; systemd restarts us if addresses change.
-set -euo pipefail
 
-. /usr/share/quadrf/functions.sh
-quadrf_load_conf
+import os
+import socket
+import subprocess
+import sys
 
-NAME="$(quadrf_desktop_mdns)"
-NAME_SHORT="$(quadrf_desktop_mdns_short)"
-AP_ADDR="${QUADRF_AP_ADDRESS}"
+try:
+    import avahi
+    import dbus
+    from dbus.mainloop.glib import DBusGMainLoop
+    from gi.repository import GLib
+except ImportError as exc:
+    print(f"quadrf-mdns-alias: missing dependency ({exc})", file=sys.stderr)
+    sys.exit(1)
 
-if ! command -v avahi-publish >/dev/null; then
-    echo "quadrf-mdns-alias: avahi-publish missing (install avahi-utils)" >&2
-    exit 0
-fi
+CONF = os.environ.get("QUADRF_CONF", "/etc/quadrf/quadrf.conf")
+POLL_SEC = 2
 
-pids=()
-cleanup() {
-    kill "${pids[@]}" 2>/dev/null || true
-}
-trap cleanup EXIT INT TERM
 
-# usb0 and the AP island are not reachable from the LAN. Publishing them as
-# extra A records for this name makes clients pick 192.168.44.1 and fail.
-# AP clients already get HOSTNAME-desktop.local from dnsmasq on wlan0.
-mapfile -t addrs < <(
-    ip -4 -o addr show scope global | awk '{print $2, $4}' | while read -r iface cidr; do
-        addr="${cidr%/*}"
-        [ "${iface}" = "usb0" ] && continue
-        [ -n "${AP_ADDR}" ] && [ "${addr}" = "${AP_ADDR}" ] && continue
-        printf '%s\n' "${addr}"
-    done | sort -u
-)
-if [ "${#addrs[@]}" -eq 0 ] && [ -n "${AP_ADDR}" ] &&
-   ip -4 -o addr show | grep -q " ${AP_ADDR}/"; then
-    addrs=("${AP_ADDR}")
-fi
-if [ "${#addrs[@]}" -eq 0 ]; then
-    echo "quadrf-mdns-alias: no IPv4 addresses yet" >&2
-    exit 1
-fi
+def load_hostname():
+    hostname = "quadrf"
+    try:
+        with open(CONF, encoding="utf-8") as fh:
+            for line in fh:
+                line = line.split("#", 1)[0].strip()
+                if line.startswith("QUADRF_HOSTNAME="):
+                    hostname = line.split("=", 1)[1].strip().strip("'\"") or hostname
+    except OSError:
+        pass
+    return hostname
 
-for addr in "${addrs[@]}"; do
-    avahi-publish -a -R "${NAME}" "${addr}" &
-    pids+=("$!")
-    avahi-publish -a -R "${NAME_SHORT}" "${addr}" &
-    pids+=("$!")
-done
 
-wait -n "${pids[@]}"
-exit 1
+def iface_addrs():
+    """Global IPv4 addresses keyed to the interface that owns them."""
+    try:
+        out = subprocess.check_output(
+            ["ip", "-4", "-o", "addr", "show", "scope", "global"],
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return []
+    pairs = []
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) < 4 or parts[2] != "inet":
+            continue
+        iface = parts[1]
+        addr = parts[3].split("/", 1)[0]
+        try:
+            idx = socket.if_nametoindex(iface)
+        except OSError:
+            continue
+        if idx <= 0:
+            continue
+        pairs.append((idx, iface, addr))
+    pairs.sort(key=lambda p: (p[1], p[2]))
+    return pairs
+
+
+class Publisher:
+    def __init__(self, names):
+        self.names = names
+        self.bus = dbus.SystemBus()
+        self.server = dbus.Interface(
+            self.bus.get_object(avahi.DBUS_NAME, avahi.DBUS_PATH_SERVER),
+            avahi.DBUS_INTERFACE_SERVER,
+        )
+        self.group = None
+        self.published = None
+        self.server.connect_to_signal("StateChanged", self._server_state)
+        self._server_state(self.server.GetState(), "")
+
+    def _server_state(self, state, error):
+        if int(state) == avahi.SERVER_RUNNING:
+            self.publish()
+        else:
+            self.drop_group()
+            if error:
+                print(f"quadrf-mdns-alias: avahi state {int(state)} ({error})",
+                      file=sys.stderr, flush=True)
+
+    def drop_group(self):
+        if self.group is not None:
+            try:
+                self.group.Reset()
+            except dbus.DBusException:
+                pass
+        self.group = None
+        self.published = None
+
+    def _entry_group(self):
+        if self.group is None:
+            path = self.server.EntryGroupNew()
+            self.group = dbus.Interface(
+                self.bus.get_object(avahi.DBUS_NAME, path),
+                avahi.DBUS_INTERFACE_ENTRY_GROUP,
+            )
+        return self.group
+
+    def publish(self):
+        try:
+            if int(self.server.GetState()) != avahi.SERVER_RUNNING:
+                return True
+        except dbus.DBusException:
+            return True
+
+        pairs = iface_addrs()
+        key = tuple((idx, addr) for idx, _, addr in pairs)
+        if key == self.published:
+            return True
+        if not pairs:
+            self.drop_group()
+            print("quadrf-mdns-alias: no IPv4 addresses yet", flush=True)
+            return True
+
+        group = self._entry_group()
+        try:
+            if not group.IsEmpty():
+                group.Reset()
+            flags = dbus.UInt32(avahi.PUBLISH_NO_REVERSE)
+            for idx, _iface, addr in pairs:
+                for name in self.names:
+                    group.AddAddress(
+                        dbus.Int32(idx),
+                        dbus.Int32(avahi.PROTO_INET),
+                        flags,
+                        name,
+                        addr,
+                    )
+            group.Commit()
+        except dbus.DBusException as exc:
+            print(f"quadrf-mdns-alias: publish failed ({exc})",
+                  file=sys.stderr, flush=True)
+            self.drop_group()
+            return True
+
+        self.published = key
+        mapping = " ".join(f"{iface}={addr}" for _idx, iface, addr in pairs)
+        print(f"quadrf-mdns-alias: {mapping} -> {' '.join(self.names)}",
+              flush=True)
+        return True
+
+
+def main():
+    hostname = load_hostname()
+    names = [f"{hostname}-desktop.local", f"{hostname}d.local"]
+    DBusGMainLoop(set_as_default=True)
+    pub = Publisher(names)
+    GLib.timeout_add_seconds(POLL_SEC, pub.publish)
+    GLib.MainLoop().run()
+
+
+if __name__ == "__main__":
+    main()
