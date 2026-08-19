@@ -1,3 +1,14 @@
+quadrf (1.0.4) trixie; urgency=medium
+
+  * Ethernet direct-connect follows eth0 carrier and drops a leftover
+    DHCP lease so unplug/replug starts 10.55.1.1 instead of staying in
+    LAN mode.
+  * Desktop mDNS names are registered on the interface that owns each
+    address so nss-mdns does not return usb0 or the AP address on the LAN.
+  * RF Vision Interleave enables all four channels on startup.
+
+ -- QuadRF Engineering <contact@ScaleRF.com>  Tue, 18 Aug 2026 21:29:55 -0700
+
 quadrf (1.0.3) trixie; urgency=medium
 
   * nginx serves the control panel at / and KasmVNC at /VNC/ (and
