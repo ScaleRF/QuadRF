@@ -190,7 +190,7 @@ def index():
                         note = (proc.stdout or "").strip()
                         wifi_success_msg = note or f"Hotspot SSID set to '{ssid}'."
                         if hotspot_is_up():
-                            wifi_success_msg += " Devices on this access point need to reconnect."
+                            wifi_success_msg += " - Devices on the AP must reconnect."
                 except Exception as e:
                     wifi_error_msg = f"Failed to apply hotspot settings: {e}"
         else:
