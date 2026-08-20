@@ -79,7 +79,6 @@ enter_lan() {
     write_conf "${LAN_CONF}" <<EOF
 interface=${IFACE}
 no-dhcp-interface=${IFACE}
-interface-name=${QUADRF_TLS_DOMAIN},${IFACE}
 interface-name=${QUADRF_HOSTNAME}.local,${IFACE}
 interface-name=${QUADRF_HOSTNAME},${IFACE}
 interface-name=$(quadrf_desktop_mdns),${IFACE}
@@ -99,7 +98,6 @@ dhcp-option=tag:${IFACE},3
 dhcp-option=tag:${IFACE},6,${DIRECT_ADDR}
 dhcp-option=tag:${IFACE},15,link
 domain=link
-interface-name=${QUADRF_TLS_DOMAIN},${IFACE}
 interface-name=${QUADRF_HOSTNAME}.local,${IFACE}
 interface-name=${QUADRF_HOSTNAME},${IFACE}
 interface-name=$(quadrf_desktop_mdns),${IFACE}

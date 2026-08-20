@@ -317,15 +317,22 @@
             margin: 0;
         }
         .app-row {
-            display: flex; flex-wrap: nowrap; align-items: center; justify-content: space-between;
-            gap: 0.5rem; background: var(--card-bg); padding: 0.45rem 0.65rem;
+            display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center;
+            column-gap: 0.5rem; row-gap: 0.12rem; background: var(--card-bg); padding: 0.45rem 0.65rem;
             border-radius: var(--border-radius); border: 1px solid rgba(255,255,255,0.05);
             flex: 1 1 10rem; min-width: 10rem;
         }
-        .app-meta { display: flex; flex-direction: row; align-items: center; gap: 0.4rem; min-width: 0; flex: 1; }
-        .app-name { font-weight: 600; font-size: 0.85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .app-meta { min-width: 0; }
+        .app-name { display: block; font-weight: 600; font-size: 0.85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .app-https-note {
+            grid-column: 1 / -1; color: #fde68a; font-size: 0.6rem; line-height: 1.1;
+            margin-top: 0.08rem; white-space: nowrap;
+        }
+        .app-https-note a { color: #fff; font-weight: 700; }
         .app-blurb { display: none; }
         .app-actions { display: flex; flex-wrap: nowrap; gap: 0.3rem; align-items: center; flex-shrink: 0; }
+        .app-row.app-active { grid-template-columns: minmax(0, 1fr); }
+        .app-row.app-active .app-actions { grid-column: 1; justify-self: end; }
         .panel-apps button.outline { color: #c4b5fd; border: 1px solid #8b5cf6; padding: 0.25rem 0.55rem; font-size: 0.75rem; }
         .panel-apps button.outline.stop { color: #fecdd3; border-color: #f43f5e; }
         .app-pill {
@@ -387,6 +394,8 @@
             .beam-pad { max-width: 220px; }
             .readout-input { width: 60px !important; font-size: 0.9rem !important; }
             .phase-card .readout-input { width: 45px !important; }
+            .app-row { grid-template-columns: minmax(0, 1fr); }
+            .app-actions { grid-column: 1; justify-self: end; }
         }
     </style>
     <script src="{{ url_for('static', filename='socket.io.min.js') }}"></script>
@@ -409,7 +418,10 @@
         <article class="panel panel-apps">
             <div class="header-row">
                 <h2><span class="indicator" style="background-color: #8b5cf6;"></span> Applications</h2>
-                <button type="button" class="outline" id="openDesktopBtn">Open Desktop</button>
+                <div class="controls-row">
+                    <button type="button" class="outline" id="httpsSetupBtn">HTTPS Setup</button>
+                    <button type="button" class="outline" id="openDesktopBtn">Open Desktop</button>
+                </div>
             </div>
             <div id="appList" class="app-list"></div>
         </article>
@@ -772,6 +784,9 @@
 
     <script>
         const consoleDiv = document.getElementById('consoleOutput');
+        document.getElementById('httpsSetupBtn').addEventListener('click', () => {
+            window.open('/setup/security/', '_blank', 'noopener');
+        });
         
         function logToConsole(cmd, result, isError=false) {
             const time = new Date().toLocaleTimeString([], {hour12: false, hour: '2-digit', minute:'2-digit', second:'2-digit'});
@@ -1266,13 +1281,16 @@
                             <button type="button" class="outline app-start">Launch</button>
                             <button type="button" class="outline stop app-stop">Stop</button>
                             <button type="button" class="outline app-open">Open</button>
-                        </div>`;
+                        </div>
+                        <small class="app-https-note hidden" title="Camera access requires HTTPS.">* Camera needs HTTPS. <a href="/setup/security/" target="_blank" rel="noopener">Set up</a></small>`;
                     appListEl.appendChild(row);
                     row.querySelector('.app-start').addEventListener('click', () => controlApp(app.id, 'start', row.dataset.open));
                     row.querySelector('.app-stop').addEventListener('click', () => controlApp(app.id, 'stop'));
                     row.querySelector('.app-open').addEventListener('click', () => window.open(resolveOpen(row.dataset.open), '_blank'));
                 }
                 row.querySelector('.app-name').textContent = app.name;
+                row.querySelector('.app-https-note').classList.toggle('hidden', app.id !== 'ar' || window.isSecureContext);
+                row.classList.toggle('app-active', !!app.running);
                 const pill = row.querySelector('.app-pill');
                 pill.textContent = app.running ? 'running' : (app.installed ? 'stopped' : 'not installed');
                 pill.classList.toggle('on', !!app.running);

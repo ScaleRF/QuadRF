@@ -35,15 +35,13 @@ and the
 .I overlays/
 directory. Default:
 .IR /boot/firmware .
-.TP
-.B QUADRF_TLS_DOMAIN
-Name on the certificate nginx serves, and the name dnsmasq publishes on the
-station interface. Default:
-.BR my.quadrf.com .
-.TP
 .B QUADRF_HOSTNAME
 mDNS and nginx name. Clients reach the appliance at
 .IR HOSTNAME.local .
+The locally generated server certificate uses the same name; changing it and
+running
+.B quadrf apply
+issues a replacement from the existing local root CA.
 Change this when several QuadRFs share a LAN; avahi otherwise collides and
 renames one unit to
 .IR quadrf-2.local .
@@ -84,7 +82,6 @@ is used.
 .nf
 QUADRF_USER=operator
 QUADRF_BOOT_DIR=/boot/firmware
-QUADRF_TLS_DOMAIN=unit14.example.net
 QUADRF_HOSTNAME=quadrf-14
 QUADRF_AP_SSID=QuadRF-14
 QUADRF_AP_PASS=

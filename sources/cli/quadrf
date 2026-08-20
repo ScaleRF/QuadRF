@@ -18,8 +18,8 @@ Usage: quadrf <command> [arguments]
   status              service, radio and network state
   apply               re-apply site configuration for the installed packages
   packages            installed quadrf-* packages and versions
-  tls import <dir>    install a certificate tree (Let's Encrypt live directory)
-  tls self-signed     regenerate the placeholder certificate
+  tls import <dir>    install a certificate and private key
+  tls local-ca        regenerate the local CA and server certificate
 EOF
 }
 
@@ -87,7 +87,6 @@ cmd_packages() {
 
 cmd_tls() {
     require_root "tls"
-    quadrf_load_conf
     case "${1:-}" in
         import)
             src="${2:?usage: quadrf tls import <directory>}"
@@ -95,14 +94,41 @@ cmd_tls() {
                 echo "quadrf: ${src} has no fullchain.pem/privkey.pem" >&2
                 exit 1
             }
+            tmp="$(mktemp -d)"
+            trap 'rm -rf -- "${tmp}"' EXIT HUP INT TERM
+            if ! openssl x509 -in "${src}/fullchain.pem" -pubkey -noout \
+                    > "${tmp}/cert.pub" 2>/dev/null ||
+               ! openssl pkey -in "${src}/privkey.pem" -pubout \
+                    > "${tmp}/key.pub" 2>/dev/null ||
+               ! cmp -s "${tmp}/cert.pub" "${tmp}/key.pub"; then
+                echo "quadrf: certificate and private key do not match" >&2
+                exit 1
+            fi
+            install -m 644 "${src}/fullchain.pem" "${tmp}/fullchain.pem"
+            install -m 600 "${src}/privkey.pem" "${tmp}/privkey.pem"
             install -d -m 755 /etc/quadrf/tls
-            install -m 644 "${src}/fullchain.pem" /etc/quadrf/tls/fullchain.pem
-            install -m 600 "${src}/privkey.pem" /etc/quadrf/tls/privkey.pem
-            echo "Imported certificate for ${QUADRF_TLS_DOMAIN} from ${src}"
+            rm -f /etc/quadrf/tls/root-ca.pem \
+                  /etc/quadrf/tls/root-ca.key \
+                  /etc/quadrf/tls/root-ca.cer \
+                  /etc/quadrf/tls/root-ca.mobileconfig \
+                  /etc/quadrf/tls/root-ca.sha256 \
+                  /etc/quadrf/tls/server.pem \
+                  /etc/quadrf/tls/ca-id \
+                  /etc/quadrf/tls/profile-uuid \
+                  /etc/quadrf/tls/payload-uuid
+            install -m 644 "${tmp}/fullchain.pem" /etc/quadrf/tls/fullchain.pem
+            install -m 600 "${tmp}/privkey.pem" /etc/quadrf/tls/privkey.pem
+            touch /etc/quadrf/tls/imported
+            rm -rf -- "${tmp}"
+            trap - EXIT HUP INT TERM
+            echo "Imported certificate from ${src}"
+            ;;
+        local-ca)
+            /usr/lib/quadrf/tls-setup regenerate
             ;;
         self-signed)
-            rm -f /etc/quadrf/tls/fullchain.pem /etc/quadrf/tls/privkey.pem
-            /usr/lib/quadrf/apply.d/40-network
+            echo "quadrf: 'tls self-signed' is now 'tls local-ca'; regenerating the local CA" >&2
+            /usr/lib/quadrf/tls-setup regenerate
             ;;
         *)
             usage

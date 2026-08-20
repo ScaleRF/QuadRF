@@ -11,7 +11,6 @@ QUADRF_CONF="${QUADRF_CONF:-/etc/quadrf/quadrf.conf}"
 quadrf_load_conf() {
     QUADRF_USER=dietpi
     QUADRF_BOOT_DIR=/boot/firmware
-    QUADRF_TLS_DOMAIN=my.quadrf.com
     QUADRF_HOSTNAME=quadrf
     QUADRF_AP_SSID=QuadRF
     QUADRF_AP_PASS=

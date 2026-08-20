@@ -1,0 +1,9 @@
+#!/bin/sh
+set -e
+
+if [ "$1" = purge ]; then
+    rm -rf /etc/quadrf/tls
+fi
+
+#DEBHELPER#
+exit 0

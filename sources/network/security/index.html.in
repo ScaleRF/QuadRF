@@ -1,0 +1,359 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#0f172a">
+  <title>QuadRF HTTPS Setup</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #0f172a;
+      color: #e2e8f0;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #0f172a; }
+    main { width: min(780px, calc(100% - 2rem)); margin: 0 auto; padding: 2rem 0 4rem; }
+    h1 { margin: 0 0 .4rem; font-size: clamp(1.65rem, 5vw, 2.3rem); color: #fff; }
+    h2 { margin: 0 0 .7rem; font-size: 1.18rem; color: #fff; }
+    p, li { line-height: 1.55; }
+    a { color: #7dd3fc; }
+    .lede { color: #cbd5e1; margin-top: 0; }
+    .card {
+      margin-top: 1rem; padding: 1.1rem 1.2rem; border-radius: 12px;
+      background: #1e293b; border: 1px solid #334155;
+    }
+    .platform.recommended { border-color: #38bdf8; box-shadow: 0 0 0 1px #38bdf8; }
+    .badge { display: none; color: #7dd3fc; font-size: .75rem; font-weight: 700; text-transform: uppercase; }
+    .recommended .badge { display: inline; }
+    .status { display: flex; gap: .8rem; align-items: flex-start; }
+    .status-dot { width: 12px; height: 12px; margin-top: .35rem; border-radius: 999px; background: #f59e0b; flex: none; }
+    .status.secure .status-dot { background: #10b981; box-shadow: 0 0 8px #10b981; }
+    .status strong { color: #fff; }
+    .status .button-row { margin-bottom: 0; }
+    .button-row { display: flex; flex-wrap: wrap; gap: .7rem; margin: 1rem 0 .3rem; }
+    .button {
+      display: inline-block; padding: .72rem 1rem; border-radius: 8px;
+      background: #0284c7; color: #fff; font-weight: 700; text-decoration: none;
+      border: 1px solid #38bdf8;
+    }
+    .button.secondary { background: #334155; border-color: #64748b; }
+    .copy-row { display: flex; gap: .55rem; margin: .7rem 0; }
+    .copy-row input {
+      min-width: 0; flex: 1; padding: .65rem .7rem; border: 1px solid #475569;
+      border-radius: 7px; background: #0f172a; color: #bae6fd; font: inherit;
+      font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+    }
+    .copy-row button {
+      padding: .65rem .8rem; border: 1px solid #64748b; border-radius: 7px;
+      background: #334155; color: #fff; cursor: pointer; font-weight: 700;
+    }
+    .inline-copy { display: inline-flex; align-items: center; white-space: nowrap; }
+    .inline-copy button {
+      margin-left: .25rem; padding: .12rem .4rem; border: 1px solid #64748b;
+      border-radius: 5px; background: #334155; color: #fff; cursor: pointer;
+      font: inherit; font-size: .72rem; font-weight: 700; line-height: 1.2;
+    }
+    ol { padding-left: 1.35rem; }
+    li + li { margin-top: .5rem; }
+    code { color: #bae6fd; background: #0f172a; padding: .08rem .3rem; border-radius: 4px; }
+    pre {
+      white-space: pre-wrap; overflow-wrap: anywhere; padding: .8rem; border-radius: 8px;
+      background: #0f172a; color: #cbd5e1; font-size: .78rem;
+    }
+    .warning { color: #fcd34d; }
+    .small { color: #94a3b8; font-size: .86rem; }
+    details { margin-top: 1rem; }
+    summary { cursor: pointer; font-weight: 700; color: #fff; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>HTTPS setup</h1>
+  <p class="lede">Install this QuadRF's local root certificate to use HTTPS for camera access and encrypted controls.</p>
+
+  <section class="card status" id="connectionStatus">
+    <span class="status-dot"></span>
+    <div>
+      <strong id="statusTitle">Setup required</strong>
+      <div id="statusText">This is the intentionally unencrypted setup page. It will always say “Not secure,” even after the certificate is installed. Complete the steps for your device, restart the browser if needed, then open the HTTPS address.</div>
+      <div class="button-row">
+        <a class="button secure-link" id="topSecureLink" href="https://@HOSTNAME@.local/">Certificate installed? Open QuadRF over HTTPS</a>
+      </div>
+    </div>
+  </section>
+
+  <section class="card platform" id="ios">
+    <span class="badge">Recommended for this device</span>
+    <h2>iPhone or iPad</h2>
+    <ol>
+      <li>Open this page in <strong>Safari</strong> and tap <strong>Download iPhone/iPad Profile</strong>.</li>
+      <li>Tap <strong>Allow</strong> when Safari asks to download the configuration profile.</li>
+      <li>Within eight minutes, open <strong>Settings</strong> and tap <strong>Profile Downloaded</strong>. If it is not shown, open <strong>General → VPN &amp; Device Management</strong>.</li>
+      <li>Tap <strong>Install</strong>, enter the device passcode, review the warning, and tap <strong>Install</strong> again.</li>
+      <li>Open <strong>Settings → General → About → Certificate Trust Settings</strong>.</li>
+      <li>Under <strong>Enable Full Trust for Root Certificates</strong>, enable the entry beginning with <strong>QuadRF Local Root CA</strong>, then confirm.</li>
+      <li>Return to Safari and tap <strong>Open QuadRF over HTTPS</strong>. When AR asks for the camera, tap <strong>Allow</strong>.</li>
+    </ol>
+    <div class="button-row">
+      <a class="button" href="/quadrf-root-ca.mobileconfig">Download iPhone/iPad Profile</a>
+      <a class="button secondary secure-link" href="https://@HOSTNAME@.local/">Open QuadRF over HTTPS</a>
+    </div>
+    <p class="small">Apple shows an installation warning because the profile is generated locally and is not signed by an online service. It contains the public root certificate only—never a private key. If Stolen Device Protection blocks profile installation away from a familiar location, follow the Settings prompt and re-enable the protection afterward.</p>
+  </section>
+
+  <section class="card platform" id="android">
+    <span class="badge">Recommended for this device</span>
+    <h2>Android</h2>
+    <ol>
+      <li>Tap <strong>Download Android Certificate</strong>.</li>
+      <li>Open Android <strong>Settings</strong> and search for <strong>Install a certificate</strong>.</li>
+      <li>Choose <strong>CA certificate</strong>. Do not choose “VPN and app certificate” or “Wi-Fi certificate.”</li>
+      <li>Review Android's network-monitoring warning, continue, and select <code>quadrf-root-ca.cer</code>. Set a screen lock if Android requires one.</li>
+      <li>Return to Chrome and tap <strong>Open QuadRF over HTTPS</strong>. Allow camera access when AR asks.</li>
+    </ol>
+    <div class="button-row">
+      <a class="button" href="/quadrf-root-ca.cer">Download Android Certificate</a>
+      <a class="button secondary secure-link" href="https://@HOSTNAME@.local/">Open QuadRF over HTTPS</a>
+    </div>
+    <p class="small">Common paths are <strong>Security &amp; privacy → More security settings → Encryption &amp; credentials → Install a certificate → CA certificate</strong> on Pixel, and <strong>Security and privacy → More security settings → Install from device storage → CA certificate</strong> on Samsung. Names vary by Android version. Current Chrome uses user-added Android TLS roots by default; a managed-device policy can disable that behavior.</p>
+  </section>
+
+  <section class="card platform" id="macos">
+    <span class="badge">Recommended for this device</span>
+    <h2>Mac</h2>
+    <ol>
+      <li>Tap <strong>Download Mac Certificate</strong> and open <strong>Keychain Access</strong>.</li>
+      <li>Select the <strong>System</strong> keychain and choose <strong>File → Import Items</strong>.</li>
+      <li>Import <code>quadrf-root-ca.cer</code>, double-click <strong>QuadRF Local Root CA…</strong>, expand <strong>Trust</strong>, and set <strong>When using this certificate</strong> to <strong>Always Trust</strong>.</li>
+      <li>Authenticate, fully quit and reopen the browser, then tap <strong>Open QuadRF over HTTPS</strong>.</li>
+    </ol>
+    <div class="button-row">
+      <a class="button" href="/quadrf-root-ca.cer">Download Mac Certificate</a>
+      <a class="button secondary secure-link" href="https://@HOSTNAME@.local/">Open QuadRF over HTTPS</a>
+    </div>
+  </section>
+
+  <section class="card platform" id="windows">
+    <span class="badge">Recommended for this device</span>
+    <h2>Windows — Chrome or Edge</h2>
+    <ol>
+      <li>Tap <strong>Download Windows Certificate</strong>, then open <code>quadrf-root-ca.cer</code> from Downloads.</li>
+      <li>Click <strong>Install Certificate → Current User → Place all certificates in the following store</strong>.</li>
+      <li>Click <strong>Browse → Trusted Root Certification Authorities → OK → Next → Finish</strong>, then accept the security warning.</li>
+      <li>Fully quit and reopen Chrome or Edge, then tap <strong>Open QuadRF over HTTPS</strong>.</li>
+    </ol>
+    <div class="button-row">
+      <a class="button" href="/quadrf-root-ca.cer">Download Windows Certificate</a>
+      <a class="button secondary secure-link" href="https://@HOSTNAME@.local/">Open QuadRF over HTTPS</a>
+    </div>
+    <p class="small">Choose <strong>Local Machine</strong> instead only when an administrator wants every Windows account on this computer to trust this QuadRF.</p>
+  </section>
+
+  <section class="card platform" id="linux">
+    <span class="badge">Recommended for this device</span>
+    <h2>Linux — Chrome, Chromium or Edge</h2>
+    <ol>
+      <li>Tap <strong>Download Linux Certificate</strong>.</li>
+      <li>Open the browser's <strong>Settings → Privacy and security → Security → Manage certificates</strong>. In Chrome 134 or later, you can instead paste <span class="inline-copy"><code>chrome://certificate-manager</code><button type="button" data-copy-text="chrome://certificate-manager" aria-label="Copy Chrome certificate manager address">Copy</button></span> into a new tab.</li>
+      <li>Under locally installed or custom certificates, import <code>quadrf-root-ca.cer</code> and trust it for identifying websites/TLS servers.</li>
+      <li>Fully quit and reopen the browser, then tap <strong>Open QuadRF over HTTPS</strong>.</li>
+    </ol>
+    <div class="button-row">
+      <a class="button" href="/quadrf-root-ca.cer">Download Linux Certificate</a>
+      <a class="button secondary secure-link" href="https://@HOSTNAME@.local/">Open QuadRF over HTTPS</a>
+    </div>
+    <details>
+      <summary>NSS command-line fallback</summary>
+      <p class="small">If the browser manager is unavailable, install <code>libnss3-tools</code> on Debian/Ubuntu or <code>nss-tools</code> on Fedora, then run:</p>
+      <pre>quadrf_nss_db="$HOME/.local/share/pki/nssdb"
+[ -d "$HOME/.pki/nssdb" ] &amp;&amp; quadrf_nss_db="$HOME/.pki/nssdb"
+mkdir -p "$quadrf_nss_db"
+[ -f "$quadrf_nss_db/cert9.db" ] || certutil -d "sql:$quadrf_nss_db" -N --empty-password
+certutil -d "sql:$quadrf_nss_db" -A -t "C,," -n "QuadRF Local Root" \
+  -i "$HOME/Downloads/quadrf-root-ca.cer"</pre>
+      <p class="small">Chromium 146 and later use <code>~/.local/share/pki/nssdb</code> unless the older <code>~/.pki/nssdb</code> already exists.</p>
+    </details>
+  </section>
+
+  <section class="card platform" id="chromeos">
+    <span class="badge">Recommended for this device</span>
+    <h2>ChromeOS</h2>
+    <ol>
+      <li>Tap <strong>Download ChromeOS Certificate</strong>.</li>
+      <li>Open a new tab, paste <span class="inline-copy"><code>chrome://certificate-manager</code><button type="button" data-copy-text="chrome://certificate-manager" aria-label="Copy Chrome certificate manager address">Copy</button></span>, and open the local/custom certificates section.</li>
+      <li>Import <code>quadrf-root-ca.cer</code> and trust it for identifying websites.</li>
+      <li>Return here and tap <strong>Open QuadRF over HTTPS</strong>.</li>
+    </ol>
+    <div class="button-row">
+      <a class="button" href="/quadrf-root-ca.cer">Download ChromeOS Certificate</a>
+      <a class="button secondary secure-link" href="https://@HOSTNAME@.local/">Open QuadRF over HTTPS</a>
+    </div>
+    <p class="small">A managed Chromebook may prevent user-installed roots. In that case, its administrator must deploy the certificate.</p>
+  </section>
+
+  <section class="card" id="chromeRestartHelp" hidden>
+    <h2>Restart desktop Chrome after installation</h2>
+    <p>After importing the certificate, Chrome may need a complete restart before it uses the new trust setting. Save any unfinished work, copy this address, paste it into a new Chrome tab, and press Enter. Chrome normally restores the open tabs.</p>
+    <div class="copy-row">
+      <input id="chromeRestartUrl" value="chrome://restart" readonly aria-label="Chrome restart address">
+      <button type="button" data-copy="chromeRestartUrl">Copy</button>
+    </div>
+    <p class="small">After Chrome reopens, use the <strong>Open QuadRF over HTTPS</strong> link above. Simply returning to <code>http://quadrf.local/</code> will still display “Not secure.”</p>
+  </section>
+
+  <details class="card" id="firefoxHelp" hidden>
+    <summary>Firefox certificate setup</summary>
+    <p>Firefox may use its own certificate store. Open <strong>Settings → Privacy &amp; Security → Certificates → View Certificates → Authorities → Import</strong>, select <code>quadrf-root-ca.cer</code>, and enable trust for identifying websites.</p>
+    <div class="button-row">
+      <a class="button" href="/quadrf-root-ca.cer">Download Firefox Certificate</a>
+      <a class="button secondary secure-link" href="https://@HOSTNAME@.local/">Open QuadRF over HTTPS</a>
+    </div>
+  </details>
+
+  <details class="card" id="chromeFallback" hidden>
+    <summary>Temporary Chrome HTTP camera workaround</summary>
+    <p class="warning"><strong>This does not encrypt or authenticate the connection.</strong> Installing the certificate above and using HTTPS is the supported option.</p>
+    <ol>
+      <li>Copy the internal Chrome address below, open a new tab, and paste it into the address bar.</li>
+      <li>Find <strong>Insecure origins treated as secure</strong>, add the exact HTTP origin shown below, and set the feature to <strong>Enabled</strong>.</li>
+      <li>Tap <strong>Relaunch</strong>, return to the same HTTP address, and launch Spatial RF Vision.</li>
+    </ol>
+    <div class="copy-row">
+      <input id="chromeFlagUrl" value="chrome://flags/#unsafely-treat-insecure-origin-as-secure" readonly aria-label="Chrome flag address">
+      <button type="button" data-copy="chromeFlagUrl">Copy</button>
+    </div>
+    <div class="copy-row">
+      <input id="chromeFlagOrigin" readonly aria-label="Current HTTP origin">
+      <button type="button" data-copy="chromeFlagOrigin">Copy</button>
+    </div>
+    <p class="small">Shown only in Chrome/Chromium on Android, ChromeOS, Windows, macOS or Linux. Chrome on iPhone/iPad cannot use this flag.</p>
+  </details>
+
+  <section class="card">
+    <h2>Verify this QuadRF</h2>
+    <p>The certificate is created on this QuadRF during installation. Its private signing key stays on the appliance. The CA is constrained to <code>.local</code> names and the fixed QuadRF direct-connect networks.</p>
+    <pre id="fingerprint">Loading certificate fingerprint…</pre>
+    <p class="small">A new image or <code>quadrf tls local-ca</code> creates a new root. Remove the old profile/certificate and repeat setup after either operation.</p>
+  </section>
+
+  <details class="card">
+    <summary>Remove the QuadRF certificate</summary>
+    <p><strong>iPhone/iPad:</strong> Settings → General → VPN &amp; Device Management → QuadRF Local HTTPS → Remove Profile.</p>
+    <p><strong>Android:</strong> Settings → Security &amp; privacy → More security settings → Encryption &amp; credentials → User credentials, then remove the QuadRF entry. Paths vary by manufacturer.</p>
+    <p><strong>Mac:</strong> Open Keychain Access, select the System keychain, find “QuadRF Local Root CA”, and delete it.</p>
+    <p><strong>Windows:</strong> Open <code>certmgr.msc</code>, then delete the QuadRF entry under <strong>Trusted Root Certification Authorities → Certificates</strong>.</p>
+    <p><strong>Linux/ChromeOS:</strong> Return to the browser certificate manager and remove the QuadRF root. NSS users can delete the “QuadRF Local Root” entry with <code>certutil</code>.</p>
+    <p><strong>Firefox:</strong> Remove it from <strong>View Certificates → Authorities</strong>.</p>
+  </details>
+
+  <p class="small"><a href="/">Return to QuadRF controls</a></p>
+</main>
+<script>
+  const ua = navigator.userAgent;
+  const platform = navigator.userAgentData?.platform || navigator.platform || '';
+  const directHosts = new Set(['192.168.44.1', '10.55.1.1', '10.55.0.1']);
+  const secureHost = directHosts.has(location.hostname) ? location.hostname : '@HOSTNAME@.local';
+  document.querySelectorAll('.secure-link').forEach(link => {
+    link.href = `https://${secureHost}/`;
+    link.target = '_blank';
+    link.rel = 'noopener';
+  });
+  const isIOS = /iPhone|iPad|iPod/.test(ua) || (platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const isAndroid = /Android/.test(ua);
+  const isChromeOS = /CrOS/.test(ua);
+  const isMac = /Macintosh|Mac OS X/.test(ua) && !isIOS;
+  const isWindows = /Windows/.test(ua) || /Win/.test(platform);
+  const isLinux = (/Linux/.test(ua) || /Linux/.test(platform)) && !isAndroid && !isChromeOS;
+  const isEdge = /Edg(?:A|iOS)?\//.test(ua);
+  const isFirefox = /Firefox\//.test(ua) || /FxiOS\//.test(ua);
+  const isOtherChromium = /OPR\/|Opera|SamsungBrowser|Vivaldi|; wv\)/.test(ua) || Boolean(navigator.brave);
+  const isChrome = /(?:Chrome|Chromium)\//.test(ua) && !isEdge && !isOtherChromium && !isIOS;
+
+  let recommendedId = '';
+  if (isIOS) recommendedId = 'ios';
+  else if (isAndroid) recommendedId = 'android';
+  else if (isChromeOS) recommendedId = 'chromeos';
+  else if (isMac) recommendedId = 'macos';
+  else if (isWindows) recommendedId = 'windows';
+  else if (isLinux) recommendedId = 'linux';
+
+  const recommended = recommendedId ? document.getElementById(recommendedId) : null;
+  if (recommended) {
+    recommended.classList.add('recommended');
+    document.getElementById('connectionStatus').after(recommended);
+  }
+
+  let browserHelpAnchor = recommended;
+  if (isChrome && !isAndroid && !isChromeOS && location.protocol === 'http:') {
+    const chromeRestartHelp = document.getElementById('chromeRestartHelp');
+    chromeRestartHelp.hidden = false;
+    (browserHelpAnchor || document.getElementById('connectionStatus')).after(chromeRestartHelp);
+    browserHelpAnchor = chromeRestartHelp;
+  }
+
+  if (isFirefox && !isIOS && !isAndroid) {
+    const firefoxHelp = document.getElementById('firefoxHelp');
+    firefoxHelp.hidden = false;
+    (browserHelpAnchor || document.getElementById('connectionStatus')).after(firefoxHelp);
+    browserHelpAnchor = firefoxHelp;
+  }
+
+  if (isChrome && location.protocol === 'http:') {
+    const chromeFallback = document.getElementById('chromeFallback');
+    chromeFallback.hidden = false;
+    const chromeFlagOrigin = document.getElementById('chromeFlagOrigin');
+    chromeFlagOrigin.value = location.origin;
+    chromeFlagOrigin.setAttribute('value', location.origin);
+    (browserHelpAnchor || document.getElementById('connectionStatus')).after(chromeFallback);
+  }
+
+  document.querySelectorAll('[data-copy]').forEach(button => {
+    button.addEventListener('click', () => {
+      const input = document.getElementById(button.dataset.copy);
+      input.focus();
+      input.select();
+      input.setSelectionRange(0, input.value.length);
+      document.execCommand('copy');
+      const oldText = button.textContent;
+      button.textContent = 'Copied';
+      setTimeout(() => { button.textContent = oldText; }, 1200);
+    });
+  });
+
+  document.querySelectorAll('[data-copy-text]').forEach(button => {
+    button.addEventListener('click', () => {
+      const textarea = document.createElement('textarea');
+      textarea.value = button.dataset.copyText;
+      textarea.setAttribute('readonly', '');
+      textarea.style.position = 'fixed';
+      textarea.style.left = '-9999px';
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      textarea.remove();
+      const oldText = button.textContent;
+      button.textContent = 'Copied';
+      setTimeout(() => { button.textContent = oldText; }, 1200);
+    });
+  });
+
+  if (window.isSecureContext && location.protocol === 'https:') {
+    const status = document.getElementById('connectionStatus');
+    status.classList.add('secure');
+    document.getElementById('statusTitle').textContent = 'Connection secure';
+    document.getElementById('statusText').textContent = 'HTTPS is working. Camera access is available when permission is granted.';
+    document.getElementById('topSecureLink').textContent = 'Open QuadRF controls';
+  }
+
+  fetch('/quadrf-root-ca.sha256', { cache: 'no-store' })
+    .then(response => {
+      if (!response.ok) throw new Error('Certificate information is unavailable.');
+      return response.text();
+    })
+    .then(text => { document.getElementById('fingerprint').textContent = text.trim(); })
+    .catch(error => { document.getElementById('fingerprint').textContent = error.message; });
+</script>
+</body>
+</html>

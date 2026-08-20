@@ -7,6 +7,7 @@ usr/sbin/quadrf-dns-update
 usr/sbin/quadrf-mdns-alias
 usr/share/quadrf/network/
 usr/lib/quadrf/apply.d/40-network
+usr/lib/quadrf/tls-setup
 lib/systemd/system/quadrf-hotspot.service
 lib/systemd/system/quadrf-ethernet.service
 lib/systemd/system/quadrf-usb.service

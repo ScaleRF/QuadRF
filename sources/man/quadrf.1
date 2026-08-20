@@ -39,12 +39,20 @@ from
 .I directory
 into
 .I /etc/quadrf/tls
-and reload nginx. A Let's Encrypt live directory can be given directly. Needs
-root.
+and reload nginx. The certificate must cover the name clients use, normally
+.IR quadrf.local .
+Importing removes the local root download artifacts because that root no
+longer signs the active server certificate.
+Needs root.
+.TP
+.B tls local-ca
+Discard the installed TLS identity and generate a new per-install local root
+CA and server certificate for the configured local hostname. Clients that
+trusted the previous root must install the new root certificate. Needs root.
 .TP
 .B tls self-signed
-Discard the installed certificate and regenerate the self-signed placeholder
-for the configured domain. Needs root.
+Compatibility alias for
+.BR "tls local-ca" .
 .SH FILES
 .TP
 .I /etc/quadrf/quadrf.conf

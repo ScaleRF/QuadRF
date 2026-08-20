@@ -71,7 +71,8 @@ After reboot you can check `quadrf status` for more about services, CSI/DSI driv
 ### That's it!
 You should now have an up-to-date QuadRF microSD image and can get started on the many applications! <br/> Check out https://scalerf.com/docs/ for more information.
 
-Note after reboot the new host name is `quadrf` or `quadrf.local` and you can access the web interface at `http://quadrf.local`
+After reboot the host is `quadrf.local`. Open `http://quadrf.local/setup/security/`
+to install the locally generated certificate, then use `https://quadrf.local/`.
 
 If you want to put the QuadRF back into 'AP Mode' so you can connect with your phone, open the control GUI and set the Wi-Fi SSID to `none`.
 
@@ -118,7 +119,7 @@ apt repository; drop them with `--no-install-recommends`.
 | ------------------------------------------------ | ----------------------------------- |
 | [docs/overview.md](../docs/overview.md)          | Overview                            |
 | [docs/install.md](../docs/install.md)            | Install, configure, upgrade, remove |
-| [docs/certbot.md](../docs/certbot.md)            | TLS certificates                    |
+| [docs/tls.md](../docs/tls.md)                    | HTTPS setup                         |
 | [packaging/README.md](../packaging/README.md)    | Building and publishing packages    |
 | [GitHub Releases](https://github.com/ScaleRF/QuadRF/releases) | Package release notes |
 | [TODO.md](../TODO.md)                            | TODO                                |

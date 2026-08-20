@@ -15,8 +15,7 @@ AP_PREFIX="${QUADRF_AP_ADDRESS%.*}"
 render() {
     desktop="$(quadrf_desktop_mdns)"
     desktop_short="$(quadrf_desktop_mdns_short)"
-    sed -e "s|@DOMAIN@|${QUADRF_TLS_DOMAIN}|g" \
-        -e "s|@HOSTNAME@|${QUADRF_HOSTNAME}|g" \
+    sed -e "s|@HOSTNAME@|${QUADRF_HOSTNAME}|g" \
         -e "s|@DESKTOP@|${desktop}|g" \
         -e "s|@DESKTOP_SHORT@|${desktop_short}|g" \
         -e "s|@SSID@|${QUADRF_AP_SSID}|g" \
@@ -137,28 +136,48 @@ install_interface() {
 }
 
 configure_tls() {
-    install -d -m 755 /etc/quadrf/tls
-    [ -f /etc/quadrf/tls/fullchain.pem ] && [ -f /etc/quadrf/tls/privkey.pem ] && return 0
+    /usr/lib/quadrf/tls-setup ensure
+}
 
-    live="/etc/letsencrypt/live/${QUADRF_TLS_DOMAIN}"
-    if [ -f "${live}/fullchain.pem" ] && [ -f "${live}/privkey.pem" ]; then
-        install -m 644 "${live}/fullchain.pem" /etc/quadrf/tls/fullchain.pem
-        install -m 600 "${live}/privkey.pem" /etc/quadrf/tls/privkey.pem
-        return 0
+# Generated interface snippets can outlive the mode that wrote them. Limit
+# them to the current local names so an upgrade also cleans an active AP file.
+prune_dns_names() {
+    desktop="$(quadrf_desktop_mdns)"
+    desktop_short="$(quadrf_desktop_mdns_short)"
+    changed=0
+
+    for dest in /etc/dnsmasq.d/quadrf-*.conf; do
+        [ -f "${dest}" ] || continue
+        tmp="$(mktemp)"
+        awk -v hostname="${QUADRF_HOSTNAME}" \
+            -v control="${QUADRF_HOSTNAME}.local" \
+            -v desktop="${desktop}" \
+            -v desktop_short="${desktop_short}" '
+            /^interface-name=/ {
+                split($0, fields, /[=,]/)
+                name = fields[2]
+                if (name == hostname || name == control ||
+                    name == desktop || name == desktop_short) print
+                next
+            }
+            { print }
+        ' "${dest}" > "${tmp}"
+        if ! cmp -s "${tmp}" "${dest}"; then
+            cat "${tmp}" > "${dest}"
+            changed=1
+        fi
+        rm -f "${tmp}"
+    done
+
+    if [ "${changed}" -eq 1 ]; then
+        systemctl restart --no-block dnsmasq.service 2>/dev/null || true
     fi
-
-    openssl req -x509 -nodes -days 3650 \
-        -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 \
-        -subj "/CN=${QUADRF_TLS_DOMAIN}" \
-        -keyout /etc/quadrf/tls/privkey.pem \
-        -out /etc/quadrf/tls/fullchain.pem 2>/dev/null
-    chmod 600 /etc/quadrf/tls/privkey.pem
-    echo "quadrf: using a self-signed certificate for ${QUADRF_TLS_DOMAIN};" \
-         "replace it with 'quadrf tls import <dir>'"
 }
 
 apply() {
     render "${SHARE}/nginx-site.in" /etc/nginx/sites-available/quadrf
+    install -d -m 755 /usr/share/quadrf/security
+    render "${SHARE}/security.in" /usr/share/quadrf/security/index.html
     quadrf_write_hostapd /etc/hostapd/quadrf.conf
     render "${SHARE}/dhcpd.conf.in" /etc/quadrf/dhcpd.conf
 
@@ -224,6 +243,7 @@ apply() {
     [ -x /usr/sbin/quadrf-dns-update ] && /usr/sbin/quadrf-dns-update || true
     [ -x /usr/sbin/quadrf-ethernet ] && /usr/sbin/quadrf-ethernet || true
     [ -x /usr/sbin/quadrf-usb ] && /usr/sbin/quadrf-usb || true
+    prune_dns_names
 }
 
 remove() {
@@ -242,8 +262,10 @@ remove() {
           /etc/sudoers.d/quadrf \
           /etc/network/interfaces.d/quadrf-eth0.cfg \
           /etc/network/interfaces.d/quadrf-wlan0.cfg \
-          /etc/network/interfaces.d/quadrf-usb0.cfg
-    rm -rf /etc/quadrf/tls /etc/quadrf/dhcpd.conf
+          /etc/network/interfaces.d/quadrf-usb0.cfg \
+          /usr/share/quadrf/security/index.html \
+          /etc/quadrf/dhcpd.conf
+    rmdir /usr/share/quadrf/security 2>/dev/null || true
 }
 
 case "${1:-apply}" in

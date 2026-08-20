@@ -1,0 +1,282 @@
+#!/bin/sh
+# Create and maintain the per-install CA and nginx server identity.
+set -eu
+
+. "${QUADRF_FUNCTIONS:-/usr/share/quadrf/functions.sh}"
+quadrf_load_conf
+
+TLS_DIR="${QUADRF_TLS_DIR:-/etc/quadrf/tls}"
+CONTROL_HOST="${QUADRF_HOSTNAME}.local"
+DESKTOP_HOST="$(quadrf_desktop_mdns)"
+DESKTOP_SHORT="$(quadrf_desktop_mdns_short)"
+AP_PREFIX="${QUADRF_AP_ADDRESS%.*}"
+RENEW_BEFORE=$((30 * 24 * 60 * 60))
+
+install -d -m 755 "${TLS_DIR}"
+work="$(mktemp -d "${TLS_DIR}/.generate.XXXXXX")"
+trap 'rm -rf -- "${work}"' EXIT HUP INT TERM
+
+uuid() {
+    if [ -r /proc/sys/kernel/random/uuid ]; then
+        tr '[:lower:]' '[:upper:]' < /proc/sys/kernel/random/uuid
+    else
+        hex="$(openssl rand -hex 16 | tr '[:lower:]' '[:upper:]')"
+        printf '%s-%s-%s-%s-%s\n' \
+            "$(printf '%s' "${hex}" | cut -c1-8)" \
+            "$(printf '%s' "${hex}" | cut -c9-12)" \
+            "$(printf '%s' "${hex}" | cut -c13-16)" \
+            "$(printf '%s' "${hex}" | cut -c17-20)" \
+            "$(printf '%s' "${hex}" | cut -c21-32)"
+    fi
+}
+
+certificate_self_issued() {
+    cert="$1"
+    subject="$(openssl x509 -in "${cert}" -noout -subject -nameopt RFC2253 2>/dev/null || true)"
+    issuer="$(openssl x509 -in "${cert}" -noout -issuer -nameopt RFC2253 2>/dev/null || true)"
+    [ -n "${subject}" ] && [ "${subject#subject=}" = "${issuer#issuer=}" ]
+}
+
+certificate_key_matches() {
+    openssl x509 -in "${TLS_DIR}/fullchain.pem" -pubkey -noout \
+        > "${work}/leaf-cert.pub" 2>/dev/null &&
+        openssl pkey -in "${TLS_DIR}/privkey.pem" -pubout \
+        > "${work}/leaf-key.pub" 2>/dev/null &&
+        cmp -s "${work}/leaf-cert.pub" "${work}/leaf-key.pub"
+}
+
+root_key_matches() {
+    openssl x509 -in "${TLS_DIR}/root-ca.pem" -pubkey -noout \
+        > "${work}/root-cert.pub" 2>/dev/null &&
+        openssl pkey -in "${TLS_DIR}/root-ca.key" -pubout \
+        > "${work}/root-key.pub" 2>/dev/null &&
+        cmp -s "${work}/root-cert.pub" "${work}/root-key.pub"
+}
+
+leaf_ready() {
+    [ -f "${TLS_DIR}/fullchain.pem" ] &&
+        [ -f "${TLS_DIR}/privkey.pem" ] &&
+        [ -f "${TLS_DIR}/root-ca.pem" ] &&
+        certificate_key_matches &&
+        openssl verify -CAfile "${TLS_DIR}/root-ca.pem" \
+            -verify_hostname "${CONTROL_HOST}" \
+            "${TLS_DIR}/fullchain.pem" >/dev/null 2>&1 &&
+        openssl x509 -in "${TLS_DIR}/fullchain.pem" -noout \
+            -checkend "${RENEW_BEFORE}" >/dev/null 2>&1
+}
+
+reset_identity() {
+    rm -f \
+        "${TLS_DIR}/fullchain.pem" \
+        "${TLS_DIR}/privkey.pem" \
+        "${TLS_DIR}/server.pem" \
+        "${TLS_DIR}/root-ca.pem" \
+        "${TLS_DIR}/root-ca.key" \
+        "${TLS_DIR}/root-ca.cer" \
+        "${TLS_DIR}/root-ca.mobileconfig" \
+        "${TLS_DIR}/root-ca.sha256" \
+        "${TLS_DIR}/ca-id" \
+        "${TLS_DIR}/profile-uuid" \
+        "${TLS_DIR}/payload-uuid" \
+        "${TLS_DIR}/imported"
+}
+
+write_public_artifacts() {
+    openssl x509 -in "${TLS_DIR}/root-ca.pem" -outform DER \
+        -out "${work}/root-ca.cer"
+    fingerprint="$(openssl x509 -in "${TLS_DIR}/root-ca.pem" -noout \
+        -sha256 -fingerprint | sed 's/^[^=]*=//')"
+
+    if [ -r "${TLS_DIR}/ca-id" ]; then
+        ca_id="$(cat "${TLS_DIR}/ca-id")"
+    else
+        ca_id="$(printf '%s' "${fingerprint}" | tr -d ':' | cut -c1-8)"
+        printf '%s\n' "${ca_id}" > "${work}/ca-id"
+        install -m 644 "${work}/ca-id" "${TLS_DIR}/ca-id"
+    fi
+    ca_name="QuadRF Local Root CA ${ca_id}"
+
+    if [ ! -r "${TLS_DIR}/profile-uuid" ]; then
+        uuid > "${work}/profile-uuid"
+        install -m 644 "${work}/profile-uuid" "${TLS_DIR}/profile-uuid"
+    fi
+    if [ ! -r "${TLS_DIR}/payload-uuid" ]; then
+        uuid > "${work}/payload-uuid"
+        install -m 644 "${work}/payload-uuid" "${TLS_DIR}/payload-uuid"
+    fi
+    profile_uuid="$(cat "${TLS_DIR}/profile-uuid")"
+    payload_uuid="$(cat "${TLS_DIR}/payload-uuid")"
+    identifier_id="$(printf '%s' "${ca_id}" | tr '[:upper:]' '[:lower:]')"
+
+    {
+        printf 'Certificate: %s\n' "${ca_name}"
+        printf 'SHA-256 fingerprint: %s\n' "${fingerprint}"
+        printf 'Secure address: https://%s/\n' "${CONTROL_HOST}"
+    } > "${work}/root-ca.sha256"
+
+    cert_data="$(base64 "${work}/root-ca.cer")"
+    cat > "${work}/root-ca.mobileconfig" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>PayloadContent</key>
+  <array>
+    <dict>
+      <key>PayloadCertificateFileName</key>
+      <string>quadrf-root-ca.cer</string>
+      <key>PayloadContent</key>
+      <data>
+${cert_data}
+      </data>
+      <key>PayloadDescription</key>
+      <string>Trust this QuadRF for local HTTPS connections.</string>
+      <key>PayloadDisplayName</key>
+      <string>${ca_name}</string>
+      <key>PayloadIdentifier</key>
+      <string>com.scalerf.quadrf.local-ca.${identifier_id}.certificate</string>
+      <key>PayloadType</key>
+      <string>com.apple.security.root</string>
+      <key>PayloadUUID</key>
+      <string>${payload_uuid}</string>
+      <key>PayloadVersion</key>
+      <integer>1</integer>
+    </dict>
+  </array>
+  <key>PayloadDescription</key>
+  <string>Installs this QuadRF's local root certificate. No private key is included.</string>
+  <key>PayloadDisplayName</key>
+  <string>QuadRF Local HTTPS</string>
+  <key>PayloadIdentifier</key>
+  <string>com.scalerf.quadrf.local-ca.${identifier_id}</string>
+  <key>PayloadOrganization</key>
+  <string>Scale RF</string>
+  <key>PayloadRemovalDisallowed</key>
+  <false/>
+  <key>PayloadType</key>
+  <string>Configuration</string>
+  <key>PayloadUUID</key>
+  <string>${profile_uuid}</string>
+  <key>PayloadVersion</key>
+  <integer>1</integer>
+</dict>
+</plist>
+EOF
+
+    install -m 644 "${work}/root-ca.cer" "${TLS_DIR}/root-ca.cer"
+    install -m 644 "${work}/root-ca.sha256" "${TLS_DIR}/root-ca.sha256"
+    install -m 644 "${work}/root-ca.mobileconfig" "${TLS_DIR}/root-ca.mobileconfig"
+}
+
+generate_root() {
+    ca_id="$(openssl rand -hex 4 | tr '[:lower:]' '[:upper:]')"
+    ca_name="QuadRF Local Root CA ${ca_id}"
+    root_serial="$(openssl rand -hex 16)"
+
+    openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 \
+        -out "${work}/root-ca.key" 2>/dev/null
+    openssl req -x509 -new -key "${work}/root-ca.key" \
+        -sha256 -days 3650 -set_serial "0x${root_serial}" \
+        -subj "/O=Scale RF/CN=${ca_name}" \
+        -addext "basicConstraints=critical,CA:TRUE,pathlen:0" \
+        -addext "keyUsage=critical,keyCertSign,cRLSign" \
+        -addext "subjectKeyIdentifier=hash" \
+        -addext "authorityKeyIdentifier=keyid:always" \
+        -addext "nameConstraints=critical,permitted;DNS:.local,permitted;IP:${AP_PREFIX}.0/255.255.255.0,permitted;IP:10.55.1.0/255.255.255.0,permitted;IP:10.55.0.0/255.255.255.0" \
+        -out "${work}/root-ca.pem" 2>/dev/null
+
+    printf '%s\n' "${ca_id}" > "${work}/ca-id"
+    uuid > "${work}/profile-uuid"
+    uuid > "${work}/payload-uuid"
+    install -m 600 "${work}/root-ca.key" "${TLS_DIR}/root-ca.key"
+    install -m 644 "${work}/root-ca.pem" "${TLS_DIR}/root-ca.pem"
+    install -m 644 "${work}/ca-id" "${TLS_DIR}/ca-id"
+    install -m 644 "${work}/profile-uuid" "${TLS_DIR}/profile-uuid"
+    install -m 644 "${work}/payload-uuid" "${TLS_DIR}/payload-uuid"
+}
+
+issue_server() {
+    cat > "${work}/server.ext" <<EOF
+[server_ext]
+basicConstraints=critical,CA:FALSE
+keyUsage=critical,digitalSignature,keyEncipherment
+extendedKeyUsage=serverAuth
+subjectKeyIdentifier=hash
+authorityKeyIdentifier=keyid,issuer
+subjectAltName=@alt_names
+
+[alt_names]
+DNS.1=${CONTROL_HOST}
+DNS.2=${DESKTOP_HOST}
+DNS.3=${DESKTOP_SHORT}
+IP.1=${QUADRF_AP_ADDRESS}
+IP.2=10.55.1.1
+IP.3=10.55.0.1
+EOF
+
+    openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 \
+        -out "${work}/privkey.pem" 2>/dev/null
+    openssl req -new -sha256 -key "${work}/privkey.pem" \
+        -subj "/O=Scale RF/CN=${CONTROL_HOST}" \
+        -out "${work}/server.csr"
+    server_serial="$(openssl rand -hex 16)"
+    openssl x509 -req -in "${work}/server.csr" \
+        -CA "${TLS_DIR}/root-ca.pem" \
+        -CAkey "${TLS_DIR}/root-ca.key" \
+        -set_serial "0x${server_serial}" \
+        -sha256 -days 825 \
+        -extfile "${work}/server.ext" -extensions server_ext \
+        -out "${work}/server.pem" 2>/dev/null
+    cat "${work}/server.pem" "${TLS_DIR}/root-ca.pem" > "${work}/fullchain.pem"
+
+    openssl verify -CAfile "${TLS_DIR}/root-ca.pem" \
+        -verify_hostname "${CONTROL_HOST}" "${work}/server.pem" >/dev/null
+    install -m 600 "${work}/privkey.pem" "${TLS_DIR}/privkey.pem"
+    install -m 644 "${work}/server.pem" "${TLS_DIR}/server.pem"
+    install -m 644 "${work}/fullchain.pem" "${TLS_DIR}/fullchain.pem"
+    rm -f "${TLS_DIR}/imported"
+}
+
+mode="${1:-ensure}"
+case "${mode}" in
+    ensure) ;;
+    regenerate)
+        reset_identity
+        ;;
+    *)
+        echo "usage: quadrf-tls-setup [ensure|regenerate]" >&2
+        exit 2
+        ;;
+esac
+
+# An imported non-self-issued certificate remains administrator-owned. The
+# generated download artifacts are deliberately absent in this mode.
+if [ -f "${TLS_DIR}/imported" ] &&
+   [ -f "${TLS_DIR}/fullchain.pem" ] && [ -f "${TLS_DIR}/privkey.pem" ]; then
+    certificate_key_matches || {
+        echo "quadrf: imported certificate and private key do not match" >&2
+        exit 1
+    }
+    exit 0
+fi
+if [ ! -f "${TLS_DIR}/root-ca.pem" ] || [ ! -f "${TLS_DIR}/root-ca.key" ]; then
+    if [ -f "${TLS_DIR}/fullchain.pem" ] && [ -f "${TLS_DIR}/privkey.pem" ] &&
+       ! certificate_self_issued "${TLS_DIR}/fullchain.pem"; then
+        touch "${TLS_DIR}/imported"
+        echo "quadrf: preserving the administrator-installed TLS certificate"
+        exit 0
+    fi
+    reset_identity
+    generate_root
+elif ! root_key_matches; then
+    echo "quadrf: local root certificate and private key do not match;" >&2
+    echo "run 'quadrf tls local-ca' to replace the damaged identity" >&2
+    exit 1
+fi
+
+if ! leaf_ready; then
+    issue_server
+fi
+write_public_artifacts
+chmod 600 "${TLS_DIR}/root-ca.key" "${TLS_DIR}/privkey.pem"
+echo "quadrf: local HTTPS identity ready for ${CONTROL_HOST}"

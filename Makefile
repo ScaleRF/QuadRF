@@ -183,6 +183,7 @@ install-network:
 	$(INSTALL) -D -m 755 $(SRC)/network/bin/quadrf-apply-ap $(DESTDIR)$(sbindir)/quadrf-apply-ap
 	$(INSTALL) -D -m 755 $(SRC)/network/bin/quadrf-dns-update $(DESTDIR)$(sbindir)/quadrf-dns-update
 	$(INSTALL) -D -m 755 $(SRC)/network/bin/quadrf-mdns-alias $(DESTDIR)$(sbindir)/quadrf-mdns-alias
+	$(INSTALL) -D -m 755 $(SRC)/network/bin/quadrf-tls-setup $(DESTDIR)$(libdir)/tls-setup
 	$(INSTALL) -D -m 755 $(SRC)/network/if-up.d/quadrf-dns $(DESTDIR)$(sysconfdir)/network/if-up.d/quadrf-dns
 	$(INSTALL) -D -m 644 $(SRC)/network/dnsmasq/quadrf.conf $(DESTDIR)$(sysconfdir)/dnsmasq.d/quadrf.conf
 	$(INSTALL) -D -m 644 $(SRC)/network/modprobe.d/quadrf-g-ether.conf \
@@ -200,6 +201,8 @@ install-network:
 		$(DESTDIR)$(datadir)/network/nginx-kasm-proxy.conf
 	$(INSTALL) -D -m 644 $(SRC)/network/nginx/quadrf-vnc.conf \
 		$(DESTDIR)$(datadir)/network/nginx-vnc.conf
+	$(INSTALL) -D -m 644 $(SRC)/network/security/index.html.in \
+		$(DESTDIR)$(datadir)/network/security.in
 	$(INSTALL) -D -m 644 $(SRC)/network/hostapd/quadrf.conf.in $(DESTDIR)$(datadir)/network/hostapd.conf.in
 	$(INSTALL) -D -m 644 $(SRC)/network/dhcp/dhcpd.conf.in $(DESTDIR)$(datadir)/network/dhcpd.conf.in
 	$(INSTALL) -D -m 644 $(SRC)/network/sudoers.in $(DESTDIR)$(datadir)/network/sudoers.in

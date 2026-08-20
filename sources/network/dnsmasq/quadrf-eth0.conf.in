@@ -4,7 +4,6 @@ dhcp-option=tag:eth0,3
 dhcp-option=tag:eth0,6,10.55.1.1
 dhcp-option=tag:eth0,15,link
 domain=link
-interface-name=@DOMAIN@,eth0
 interface-name=@HOSTNAME@.local,eth0
 interface-name=@HOSTNAME@,eth0
 interface-name=@DESKTOP@,eth0

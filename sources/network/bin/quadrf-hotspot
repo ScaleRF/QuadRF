@@ -98,7 +98,6 @@ sleep 2
 cat > "${AP_CONF}" <<EOF
 interface=wlan0
 no-dhcp-interface=wlan0
-interface-name=${QUADRF_TLS_DOMAIN},wlan0
 interface-name=${QUADRF_HOSTNAME}.local,wlan0
 interface-name=${QUADRF_HOSTNAME},wlan0
 interface-name=$(quadrf_desktop_mdns),wlan0

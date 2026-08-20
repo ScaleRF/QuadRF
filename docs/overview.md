@@ -58,15 +58,20 @@ flowchart TB
 
 | Context | Address | Notes |
 |---------|---------|-------|
-| Home LAN | `quadrf.local` | mDNS through avahi. Ethernet or Wi-Fi with a router DHCP lease. `http://` |
+| Home LAN | `quadrf.local` | mDNS through avahi. Ethernet or Wi-Fi with a router DHCP lease. Initial setup uses HTTP; controls use HTTPS. |
 | Ethernet direct-connect | `10.55.1.1` | No router on the cable: Pi is `10.55.1.1`, the PC gets a lease from dnsmasq. No gateway. |
 | USB gadget | `10.55.0.1` | `g_ether` on `usb0` when a host enumerates the gadget. Same names as Ethernet. Most laptops cannot provide 5V at 5A, causing possible brownouts. Please isolate the Pi's power from the usb connection to a device. |
 | Fallback access point | `192.168.44.1` | SSID `QuadRF`, open unless `QUADRF_AP_PASS` is set, started when no saved Wi-Fi answers |
-| TLS name | `my.quadrf.com` | Default `QUADRF_TLS_DOMAIN` for the self-signed CN |
+
+Use `http://quadrf.local/setup/security/` once to install the per-install local
+root certificate, then use `https://quadrf.local/` as the canonical browser
+address in every mode. The direct IP addresses are fallbacks when the client
+does not support mDNS.
 
 ## Web entry points
 
-nginx answers on ports 80 and 443.
+nginx answers on ports 80 and 443. HTTP remains available for first-use
+certificate installation; controls, AR camera access and WebSockets use HTTPS.
 
 | Path / name | Serves | Backend |
 |------|--------|---------|
@@ -75,6 +80,7 @@ nginx answers on ports 80 and 443.
 | `quadrfd.local/split` | Desktop + control panel | Kasm iframe + Flask |
 | `/AR/` | Browser AR overlay | Static, `/usr/share/quadrf/ar/` |
 | `/ws` | WebSocket for Spatial RF Vision | `quadrf-rf-vision` on 8000 |
+| `/setup/security/` | Platform-detected HTTPS setup | Instructions for iOS, Android, macOS, Windows, Linux, ChromeOS and common browsers, plus locally generated root downloads |
 
 `/GUI/` redirects to `/`. `/GUI/split` on the desktop host redirects to `/split`.
 `/VNC/` redirects to port 6080. KasmVNC is not served

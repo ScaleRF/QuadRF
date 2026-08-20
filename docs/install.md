@@ -30,8 +30,10 @@ After reboot:
 quadrf status
 ```
 
-Lists services, CSI/DSI drivers, SoapySDR devices and interface addresses. The
-web UI is at [http://quadrf.local/](http://quadrf.local/).
+Lists services, CSI/DSI drivers, SoapySDR devices and interface addresses. Open
+[the local HTTPS setup](http://quadrf.local/setup/security/) once, install
+the QuadRF root certificate, and then use
+[https://quadrf.local/](https://quadrf.local/).
 
 See [install/README.md](../install/README.md) for the package list and
 [packaging/README.md](../packaging/README.md) for how releases are built.
@@ -92,7 +94,6 @@ Site settings live in `/etc/quadrf/quadrf.conf`:
 | ------------------- | ---------------- | ---------------------------------------------- |
 | `QUADRF_USER`       | `dietpi`         | Account for the desktop, web GUI and demos     |
 | `QUADRF_BOOT_DIR`   | `/boot/firmware` | Firmware partition (`config.txt`, `overlays/`) |
-| `QUADRF_TLS_DOMAIN` | `my.quadrf.com`  | CN on the per-unit self-signed cert            |
 | `QUADRF_HOSTNAME`   | `quadrf`         | mDNS / nginx name (`HOSTNAME.local`; desktop is `HOSTNAMEd.local` and `HOSTNAME-desktop.local`) |
 | `QUADRF_AP_SSID`    | `QuadRF`         | Fallback access point SSID                     |
 | `QUADRF_AP_PASS`    | empty            | Fallback AP WPA2 passphrase; empty = open      |
@@ -113,6 +114,12 @@ sudoers, desktop layout).
 Several QuadRFs on one LAN share the default mDNS name `quadrf.local`. Avahi
 then renames one unit to `quadrf-2.local`. Set a distinct `QUADRF_HOSTNAME` on
 each unit and re-run `sudo quadrf apply` if you need stable names.
+
+The initial web entry point is HTTP. A fresh installation also creates a local
+root CA and a separate HTTPS server certificate. Open `http://HOSTNAME.local/setup/security/` to install that root on
+iOS, Android, macOS, Windows, Linux or ChromeOS, then use
+`https://HOSTNAME.local/`. See
+[HTTPS setup](tls.md) for the exact steps.
 
 ## Upgrade
 

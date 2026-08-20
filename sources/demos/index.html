@@ -46,6 +46,9 @@
         .copy-row button:active { background: #555; }
         .instruction-step { margin-bottom: 10px; font-size: 14px; }
         .highlight { color: #fff; font-weight: bold; }
+        .setup-button { display: block; margin: 16px 0; padding: 12px 16px; border-radius: 6px; background: #0284c7; border: 1px solid #38bdf8; color: white; text-align: center; text-decoration: none; font-weight: bold; }
+        #chrome_flag_help { display: none; border-top: 1px solid #555; margin-top: 14px; padding-top: 12px; }
+        #chrome_flag_help summary { cursor: pointer; color: #fbbf24; font-weight: bold; }
     </style>
 </head>
 <body>
@@ -62,22 +65,34 @@
 <button id="mirror_btn">Flip L/R</button>
 
 <div id="cam_error">
-    <h3>Camera Access Blocked</h3>
-    <p>Chrome blocks camera access on local networks without HTTPS. To bypass this for field ops:</p>
-    
-    <div class="instruction-step">1. Copy this internal flag link:</div>
-    <div class="copy-row">
-        <input type="text" id="flag_url" value="chrome://flags/#unsafely-treat-insecure-origin-as-secure" readonly>
-        <button onclick="copyFlag()">Copy</button>
+    <h3 id="cam_error_title">Camera Access Blocked</h3>
+    <p id="cam_error_message"></p>
+
+    <div id="secure_setup_help" style="display:none;">
+        <a class="setup-button" href="/setup/security/" target="_blank" rel="noopener">Set up HTTPS</a>
+        <p>After installing the QuadRF certificate, use the setup page's <b>Open QuadRF over HTTPS</b> button and launch AR again.</p>
     </div>
-    
-    <div class="instruction-step">2. Open a <b>New Tab</b> and paste the link.</div>
-    <div class="instruction-step">3. Enable the setting and add this address to the text box:</div>
-    <div class="copy-row">
-        <input type="text" id="flag_origin" readonly>
-        <button onclick="copyOrigin()">Copy</button>
+
+    <div id="permission_help" style="display:none;">
+        <p>Open this browser's site settings for <b id="permission_origin"></b>, allow Camera, close other apps using the camera, and reload this page.</p>
     </div>
-    <div class="instruction-step">4. Tap <b>Relaunch</b> at the bottom.</div>
+
+    <details id="chrome_flag_help">
+        <summary>Temporary Chrome HTTP workaround</summary>
+        <p>This experimental option does not encrypt or authenticate the connection. Prefer the HTTPS setup above.</p>
+        <div class="instruction-step">1. Copy this internal flag link:</div>
+        <div class="copy-row">
+            <input type="text" id="flag_url" value="chrome://flags/#unsafely-treat-insecure-origin-as-secure" readonly>
+            <button onclick="copyFlag()">Copy</button>
+        </div>
+        <div class="instruction-step">2. Open a <b>New Tab</b> and paste the link.</div>
+        <div class="instruction-step">3. Enable the setting and add this exact origin:</div>
+        <div class="copy-row">
+            <input type="text" id="flag_origin" readonly>
+            <button onclick="copyOrigin()">Copy</button>
+        </div>
+        <div class="instruction-step">4. Tap <b>Relaunch</b>.</div>
+    </details>
 </div>
 
 <script>
@@ -551,9 +566,44 @@
     // Camera & WebSocket Setup (With Auto-Reconnect)
     // ---------------------------------------------------------
     
-    function showCameraError(msg) {
-        statusDiv.innerText = msg;
+    function showCameraError(error) {
+        const insecure = !window.isSecureContext;
+        const title = document.getElementById('cam_error_title');
+        const message = document.getElementById('cam_error_message');
+        const setupHelp = document.getElementById('secure_setup_help');
+        const permissionHelp = document.getElementById('permission_help');
+        const chromeHelp = document.getElementById('chrome_flag_help');
+        const errorName = error && error.name ? error.name : 'NotSupportedError';
+
+        setupHelp.style.display = insecure ? 'block' : 'none';
+        permissionHelp.style.display = insecure ? 'none' : 'block';
+        const chromeCanUseFlag = /(Chrome|Chromium)/.test(navigator.userAgent) &&
+            !/iPhone|iPad|iPod|CriOS/.test(navigator.userAgent);
+        chromeHelp.style.display = insecure && chromeCanUseFlag ? 'block' : 'none';
+
+        if (insecure) {
+            title.innerText = 'HTTPS required';
+            message.innerText = 'This page is using HTTP. iOS and Android browsers require HTTPS before they expose the camera.';
+            statusDiv.innerText = 'Camera blocked: HTTPS setup required';
+        } else if (errorName === 'NotAllowedError' || errorName === 'SecurityError') {
+            title.innerText = 'Camera permission denied';
+            message.innerText = 'HTTPS is working, but the browser or operating system denied camera permission.';
+            statusDiv.innerText = 'Camera permission denied';
+        } else if (errorName === 'NotFoundError') {
+            title.innerText = 'No camera found';
+            message.innerText = 'The browser could not find a usable camera on this device.';
+            statusDiv.innerText = 'No camera found';
+        } else if (errorName === 'NotReadableError') {
+            title.innerText = 'Camera unavailable';
+            message.innerText = 'Another app may be using the camera, or the operating system blocked access.';
+            statusDiv.innerText = 'Camera unavailable';
+        } else {
+            title.innerText = 'Camera error';
+            message.innerText = error && error.message ? error.message : 'This browser does not provide camera access.';
+            statusDiv.innerText = 'Camera error';
+        }
         statusDiv.style.color = "red";
+        document.getElementById('permission_origin').textContent = window.location.host;
         document.getElementById('flag_origin').value = window.location.origin;
         document.getElementById('cam_error').style.display = 'block';
     }
@@ -587,10 +637,10 @@
                 }
             };
         }).catch(err => {
-            showCameraError("Camera Error: " + err.message);
+            showCameraError(err);
         });
     } else {
-        showCameraError("Camera Blocked (Insecure Origin)");
+        showCameraError({ name: 'NotSupportedError', message: 'Camera APIs are unavailable.' });
     }
 
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';

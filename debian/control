@@ -151,7 +151,8 @@ Description: QuadRF networking, hotspot and web front end
  nginx in front of the control panel at /, the remote desktop at /VNC/ and
  the AR page; dnsmasq leases and names on the Ethernet, USB gadget and Wi-Fi
  interfaces; mDNS as HOSTNAME.local; and a fallback access point for when no
- known Wi-Fi network answers.
+ known Wi-Fi network answers. A per-install local CA and setup page provide
+ HTTPS on iOS, Android and desktop browsers.
 
 Package: quadrf-demos
 Architecture: arm64

@@ -4,7 +4,6 @@ dhcp-option=tag:usb0,3
 dhcp-option=tag:usb0,6,10.55.0.1
 dhcp-option=tag:usb0,15,link
 domain=link
-interface-name=@DOMAIN@,usb0
 interface-name=@HOSTNAME@.local,usb0
 interface-name=@HOSTNAME@,usb0
 interface-name=@DESKTOP@,usb0

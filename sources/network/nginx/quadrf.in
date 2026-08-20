@@ -43,20 +43,14 @@ server {
     }
 
     location / {
-        return 302 http://@DOMAIN@/;
+        return 302 http://@HOSTNAME@.local/;
     }
 }
 
 server {
     listen 80;
     listen [::]:80;
-    server_name @DOMAIN@ @AP_ADDRESS@ @HOSTNAME@ @HOSTNAME@.local localhost;
-
-    # The certificate only covers @DOMAIN@, so plain HTTP stays available for
-    # @HOSTNAME@.local and for direct addresses.
-    if ($host = @DOMAIN@) {
-        return 301 https://$host$request_uri;
-    }
+    server_name @AP_ADDRESS@ @HOSTNAME@ @HOSTNAME@.local localhost;
 
     include snippets/quadrf-locations.conf;
 }
@@ -64,7 +58,7 @@ server {
 server {
     listen 443 ssl default_server;
     listen [::]:443 ssl default_server;
-    server_name @DOMAIN@ @AP_ADDRESS@ @HOSTNAME@ @HOSTNAME@.local localhost;
+    server_name @AP_ADDRESS@ @HOSTNAME@ @HOSTNAME@.local localhost;
 
     ssl_certificate /etc/quadrf/tls/fullchain.pem;
     ssl_certificate_key /etc/quadrf/tls/privkey.pem;
