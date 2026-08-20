@@ -1,3 +1,15 @@
+quadrf (1.0.5) trixie; urgency=medium
+
+  * Per-install local HTTPS: generate a constrained CA and server
+    certificate, serve platform-specific downloads, and use
+    quadrf.local across connection modes. my.quadrf.com is gone.
+  * USB gadget address and dnsmasq follow the host link; usb0 is
+    10.55.0.1 only while a host has enumerated. dnsmasq is restarted
+    when generated snippets change so DHCP/DNS recover after LAN to
+    USB, Ethernet, Wi-Fi, and AP transitions.
+
+ -- QuadRF Engineering <contact@ScaleRF.com>  Wed, 19 Aug 2026 20:27:25 -0700
+
 quadrf (1.0.4) trixie; urgency=medium
 
   * Ethernet direct-connect follows eth0 carrier and drops a leftover
