@@ -1,7 +1,14 @@
-usr/share/applications/
-usr/share/icons/
+usr/share/applications/quadrf-agent.desktop
+usr/share/applications/quadrf-qradiolink.desktop
+usr/share/applications/quadrf-software.desktop
+usr/share/applications/quadrf-terminal.desktop
+usr/share/icons/hicolor/scalable/apps/quadrf-agent.svg
+usr/share/icons/hicolor/scalable/apps/quadrf-qradiolink.svg
+usr/share/icons/hicolor/scalable/apps/quadrf-software.svg
+usr/share/icons/hicolor/scalable/apps/quadrf-terminal.svg
 usr/share/quadrf/desktop/
 usr/share/quadrf/agent/
 usr/lib/quadrf/kasm-wrangle
 usr/lib/quadrf/apply.d/50-desktop
+usr/lib/quadrf/sync-desktop-apps
 lib/systemd/system/quadrf-desktop.service

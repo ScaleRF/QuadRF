@@ -120,24 +120,7 @@ if [ -f "${ob_rc}" ] && ! grep -q "quadrf: raise GNU Radio" "${ob_rc}"; then
     rm -f "${ob_tmp}"
 fi
 
-# pcmanfm shows the desktop from ~/Desktop, and only runs entries it can execute.
-# Without metadata::trusted, GNOME/PCManFM may refuse to launch .desktop files
-# even when they are mode 755 (regression vs the pre-apt installer).
-# Skip (and drop stale copies of) entries whose TryExec is missing; otherwise
-# a double-click is "Invalid desktop entry file" rather than a hidden icon.
-for entry in /usr/share/applications/quadrf-*.desktop; do
-    [ -f "${entry}" ] || continue
-    dest="${HOME_DIR}/Desktop/$(basename "${entry}")"
-    tryexec="$(sed -n 's/^TryExec=//p' "${entry}" | head -n1)"
-    if [ -n "${tryexec}" ] && [ ! -x "${tryexec}" ] && ! command -v "${tryexec}" >/dev/null 2>&1; then
-        rm -f "${dest}"
-        continue
-    fi
-    install -o "${QUADRF_USER}" -g "${GROUP}" -m 755 "${entry}" "${dest}"
-    if command -v gio >/dev/null 2>&1; then
-        runuser -u "${QUADRF_USER}" -- gio set "${dest}" metadata::trusted true 2>/dev/null || true
-    fi
-done
+/usr/lib/quadrf/sync-desktop-apps
 
 if [ ! -f "${HOME_DIR}/.kasmpasswd" ] && command -v kasmvncpasswd >/dev/null 2>&1; then
     # Local session account. nginx fronts KasmVNC with -disableBasicAuth, so

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Publish the QuadRF names on wlan0 while it is a station on someone's LAN.
+# Publish the QuadRF names on wlan0 while it is a client on someone's LAN.
 # Called from /etc/network/if-up.d/quadrf-dns and by quadrf-network on install.
 set -euo pipefail
 
@@ -46,5 +46,3 @@ if [[ ! -f "${DEST}" ]] || ! cmp -s "${tmp}" "${DEST}"; then
     restart_dnsmasq
 fi
 rm -f "${tmp}"
-
-systemctl try-restart quadrf-mdns.service 2>/dev/null || true

@@ -15,6 +15,8 @@ quadrf_load_conf() {
     QUADRF_AP_SSID=QuadRF
     QUADRF_AP_PASS=
     QUADRF_AP_ADDRESS=192.168.44.1
+    QUADRF_WIFI_MODE=sta
+    QUADRF_WIFI_FALLBACK=yes
     QUADRF_OPENOCD=
 
     if [ -r "${QUADRF_CONF}" ]; then

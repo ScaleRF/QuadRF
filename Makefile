@@ -15,6 +15,7 @@ libdir        = $(prefix)/lib/quadrf
 datadir       = $(prefix)/share/quadrf
 icondir       = $(prefix)/share/icons/hicolor/scalable/apps
 appdir        = $(prefix)/share/applications
+metainfodir   = $(prefix)/share/metainfo
 unitdir       = /lib/systemd/system
 mandir        = $(prefix)/share/man
 includedir    = $(prefix)/include/quadrf
@@ -167,6 +168,7 @@ install-soapy: soapy-modules
 
 install-gui:
 	$(INSTALL) -D -m 644 $(SRC)/flask/app.py $(DESTDIR)$(datadir)/gui/app.py
+	$(INSTALL) -D -m 644 $(SRC)/flask/app_icons.py $(DESTDIR)$(datadir)/gui/app_icons.py
 	$(INSTALL) -D -m 644 -t $(DESTDIR)$(datadir)/gui/templates $(SRC)/flask/templates/*
 	$(INSTALL) -D -m 644 -t $(DESTDIR)$(datadir)/gui/static $(SRC)/flask/static/*
 	$(INSTALL) -D -m 755 $(SRC)/flask/quadrf-app $(DESTDIR)$(sbindir)/quadrf-app
@@ -229,6 +231,16 @@ install-demos: demos
 	$(INSTALL) -D -m 644 $(SRC)/demos/manifest.json $(DESTDIR)$(datadir)/ar/manifest.json
 	$(INSTALL) -D -m 644 $(SRC)/demos/icon-192.png $(DESTDIR)$(datadir)/ar/icon-192.png
 	$(INSTALL) -D -m 644 $(SRC)/demos/icon-512.png $(DESTDIR)$(datadir)/ar/icon-512.png
+	$(INSTALL) -D -m 644 $(SRC)/demos/apps/quadrf-demos.json \
+		$(DESTDIR)$(datadir)/apps.d/quadrf-demos.json
+	$(INSTALL) -D -m 644 -t $(DESTDIR)$(appdir) \
+		$(SRC)/desktop/applications/com.scalerf.QuadRF.SpatialRFVision.desktop \
+		$(SRC)/desktop/applications/com.scalerf.QuadRF.CameraDecoder.desktop \
+		$(SRC)/desktop/applications/com.scalerf.QuadRF.PSDPlot.desktop
+	$(INSTALL) -D -m 644 -t $(DESTDIR)$(metainfodir) $(SRC)/demos/metainfo/*.metainfo.xml
+	$(INSTALL) -D -m 644 $(SRC)/icons/spatial_vision.svg $(DESTDIR)$(icondir)/quadrf-spatial-vision.svg
+	$(INSTALL) -D -m 644 $(SRC)/icons/psd_switchable.svg $(DESTDIR)$(icondir)/quadrf-psd.svg
+	$(INSTALL) -D -m 644 $(SRC)/icons/video_decoder.svg $(DESTDIR)$(icondir)/quadrf-video-decoder.svg
 	$(INSTALL) -D -m 755 $(SRC)/demos/45-demos $(DESTDIR)$(libdir)/apply.d/45-demos
 	$(INSTALL) -D -m 644 $(SRC)/systemd/quadrf-rf-vision.service $(DESTDIR)$(unitdir)/quadrf-rf-vision.service
 	$(INSTALL) -D -m 644 $(SRC)/systemd/quadrf-ntsc.service $(DESTDIR)$(unitdir)/quadrf-ntsc.service
@@ -239,7 +251,11 @@ install-demos: demos
 	rm -rf $(DESTDIR)$(datadir)/phasegaze/.gitignore
 
 install-desktop:
-	$(INSTALL) -D -m 644 -t $(DESTDIR)$(appdir) $(SRC)/desktop/applications/*.desktop
+	$(INSTALL) -D -m 644 -t $(DESTDIR)$(appdir) \
+		$(SRC)/desktop/applications/quadrf-agent.desktop \
+		$(SRC)/desktop/applications/quadrf-qradiolink.desktop \
+		$(SRC)/desktop/applications/quadrf-software.desktop \
+		$(SRC)/desktop/applications/quadrf-terminal.desktop
 	$(INSTALL) -D -m 755 $(SRC)/desktop/kasm-xstartup.sh $(DESTDIR)$(datadir)/desktop/xstartup
 	$(INSTALL) -D -m 755 $(SRC)/desktop/kasm-wrangle.sh $(DESTDIR)$(libdir)/kasm-wrangle
 	$(INSTALL) -D -m 644 $(SRC)/kasmvnc/kasmvnc_defaults.yaml $(DESTDIR)$(datadir)/desktop/kasmvnc.yaml
@@ -252,11 +268,8 @@ install-desktop:
 		$(DESTDIR)$(datadir)/desktop/config/qradiolink/qradiolink.cfg
 	cp -a $(SRC)/kasmvnc/www $(DESTDIR)$(datadir)/desktop/www
 	$(INSTALL) -D -m 755 $(SRC)/desktop/50-desktop $(DESTDIR)$(libdir)/apply.d/50-desktop
+	$(INSTALL) -D -m 755 $(SRC)/desktop/sync-desktop-apps $(DESTDIR)$(libdir)/sync-desktop-apps
 	$(INSTALL) -D -m 644 $(SRC)/systemd/quadrf-desktop.service $(DESTDIR)$(unitdir)/quadrf-desktop.service
-	$(INSTALL) -D -m 644 $(SRC)/icons/spatial_vision.svg $(DESTDIR)$(icondir)/quadrf-spatial-vision.svg
-	$(INSTALL) -D -m 644 $(SRC)/icons/psd_switchable.svg $(DESTDIR)$(icondir)/quadrf-psd.svg
-	$(INSTALL) -D -m 644 $(SRC)/icons/video_decoder.svg $(DESTDIR)$(icondir)/quadrf-video-decoder.svg
-	$(INSTALL) -D -m 644 $(SRC)/icons/gnu_radio.svg $(DESTDIR)$(icondir)/quadrf-gnuradio.svg
 	$(INSTALL) -D -m 644 $(SRC)/icons/qradiolink.svg $(DESTDIR)$(icondir)/quadrf-qradiolink.svg
 	$(INSTALL) -D -m 644 $(SRC)/icons/terminal.svg $(DESTDIR)$(icondir)/quadrf-terminal.svg
 	$(INSTALL) -D -m 644 $(SRC)/icons/dietpi_software.svg $(DESTDIR)$(icondir)/quadrf-software.svg
@@ -264,6 +277,8 @@ install-desktop:
 	$(INSTALL) -D -m 644 $(SRC)/gptme/config/env.example $(DESTDIR)$(datadir)/agent/env.example
 
 install-gnuradio:
+	$(INSTALL) -D -m 644 $(SRC)/desktop/applications/quadrf-gnuradio.desktop $(DESTDIR)$(appdir)/quadrf-gnuradio.desktop
+	$(INSTALL) -D -m 644 $(SRC)/icons/gnu_radio.svg $(DESTDIR)$(icondir)/quadrf-gnuradio.svg
 	$(INSTALL) -D -m 644 -t $(DESTDIR)$(datadir)/grc $(SRC)/grc_projects/*
 
 install-ups:

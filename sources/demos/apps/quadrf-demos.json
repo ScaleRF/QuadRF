@@ -1,0 +1,29 @@
+{
+  "apps": [
+    {
+      "id": "ar",
+      "desktop_entry": "com.scalerf.QuadRF.SpatialRFVision.desktop",
+      "service": "quadrf-rf-vision.service",
+      "binaries": ["quadrf-rf-vision"],
+      "exclusive": true,
+      "open": "/AR/",
+      "ready_port": 8000
+    },
+    {
+      "id": "ntsc",
+      "desktop_entry": "com.scalerf.QuadRF.CameraDecoder.desktop",
+      "service": "quadrf-ntsc.service",
+      "binaries": ["quadrf-ntsc", "quadrf-ntsc-demod"],
+      "exclusive": true,
+      "open": "desktop"
+    },
+    {
+      "id": "psd",
+      "desktop_entry": "com.scalerf.QuadRF.PSDPlot.desktop",
+      "service": "quadrf-psd.service",
+      "binaries": ["quadrf-psd"],
+      "exclusive": true,
+      "open": "desktop"
+    }
+  ]
+}

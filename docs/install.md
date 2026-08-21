@@ -67,7 +67,7 @@ flowchart TB
     QRL["qradiolink"]
   end
 
-  FULL --> COMMON & BOOT & FPGA & SOAPY & GUI & NET & DEMOS & DESK & UPS
+  FULL --> COMMON & BOOT & FPGA & SOAPY & GUI & NET & DEMOS & DESK & UPS & GRC
   HEAD --> COMMON & BOOT & FPGA & SOAPY & GUI & NET
 
   BOOT --> COMMON
@@ -75,15 +75,16 @@ flowchart TB
   SOAPY --> FPGA
   GUI --> FPGA
   DEMOS --> FPGA
-  DESK --> DEMOS & GRC & QRL
+  DESK --> QRL
   NET --> COMMON
   UPS --> COMMON
   GRC --> COMMON
 ```
 
-
-
-
+The complete `quadrf` package includes the remote desktop and the applications
+described in [Applications](applications.md). Extra `.deb` packages with a
+desktop entry and/or a control-page descriptor load automatically.
+`quadrf-headless` omits the desktop and the included radio apps.
 
 ## Configure
 
@@ -92,12 +93,14 @@ Site settings live in `/etc/quadrf/quadrf.conf`:
 
 | Setting             | Default          | Effect                                         |
 | ------------------- | ---------------- | ---------------------------------------------- |
-| `QUADRF_USER`       | `dietpi`         | Account for the desktop, web GUI and demos     |
+| `QUADRF_USER`       | `dietpi`         | Account for the desktop, web GUI and applications |
 | `QUADRF_BOOT_DIR`   | `/boot/firmware` | Firmware partition (`config.txt`, `overlays/`) |
 | `QUADRF_HOSTNAME`   | `quadrf`         | mDNS / nginx name (`HOSTNAME.local`; desktop is `HOSTNAMEd.local` and `HOSTNAME-desktop.local`) |
 | `QUADRF_AP_SSID`    | `QuadRF`         | Fallback access point SSID                     |
 | `QUADRF_AP_PASS`    | empty            | Fallback AP WPA2 passphrase; empty = open      |
 | `QUADRF_AP_ADDRESS` | `192.168.44.1`   | Pi address in access point mode                |
+| `QUADRF_WIFI_MODE`  | `sta`            | Last Wi-Fi choice: `sta`, `ap`, or `off`       |
+| `QUADRF_WIFI_FALLBACK` | `yes`         | If client join fails, start the hotspot        |
 | `QUADRF_OPENOCD`    | empty            | Override OpenOCD; used to program the FPGA with BYO bitstream     |
 
 
@@ -147,9 +150,9 @@ overlays; reboot afterward.
 | ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
 | `load-quadrf.service` fails                     | Overlays need a reboot. Confirm the QuadRF block in `/boot/firmware/config.txt` and that `quadrf status` shows the drivers loaded. |
 | Drivers missing after a kernel upgrade          | `dkms status`. `quadrf-fpga-dkms` depends on `linux-headers-rpi-2712` (Pi 5) or `linux-headers-rpi-v8`. Then `sudo dkms autoinstall`. |
-| `quadrf.local` does not resolve                 | Check `systemctl status avahi-daemon` and that the client supports mDNS.                                                           |
+| `quadrf.local` does not resolve                 | Check `systemctl status avahi-daemon quadrf-mdns`. Name is published per interface; from the LAN it is the ethernet/client address, not `192.168.44.1`. Client must support mDNS. |
 | `quadrf-soapy-server` bind fails / restart loop | Stock `soapyremote-server` must stay masked; `quadrf-soapy` owns port 55132.                                                       |
-| No fallback access point                        | Default SSID `QuadRF` is open unless `QUADRF_AP_PASS` is set. `hostapd` must be active (`journalctl -u hostapd`). Trixie skips the unit unless `/etc/hostapd/quadrf.conf` satisfies the condition drop-in. |
+| No fallback access point                        | Default SSID `QuadRF` is open unless `QUADRF_AP_PASS` is set. `QUADRF_WIFI_MODE` must not be `off`, and `QUADRF_WIFI_FALLBACK` defaults to yes. `hostapd` must be active (`journalctl -u hostapd`). Trixie skips the unit unless `/etc/hostapd/quadrf.conf` satisfies the condition drop-in. |
 | `networking.service` / `misplaced option`       | Comment leftover `wireless-power` / `wpa-conf` lines in `/etc/network/interfaces`. |
 | apt/HTTPS fails while the AP is up              | Remove `address=/#/` from `/etc/dnsmasq.d/quadrf-wlan0-ap.conf` and `systemctl restart dnsmasq`. |
 | USB `10.55.0.1` listed but unreachable          | `quadrf-usb` only assigns the island while a host is enumerated. Plug the Pi USB-C data port (not the UPS charge jack). Most laptops cannot provide 5V at 5A, causing possible brownouts. Please isolate the Pi's power from the usb connection to a device. |

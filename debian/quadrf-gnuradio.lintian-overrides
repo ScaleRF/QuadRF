@@ -1,0 +1,2 @@
+# The launcher command is supplied by the package's gnuradio dependency.
+quadrf-gnuradio: desktop-command-not-in-package * [usr/share/applications/quadrf-gnuradio.desktop]

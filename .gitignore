@@ -30,6 +30,9 @@ __pycache__/
 *.egg-info/
 .venv/
 
+# Local regression checks; drop this line to publish them
+tests/
+
 # API keys and certificates, never committed
 .config/gptme/env
 *.pem

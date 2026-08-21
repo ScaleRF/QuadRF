@@ -1,6 +1,6 @@
 .TH QUADRF-APP 8 "August 2026" "QuadRF" "QuadRF"
 .SH NAME
-quadrf-app \- start and stop exclusive QuadRF demo applications
+quadrf-app \- start and stop registered QuadRF applications
 .SH SYNOPSIS
 .B quadrf-app
 .B status
@@ -13,31 +13,36 @@ quadrf-app \- start and stop exclusive QuadRF demo applications
 .B stop
 .I app
 .SH DESCRIPTION
-Starts or stops a demo from the catalog in
-.IR /usr/share/quadrf/apps.json .
-The CSI and DSI front-end is single-client, so
+Starts or stops an application registered with the control page.
+Packages install a JSON descriptor in
+.IR /usr/share/quadrf/apps.d/ .
+The visible name, comment and icon come from the application's
+.I .desktop
+file under
+.IR /usr/share/applications/ .
+.PP
+The radio front-end is single-client, so
 .B start
-stops every other exclusive app in that catalog, waits for the kernel to
-release the device nodes, then starts the requested unit.
+stops every other exclusive app, waits for the device nodes to be released,
+then starts the requested unit.
 .PP
 .B status
 prints JSON with the installed and running state of each app. The web control
-panel calls this helper through the sudoers rule in
-.IR /etc/sudoers.d/quadrf .
+panel calls this command through sudoers.
 .PP
-Known
-.I app
-ids are
+The included radio apps use the ids
 .BR ar
-(Spatial RF Vision, headless WebSocket feed for
+(Spatial RF Vision, WebSocket feed for
 .IR /AR/ ),
 .BR ntsc
 (Camera Decoder) and
 .BR psd
-(PSD Plot). Desktop-launched copies of the same binaries are also killed, so a
-session started from the VNC desktop does not keep the radio locked.
+(PSD Plot). A copy started from the remote desktop is stopped as well, so it
+does not keep the radio locked.
 .SH SEE ALSO
 .BR quadrf (1),
+.BR desktop-file-validate (1),
+.BR systemd.service (5),
 .BR quadrf-rf-vision (1),
 .BR quadrf-ntsc (1),
 .BR quadrf-psd (1)

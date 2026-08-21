@@ -217,12 +217,14 @@ apply() {
     systemctl unmask hostapd.service 2>/dev/null || true
     systemctl disable hostapd.service isc-dhcp-server.service 2>/dev/null || true
 
-    # Publish HOSTNAME.local regardless of the system hostname, and keep the
-    # reflector off: with several interfaces up it echoes our own announcement
-    # back and avahi renames itself to HOSTNAME-2.
+    # Host A/AAAA records have no ifindex, so a LAN client would get the AP
+    # address for HOSTNAME.local. quadrf-mdns-alias publishes per interface.
+    # Reflector off: several interfaces up would echo us and become HOSTNAME-2.
     if [ -f /etc/avahi/avahi-daemon.conf ]; then
         quadrf_setting_set /etc/avahi/avahi-daemon.conf host-name "${QUADRF_HOSTNAME}"
         quadrf_setting_set /etc/avahi/avahi-daemon.conf enable-reflector no
+        quadrf_setting_set /etc/avahi/avahi-daemon.conf publish-addresses no
+        systemctl try-restart avahi-daemon.service 2>/dev/null || true
     fi
 
     # dnsmasq needs port 53.

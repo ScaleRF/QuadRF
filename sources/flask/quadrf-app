@@ -1,17 +1,28 @@
 #!/usr/bin/python3
-"""Start, stop and report the exclusive QuadRF demo applications.
+"""Start, stop and report registered QuadRF applications.
 
 CSI/DSI are single-client. Starting one app stops the others in the catalog
 before the new unit is brought up. Invoked by the web GUI through sudoers.
 """
 import json
 import os
+import re
 import socket
 import subprocess
 import sys
 import time
+from configparser import ConfigParser, Error as ConfigParserError
+from glob import glob
 
 CATALOG_PATH = os.environ.get("QUADRF_APPS_JSON", "/usr/share/quadrf/apps.json")
+CATALOG_DIR = os.environ.get("QUADRF_APPS_DIR", "/usr/share/quadrf/apps.d")
+DESKTOP_ENTRY_DIRS = tuple(filter(None, os.environ.get(
+    "QUADRF_DESKTOP_ENTRY_DIRS",
+    "/usr/local/share/applications:/usr/share/applications",
+).split(":")))
+APP_ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
+# Bundled radio apps stay left of drop-ins, whose files sort by name.
+PREFERRED_APP_IDS = ("ar", "ntsc", "psd")
 CSI_RELEASE_S = 0.5
 STOP_WAIT_S = 4.0
 START_WAIT_S = 8.0
@@ -22,22 +33,83 @@ def die(msg, code=1):
     sys.exit(code)
 
 
-def load_catalog():
+def warn(msg):
+    print(f"quadrf-app: {msg}", file=sys.stderr)
+
+
+def read_catalog(path, required=False):
     try:
-        with open(CATALOG_PATH, encoding="utf-8") as f:
-            data = json.load(f)
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
     except FileNotFoundError:
-        die(f"catalog missing: {CATALOG_PATH}")
+        if required:
+            die(f"catalog missing: {path}")
+        return None
     except json.JSONDecodeError as e:
-        die(f"catalog invalid: {e}")
-    apps = data.get("apps") or []
+        if required:
+            die(f"catalog invalid: {path}: {e}")
+        warn(f"ignoring invalid catalog {path}: {e}")
+        return None
+
+
+def load_catalog():
+    paths = []
+    if os.path.isfile(CATALOG_PATH):
+        paths.append((CATALOG_PATH, True))
+    paths.extend((path, False) for path in sorted(glob(os.path.join(CATALOG_DIR, "*.json"))))
+    if not paths:
+        die(f"no application catalogs found at {CATALOG_PATH} or {CATALOG_DIR}")
+
     by_id = {}
-    for app in apps:
-        app_id = app.get("id")
-        if not app_id or not app.get("service"):
+    for path, required in paths:
+        data = read_catalog(path, required=required)
+        if data is None:
             continue
-        by_id[app_id] = app
+        apps = data.get("apps") if isinstance(data, dict) else None
+        if not isinstance(apps, list):
+            warn(f"ignoring catalog without an apps list: {path}")
+            continue
+        for app in apps:
+            if not isinstance(app, dict):
+                warn(f"ignoring non-object entry in {path}")
+                continue
+            app_id = app.get("id")
+            service = app.get("service")
+            if (
+                not isinstance(app_id, str)
+                or not APP_ID_RE.fullmatch(app_id)
+                or not isinstance(service, str)
+                or not service
+            ):
+                warn(f"ignoring entry without id/service in {path}")
+                continue
+            if app_id in by_id:
+                warn(f"ignoring duplicate app id {app_id!r} in {path}")
+                continue
+            by_id[app_id] = app
     return by_id
+
+
+def desktop_metadata(app):
+    entry_name = app.get("desktop_entry") or ""
+    if not entry_name or entry_name != os.path.basename(entry_name) or not entry_name.endswith(".desktop"):
+        return {}
+    for directory in DESKTOP_ENTRY_DIRS:
+        path = os.path.join(directory, entry_name)
+        if not os.path.isfile(path):
+            continue
+        parser = ConfigParser(interpolation=None, strict=False)
+        try:
+            parser.read(path, encoding="utf-8")
+            entry = parser["Desktop Entry"]
+        except (OSError, KeyError, ConfigParserError):
+            return {}
+        return {
+            "name": entry.get("Name", "").strip(),
+            "blurb": entry.get("Comment", "").strip(),
+            "icon": entry.get("Icon", "").strip(),
+        }
+    return {}
 
 
 def run(cmd, check=False):
@@ -109,6 +181,7 @@ def start_app(app):
 def status_payload(catalog):
     apps = []
     for app_id, app in catalog.items():
+        metadata = desktop_metadata(app)
         unit = app["service"]
         installed = unit_exists(unit)
         running = False
@@ -118,13 +191,16 @@ def status_payload(catalog):
             running = any(binary_running(b) for b in (app.get("binaries") or []))
         apps.append({
             "id": app_id,
-            "name": app.get("name") or app_id,
-            "blurb": app.get("blurb") or "",
+            "name": metadata.get("name") or app.get("name") or app_id,
+            "blurb": metadata.get("blurb") or app.get("blurb") or "",
+            "icon": metadata.get("icon") or app.get("icon") or "",
             "open": app.get("open") or "",
             "exclusive": bool(app.get("exclusive")),
             "installed": installed,
             "running": running,
         })
+    rank = {app_id: i for i, app_id in enumerate(PREFERRED_APP_IDS)}
+    apps.sort(key=lambda app: (0, rank[app["id"]]) if app["id"] in rank else (1, 0))
     return {"status": "ok", "apps": apps}
 
 

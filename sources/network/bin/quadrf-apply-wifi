@@ -1,7 +1,11 @@
 #!/bin/bash
-# Write a new wpa_supplicant network and reboot into it.
+# Write a new wpa_supplicant network. Does not change client/AP mode;
+# the GUI toggles that with quadrf-hotspot sta|ap|off.
 # Called by the web GUI through the sudoers rule in /etc/sudoers.d/quadrf.
 set -euo pipefail
+
+. /usr/share/quadrf/functions.sh
+quadrf_load_conf
 
 SSID="${1:?usage: quadrf-apply-wifi <ssid> [passphrase]}"
 PSK="${2:-}"
@@ -23,7 +27,6 @@ install -d -m 755 "$(dirname "${WPA_CONF}")"
     fi
     echo '}'
 } > "${WPA_CONF}"
-chmod 600 "${WPA_CONF}"
-
-# Detach the reboot so the caller can finish serving its response first.
-(sleep 3 && systemctl reboot) >/dev/null 2>&1 &
+# GUI (QUADRF_USER) needs the SSID to show in Network Setup; not world-readable.
+chown root:"${QUADRF_USER}" "${WPA_CONF}"
+chmod 640 "${WPA_CONF}"

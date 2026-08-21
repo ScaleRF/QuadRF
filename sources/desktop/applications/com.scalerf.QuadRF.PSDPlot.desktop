@@ -8,3 +8,4 @@ TryExec=quadrf-psd
 Icon=quadrf-psd
 Terminal=false
 Categories=HamRadio;Science;
+X-QuadRF-Desktop=true

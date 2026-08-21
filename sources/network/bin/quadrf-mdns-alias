@@ -1,7 +1,9 @@
 #!/usr/bin/python3
-# Advertise HOSTNAME-desktop.local / HOSTNAMEd.local with each A record
-# bound to the interface that owns the address. avahi-publish cannot set
-# an ifindex, so nss-mdns picks usb0 or the AP address on the LAN.
+# Advertise HOSTNAME.local, HOSTNAME-desktop.local and HOSTNAMEd.local with
+# each A record bound to the interface that owns the address.
+# avahi-daemon's own host records have no ifindex, so nss-mdns on the LAN
+# would pick the AP address (192.168.44.1) and fail. 40-network turns
+# publish-addresses off; this process is the only publisher.
 # A two-label name like desktop.HOSTNAME.local is ignored by browser mDNS.
 
 import os
@@ -20,22 +22,43 @@ except ImportError as exc:
 
 CONF = os.environ.get("QUADRF_CONF", "/etc/quadrf/quadrf.conf")
 POLL_SEC = 2
+AP_DEFAULT = "192.168.44.1"
 
 
-def load_hostname():
+def load_conf():
     hostname = "quadrf"
+    ap_addr = AP_DEFAULT
     try:
         with open(CONF, encoding="utf-8") as fh:
-            for line in fh:
-                line = line.split("#", 1)[0].strip()
+            for raw in fh:
+                line = raw.split("#", 1)[0].strip()
                 if line.startswith("QUADRF_HOSTNAME="):
                     hostname = line.split("=", 1)[1].strip().strip("'\"") or hostname
+                elif line.startswith("QUADRF_AP_ADDRESS="):
+                    ap_addr = line.split("=", 1)[1].strip().strip("'\"") or ap_addr
     except OSError:
         pass
-    return hostname
+    return hostname, ap_addr
 
 
-def iface_addrs():
+def _slash24(addr):
+    parts = addr.split(".")
+    if len(parts) != 4:
+        return ""
+    return ".".join(parts[:3])
+
+
+def keep_addr(iface, addr, ap_addr):
+    # Link-local and loopback are not a path. A dhclient lease on our own
+    # AP subnet is also not the appliance — publishing it made .local → .12.
+    if addr.startswith("127.") or addr.startswith("169.254."):
+        return False
+    if iface == "wlan0" and _slash24(addr) == _slash24(ap_addr) and addr != ap_addr:
+        return False
+    return True
+
+
+def iface_addrs(ap_addr):
     """Global IPv4 addresses keyed to the interface that owns them."""
     try:
         out = subprocess.check_output(
@@ -51,6 +74,8 @@ def iface_addrs():
             continue
         iface = parts[1]
         addr = parts[3].split("/", 1)[0]
+        if not keep_addr(iface, addr, ap_addr):
+            continue
         try:
             idx = socket.if_nametoindex(iface)
         except OSError:
@@ -63,26 +88,46 @@ def iface_addrs():
 
 
 class Publisher:
-    def __init__(self, names):
+    def __init__(self, names, ap_addr):
         self.names = names
+        self.ap_addr = ap_addr
         self.bus = dbus.SystemBus()
-        self.server = dbus.Interface(
-            self.bus.get_object(avahi.DBUS_NAME, avahi.DBUS_PATH_SERVER),
-            avahi.DBUS_INTERFACE_SERVER,
-        )
+        self.server = None
         self.group = None
         self.published = None
-        self.server.connect_to_signal("StateChanged", self._server_state)
-        self._server_state(self.server.GetState(), "")
+        self._avahi_gone = False
+        dbus.Interface(
+            self.bus.get_object(dbus.BUS_DAEMON_NAME, dbus.BUS_DAEMON_PATH),
+            dbus.BUS_DAEMON_IFACE,
+        ).connect_to_signal("NameOwnerChanged", self._name_owner)
+        self.attach()
 
-    def _server_state(self, state, error):
-        if int(state) == avahi.SERVER_RUNNING:
+    def _name_owner(self, name, _old, new):
+        if name != avahi.DBUS_NAME:
+            return
+        if new:
+            self.attach()
             self.publish()
         else:
             self.drop_group()
-            if error:
-                print(f"quadrf-mdns-alias: avahi state {int(state)} ({error})",
+            self.server = None
+
+    def attach(self):
+        self.drop_group()
+        try:
+            self.server = dbus.Interface(
+                self.bus.get_object(avahi.DBUS_NAME, avahi.DBUS_PATH_SERVER),
+                avahi.DBUS_INTERFACE_SERVER,
+            )
+            self._avahi_gone = False
+            return True
+        except dbus.DBusException as exc:
+            self.server = None
+            if not self._avahi_gone:
+                print(f"quadrf-mdns-alias: avahi unavailable ({exc})",
                       file=sys.stderr, flush=True)
+                self._avahi_gone = True
+            return False
 
     def drop_group(self):
         if self.group is not None:
@@ -103,13 +148,16 @@ class Publisher:
         return self.group
 
     def publish(self):
+        if self.server is None and not self.attach():
+            return True
         try:
             if int(self.server.GetState()) != avahi.SERVER_RUNNING:
                 return True
         except dbus.DBusException:
+            self.attach()
             return True
 
-        pairs = iface_addrs()
+        pairs = iface_addrs(self.ap_addr)
         key = tuple((idx, addr) for idx, _, addr in pairs)
         if key == self.published:
             return True
@@ -118,8 +166,8 @@ class Publisher:
             print("quadrf-mdns-alias: no IPv4 addresses yet", flush=True)
             return True
 
-        group = self._entry_group()
         try:
+            group = self._entry_group()
             if not group.IsEmpty():
                 group.Reset()
             flags = dbus.UInt32(avahi.PUBLISH_NO_REVERSE)
@@ -137,6 +185,7 @@ class Publisher:
             print(f"quadrf-mdns-alias: publish failed ({exc})",
                   file=sys.stderr, flush=True)
             self.drop_group()
+            self.server = None
             return True
 
         self.published = key
@@ -147,10 +196,14 @@ class Publisher:
 
 
 def main():
-    hostname = load_hostname()
-    names = [f"{hostname}-desktop.local", f"{hostname}d.local"]
+    hostname, ap_addr = load_conf()
+    names = [
+        f"{hostname}.local",
+        f"{hostname}-desktop.local",
+        f"{hostname}d.local",
+    ]
     DBusGMainLoop(set_as_default=True)
-    pub = Publisher(names)
+    pub = Publisher(names, ap_addr)
     GLib.timeout_add_seconds(POLL_SEC, pub.publish)
     GLib.MainLoop().run()
 

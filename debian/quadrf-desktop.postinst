@@ -1,9 +1,14 @@
 #!/bin/sh
 set -e
 
-if [ "$1" = configure ]; then
-    /usr/lib/quadrf/apply.d/50-desktop
-fi
+case "$1" in
+    configure)
+        /usr/lib/quadrf/apply.d/50-desktop
+        ;;
+    triggered)
+        /usr/lib/quadrf/sync-desktop-apps
+        ;;
+esac
 
 #DEBHELPER#
 exit 0

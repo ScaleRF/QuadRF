@@ -1,37 +1,83 @@
 .TH QUADRF-HOTSPOT 8 "August 2026" "QuadRF" "QuadRF"
 .SH NAME
-quadrf-hotspot \- fallback Wi-Fi access point for a QuadRF appliance
+quadrf-hotspot \- client, hotspot, or off for QuadRF wlan0
 .SH SYNOPSIS
 .B quadrf-hotspot
+.RB [ start | sta | ap | off ]
+.br
+.B quadrf-hotspot fallback
+.RB yes | no
 .SH DESCRIPTION
-Waits up to twelve seconds for wlan0 to associate with a saved network and
-pick up an address. If it does, the script removes any access point DNS
-configuration and exits, leaving the appliance in station mode.
+Selects the wlan0 role. Hotspot and client cannot run together on the Pi radio.
 .PP
-Otherwise it takes wlan0 away from wpa_supplicant, gives it
-.BR QUADRF_AP_ADDRESS ,
-starts hostapd with
+.B start
+is used at boot by
+.BR quadrf-hotspot.service .
+It honours
+.B QUADRF_WIFI_MODE
+from
+.IR /etc/quadrf/quadrf.conf :
+.TP
+.B sta
+(the default when unset) Try a saved
+.B wpa_supplicant
+network for twelve seconds. On success, stay in client mode. On failure,
+start the hotspot only if
+.B QUADRF_WIFI_FALLBACK
+is yes (the default). Fallback does not change
+.BR QUADRF_WIFI_MODE ,
+so the next boot still retries client first.
+.TP
+.B ap
+Start the hotspot immediately (no client wait).
+.TP
+.B off
+Stop hostapd and wpa_supplicant and leave wlan0 down. Persists across reboot.
+.PP
+.BR sta , ap ,
+and
+.B off
+are live switches from the control panel. They write
+.B QUADRF_WIFI_MODE
+then apply that role without a reboot.
+.B fallback
+only writes
+.BR QUADRF_WIFI_FALLBACK .
+.PP
+Leaving AP mode does a link down/up: the onboard firmware needs that when
+hostapd releases wlan0. Ethernet and USB paths are not affected.
+.PP
+.B quadrf-mdns-alias
+publishes
+.B quadrf.local
+on each interface's own address. A LAN client sees the ethernet address, not
+the access point. avahi-daemon does not publish unscoped host A records.
+.PP
+If client does not associate, the appliance comes up on
 .B QUADRF_AP_SSID
-(an open network: hostapd
-.BR wpa=0 ,
-no password)
-and isc-dhcp-server for leases, and publishes
-.BR quadrf.local
-on wlan0. Wildcard DNS
+at
+.B QUADRF_AP_ADDRESS
+when fallback is enabled. Wildcard DNS
 .RB ( address=/#/ )
 is not used: it is global in dnsmasq and would hijack names on eth0 and usb0
 while the AP is up.
 .PP
-.B quadrf-hotspot.service
-runs this once at boot. The script exits with an error if
+The script exits with an error if
 .B dtoverlay=disable-wifi
-is present in the firmware configuration, since wlan0 will not exist;
-.B quadrf-boot
-removes that line, but the change needs a reboot.
+is present in the firmware configuration, since wlan0 will not exist.
 .SH FILES
 .TP
+.I /etc/quadrf/quadrf.conf
+.BR QUADRF_WIFI_MODE ,
+.BR QUADRF_WIFI_FALLBACK ,
+AP SSID and address.
+.TP
+.I /etc/wpa_supplicant/wpa_supplicant.conf
+Saved client network, written by
+.BR quadrf-apply-wifi (8).
+.TP
 .I /etc/dnsmasq.d/quadrf-wlan0-ap.conf
-Captive DNS while the access point is up.
+Names while the access point is up.
 .TP
 .I /etc/hostapd/quadrf.conf
 Generated from
@@ -41,6 +87,8 @@ by
 .SH SEE ALSO
 .BR quadrf (1),
 .BR quadrf.conf (5),
+.BR quadrf-apply-wifi (8),
+.BR quadrf-apply-ap (8),
 .BR quadrf-dns-update (8),
 .BR quadrf-ethernet (8),
 .BR quadrf-usb (8)

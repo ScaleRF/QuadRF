@@ -15,7 +15,7 @@ flowchart TB
 
   subgraph apps["Applications"]
     FLASK["Control panel (Flask)"]
-    DEMOS["Demo applications"]
+    DEMOS["Included applications"]
     GRC["GNU Radio Companion"]
     SOAPY_CLI["SoapySDRUtil"]
   end
@@ -58,10 +58,10 @@ flowchart TB
 
 | Context | Address | Notes |
 |---------|---------|-------|
-| Home LAN | `quadrf.local` | mDNS through avahi. Ethernet or Wi-Fi with a router DHCP lease. Initial setup uses HTTP; controls use HTTPS. |
+| Home LAN | `quadrf.local` | mDNS, one A record per path (ethernet, USB, client, hotspot). A client on the LAN sees the LAN address, not the hotspot. Initial setup uses HTTP; controls use HTTPS. |
 | Ethernet direct-connect | `10.55.1.1` | No router on the cable: Pi is `10.55.1.1`, the PC gets a lease from dnsmasq. No gateway. |
 | USB gadget | `10.55.0.1` | `g_ether` on `usb0` when a host enumerates the gadget. Same names as Ethernet. Most laptops cannot provide 5V at 5A, causing possible brownouts. Please isolate the Pi's power from the usb connection to a device. |
-| Fallback access point | `192.168.44.1` | SSID `QuadRF`, open unless `QUADRF_AP_PASS` is set, started when no saved Wi-Fi answers |
+| Fallback access point | `192.168.44.1` | SSID `QuadRF`, open unless `QUADRF_AP_PASS` is set. Default boot tries a saved client network, then this AP. The control panel can switch client, hotspot, or off without a reboot. |
 
 Use `http://quadrf.local/setup/security/` once to install the per-install local
 root certificate, then use `https://quadrf.local/` as the canonical browser
@@ -88,7 +88,7 @@ under a path prefix; it needs the root of a host (or port). The desktop
 hostname is `HOSTNAMEd.local` (and `HOSTNAME-desktop.local`) rather than `desktop.HOSTNAME.local`
 because browsers only multicast-resolve a single label under `.local`.
 
-The control panel also exposes `/api/status`, `/api/control` and `/api/apps`.
+The control panel also exposes `/api/status`, `/api/control`, `/api/apps` and `/api/network/*` for live Wi-Fi mode.
 
 ## Service chain
 
@@ -101,7 +101,7 @@ quadrf-soapy-server.service  SoapyRemote on 55132
 nginx.service                front end for /, HOSTNAMEd.local, HOSTNAME-desktop.local, :6080, /AR/, /ws
 quadrf-desktop.service       KasmVNC on 8444
 quadrf-ups.service           UPS HAT state for the desktop panel
-quadrf-hotspot.service       access point when no known network answers
+quadrf-hotspot.service       wlan0 client, hotspot, or off (honours last GUI mode)
 quadrf-ethernet.service      eth0 DHCP client, or 10.55.1.1 if no lease; follows carrier
 quadrf-usb.service           usb0 island at 10.55.0.1 while a gadget host is attached
 ```
@@ -118,31 +118,28 @@ access point.
 | `/etc/quadrf/quadrf.conf` | Site settings |
 | `/usr/bin/quadrf` | Status and configuration command |
 | `/usr/bin/quadrf-jtag` | Front-end control |
-| `/usr/bin/quadrf-rf-vision`, `-psd`, `-ntsc` | Demo applications |
+| `/usr/bin/quadrf-rf-vision`, `-psd`, `-ntsc` | Included radio applications |
 | `/usr/share/quadrf/` | Bitstream, OpenOCD configuration, GUI, AR page, flowgraphs, desktop assets |
 | `/usr/lib/quadrf/apply.d/` | Configuration hooks run by `quadrf apply` |
 | `/var/lib/quadrf/` | Runtime state, including the pending-reboot record |
 
-## Desktop
+## Applications
 
-The KasmVNC session runs openbox with a tint2 panel and pcmanfm drawing the
-desktop. Launchers are installed as normal desktop entries in
-`/usr/share/applications` and copied into the `Desktop` directory,
-each with `TryExec` so entries for software that is not installed stay hidden.
+The remote desktop is a Linux session in the browser (KasmVNC). A full install
+includes the applications below. Start Spatial RF Vision, Camera Decoder, and
+PSD Plot from the Applications list on the control page or from the desktop
+icons. Only one of those three can use the radio at a time.
 
-| Launcher | Runs | Package |
-|----------|------|---------|
-| Spatial RF Vision | `quadrf-rf-vision` | `quadrf-demos` |
-| PSD Plot | `quadrf-psd` | `quadrf-demos` |
-| Camera Decoder | `quadrf-ntsc` | `quadrf-demos` |
-| GNU Radio | `gnuradio-companion` | `quadrf-gnuradio` |
-| QRadioLink | `qradiolink` | `quadrf-desktop` |
-| Terminal, Software Install | `xfce4-terminal`, `/boot/dietpi/dietpi-software` | `quadrf-desktop` |
+Install a `.deb` with a desktop entry and/or a control-page descriptor, and
+it shows up on the desktop and Applications list automatically. See [Applications](applications.md).
 
-## Demos
+| Application | What it does | Opens |
+|-------------|--------------|-------|
+| Spatial RF Vision | Swept-LO phase scatter of the RF scene; WebSocket feed on port 8000 for `/AR/` | Browser AR page |
+| Camera Decoder | NTSC demodulation of analog 5 GHz FPV video, played with mpv | Remote desktop |
+| PSD Plot | Live FFT spectrum from the CSI ring buffer, one or four channels | Remote desktop |
+| GNU Radio Companion | Flowgraph editor with QuadRF receive and transmit examples | Remote desktop |
+| QRadioLink | Digital-voice and analog transceiver | Remote desktop |
+| Terminal, Software Install | Shell, and DietPi's software installer | Remote desktop |
 
-| Binary | Name | What it does |
-|--------|------|--------------|
-| `quadrf-rf-vision` | Spatial RF Vision | Swept-LO phase scatter in an SDL window, WebSocket feed on port 8000 for `/AR/` |
-| `quadrf-psd` | PSD Plot | FFT spectrum from the CSI ring buffer, one or four channels |
-| `quadrf-ntsc` | Camera Decoder | SoapySDR receive into an NTSC decoder, played by mpv; Decode drone 5GHz analog FPV video live |
+`quadrf-headless` omits the desktop and the three radio applications.

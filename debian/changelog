@@ -1,3 +1,30 @@
+quadrf (1.0.6) trixie; urgency=medium
+
+  * Discover package-owned web application descriptors from apps.d and reuse
+    each application's desktop Name, Comment and Icon in the control panel.
+    The bundled radio apps ship their descriptor with quadrf-demos.
+  * Show the Spatial RF Vision, Camera Decoder and PSD Plot desktop icons in
+    the web Applications panel.
+  * Move launcher entries and icons into the packages that own each app.
+    The complete quadrf package depends on quadrf-gnuradio; quadrf-desktop
+    no longer pulls quadrf-demos or GNU Radio.
+  * Give the default demos reverse-DNS desktop IDs and AppStream metadata for
+    standard software catalogs. Opt desktop icons in with
+    X-QuadRF-Desktop=true; keep the old quadrf-* names; skip entries whose
+    TryExec is missing.
+  * Refresh the operator desktop automatically when packages install or remove
+    launchers.
+  * Switch wlan0 client, hotspot, or off from the control panel without a
+    reboot. Persist the choice as QUADRF_WIFI_MODE. Saving a client SSID no
+    longer reboots. QUADRF_WIFI_FALLBACK starts the hotspot after a failed
+    client join without rewriting the saved mode.
+  * The Network panel shows each path and which one served the browser.
+  * Publish quadrf.local per interface and stop advertising avahi host
+    records, wlan0 DHCP leases on the AP subnet, link-local, and loopback so
+    a LAN client does not resolve to the hotspot.
+
+ -- QuadRF Engineering <contact@ScaleRF.com>  Fri, 21 Aug 2026 15:37:21 -0700
+
 quadrf (1.0.5) trixie; urgency=medium
 
   * Per-install local HTTPS: generate a constrained CA and server

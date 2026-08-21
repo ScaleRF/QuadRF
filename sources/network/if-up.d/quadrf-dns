@@ -1,5 +1,5 @@
 #!/bin/sh
-# Refresh the wlan0 station aliases after a DHCP lease change.
+# Refresh the wlan0 client aliases after a DHCP lease change.
 set -e
 
 [ "${IFACE:-}" = wlan0 ] || exit 0

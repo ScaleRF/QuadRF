@@ -23,6 +23,7 @@ Depends: quadrf-boot (= ${binary:Version}),
          quadrf-desktop (= ${binary:Version}),
          quadrf-fpga (= ${binary:Version}),
          quadrf-gui (= ${binary:Version}),
+         quadrf-gnuradio (= ${binary:Version}),
          quadrf-network (= ${binary:Version}),
          quadrf-soapy (= ${binary:Version}),
          quadrf-ups (= ${binary:Version}),
@@ -161,12 +162,15 @@ Depends: mpv,
          quadrf-fpga (= ${binary:Version}),
          ${misc:Depends},
          ${shlibs:Depends}
+Breaks: quadrf-desktop (<< ${binary:Version})
+Replaces: quadrf-desktop (<< ${binary:Version})
 Suggests: quadrf-soapy
 Description: QuadRF demonstration applications
  Spatial RF Vision (swept-LO phase scatter with a WebSocket feed for the
  browser AR page), the PSD plot and the NTSC decoder, plus the phasegaze
- sources under /usr/share/quadrf/phasegaze. systemd units are started on
- demand from the control panel; they are not enabled at boot.
+ sources under /usr/share/quadrf/phasegaze. The package owns their desktop
+ entries, icons, AppStream metadata and control-page runtime descriptor. The
+ systemd units start on demand from the control panel; they are not enabled.
 
 Package: quadrf-desktop
 Architecture: all
@@ -178,8 +182,6 @@ Depends: dbus-x11,
          pcmanfm,
          qradiolink,
          quadrf-common (= ${binary:Version}),
-         quadrf-demos,
-         quadrf-gnuradio (= ${binary:Version}),
          tint2,
          wmctrl,
          x11-utils,
@@ -198,10 +200,12 @@ Depends: gir1.2-gtk-3.0,
          gnuradio,
          quadrf-common (= ${binary:Version}),
          ${misc:Depends}
+Breaks: quadrf-desktop (<< ${binary:Version})
+Replaces: quadrf-desktop (<< ${binary:Version})
 Recommends: gr-osmosdr, quadrf-soapy
 Description: GNU Radio flowgraphs for QuadRF
  Receive and transmit example flowgraphs for the QuadRF front-end, installed
- under /usr/share/quadrf/grc.
+ under /usr/share/quadrf/grc, plus the GNU Radio desktop entry and icon.
 
 Package: quadrf-ups
 Architecture: all

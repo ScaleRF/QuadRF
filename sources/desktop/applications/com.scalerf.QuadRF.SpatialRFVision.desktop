@@ -8,3 +8,4 @@ TryExec=quadrf-rf-vision
 Icon=quadrf-spatial-vision
 Terminal=false
 Categories=HamRadio;Science;
+X-QuadRF-Desktop=true

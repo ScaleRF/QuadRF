@@ -1,6 +1,6 @@
 .TH QUADRF-APPLY-WIFI 8 "August 2026" "QuadRF" "QuadRF"
 .SH NAME
-quadrf-apply-wifi \- provision a Wi-Fi network and reboot into it
+quadrf-apply-wifi \- save a client Wi-Fi network
 .SH SYNOPSIS
 .B quadrf-apply-wifi
 .I ssid
@@ -12,17 +12,19 @@ with a single network for
 .IR ssid ,
 using
 .I passphrase
-for WPA or an open network when none is given, and reboots the appliance three
-seconds later.
+for WPA or an open network when none is given.
 .PP
-The reboot is detached so the caller can finish first: the web control panel
-invokes this through the sudoers rule in
-.I /etc/sudoers.d/quadrf
-and needs to return its response before the system goes down.
+This does not change client versus hotspot mode and does not reboot. The
+control panel saves credentials here, then
+.B quadrf-hotspot sta
+joins when the operator turns Client on.
 .PP
-Any previously configured network is discarded. If the new one does not
-associate, the appliance comes back on its fallback access point; see
-.BR quadrf-hotspot (8).
+Any previously configured network is discarded. If the saved network does
+not associate,
+.BR quadrf-hotspot (8)
+starts the fallback access point when
+.B QUADRF_WIFI_FALLBACK
+is yes.
 .SH SEE ALSO
 .BR quadrf (1),
 .BR quadrf-hotspot (8),

@@ -1,32 +1,3 @@
 {
-  "apps": [
-    {
-      "id": "ar",
-      "name": "Spatial RF Vision",
-      "blurb": "Swept-LO phase scatter for the browser AR overlay",
-      "service": "quadrf-rf-vision.service",
-      "binaries": ["quadrf-rf-vision"],
-      "exclusive": true,
-      "open": "/AR/",
-      "ready_port": 8000
-    },
-    {
-      "id": "ntsc",
-      "name": "Camera Decoder",
-      "blurb": "NTSC demodulation on the remote desktop",
-      "service": "quadrf-ntsc.service",
-      "binaries": ["quadrf-ntsc", "quadrf-ntsc-demod"],
-      "exclusive": true,
-      "open": "desktop"
-    },
-    {
-      "id": "psd",
-      "name": "PSD Plot",
-      "blurb": "Live spectrum on the remote desktop",
-      "service": "quadrf-psd.service",
-      "binaries": ["quadrf-psd"],
-      "exclusive": true,
-      "open": "desktop"
-    }
-  ]
+  "apps": []
 }

@@ -1,0 +1,56 @@
+#!/bin/sh
+# Copy package-owned QuadRF app entries onto the operator's pcmanfm desktop.
+set -eu
+
+FUNCTIONS_PATH="${QUADRF_FUNCTIONS_PATH:-/usr/share/quadrf/functions.sh}"
+. "${FUNCTIONS_PATH}"
+quadrf_load_conf
+
+APPLICATION_DIR="${QUADRF_APPLICATION_DIR:-/usr/share/applications}"
+
+if ! getent passwd "${QUADRF_USER}" >/dev/null; then
+    echo "quadrf: user ${QUADRF_USER} does not exist, skipping app launchers" >&2
+    exit 0
+fi
+
+HOME_DIR="$(getent passwd "${QUADRF_USER}" | cut -d: -f6)"
+GROUP="$(id -gn "${QUADRF_USER}")"
+DESKTOP_DIR="${QUADRF_DESKTOP_DIR:-${HOME_DIR}/Desktop}"
+install -d -o "${QUADRF_USER}" -g "${GROUP}" -m 755 "${DESKTOP_DIR}"
+
+is_quadrf_entry() {
+    case "$(basename "$1")" in
+        quadrf-*.desktop) return 0 ;;
+    esac
+    grep -q '^X-QuadRF-Desktop=true$' "$1"
+}
+
+# Remove managed launchers left behind when an application package is
+# uninstalled or withdraws its X-QuadRF-Desktop marker.
+for dest in "${DESKTOP_DIR}"/*.desktop; do
+    [ -f "${dest}" ] || continue
+    is_quadrf_entry "${dest}" || continue
+    entry="${APPLICATION_DIR}/$(basename "${dest}")"
+    if [ ! -f "${entry}" ] || ! is_quadrf_entry "${entry}"; then
+        rm -f "${dest}"
+    fi
+done
+
+# Reverse-DNS desktop IDs with X-QuadRF-Desktop are preferred for independently
+# packaged apps. Keep recognizing the old quadrf-* namespace for compatibility.
+# Skip (and drop stale copies of) entries whose TryExec is missing; otherwise a
+# double-click is "Invalid desktop entry file" rather than a hidden icon.
+for entry in "${APPLICATION_DIR}"/*.desktop; do
+    [ -f "${entry}" ] || continue
+    is_quadrf_entry "${entry}" || continue
+    dest="${DESKTOP_DIR}/$(basename "${entry}")"
+    tryexec="$(sed -n 's/^TryExec=//p' "${entry}" | head -n1)"
+    if [ -n "${tryexec}" ] && [ ! -x "${tryexec}" ] && ! command -v "${tryexec}" >/dev/null 2>&1; then
+        rm -f "${dest}"
+        continue
+    fi
+    install -o "${QUADRF_USER}" -g "${GROUP}" -m 755 "${entry}" "${dest}"
+    if command -v gio >/dev/null 2>&1; then
+        runuser -u "${QUADRF_USER}" -- gio set "${dest}" metadata::trusted true 2>/dev/null || true
+    fi
+done

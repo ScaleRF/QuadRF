@@ -24,10 +24,6 @@ restart_dnsmasq() {
     systemctl restart --no-block dnsmasq.service 2>/dev/null || true
 }
 
-refresh_mdns() {
-    systemctl try-restart quadrf-mdns.service 2>/dev/null || true
-}
-
 write_conf() {
     dest="$1"
     tmp="$(mktemp)"
@@ -85,7 +81,6 @@ interface-name=$(quadrf_desktop_mdns),${IFACE}
 interface-name=$(quadrf_desktop_mdns_short),${IFACE}
 EOF
     log "${IFACE} on LAN at $(lan_v4 | tr '\n' ' ')"
-    refresh_mdns
 }
 
 enter_direct() {
@@ -104,7 +99,6 @@ interface-name=$(quadrf_desktop_mdns),${IFACE}
 interface-name=$(quadrf_desktop_mdns_short),${IFACE}
 EOF
     log "${IFACE} direct-connect at ${DIRECT_ADDR}"
-    refresh_mdns
 }
 
 try_dhcp() {
@@ -168,7 +162,6 @@ leave_link() {
     ip addr flush dev "${IFACE}" scope global 2>/dev/null || true
     drop_conf "${DIRECT_CONF}"
     drop_conf "${LAN_CONF}"
-    refresh_mdns
 }
 
 configure_locked() {

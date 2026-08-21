@@ -30,7 +30,7 @@
 
         h1 {
             text-align: center;
-            margin: 1rem 0;
+            margin: 0.5rem 0;
             font-size: 1.35rem;
             font-weight: 600;
             display: flex;
@@ -48,14 +48,26 @@
             color: #ffffff; 
         }
 
+        main.container {
+            padding-top: calc(var(--block-spacing-vertical) / 2);
+        }
+        h1 + .panel {
+            margin-top: calc(var(--block-spacing-vertical) / 2);
+        }
+
         /* Main Panels */
         .panel {
             background-color: var(--panel-bg);
             padding: 1rem; /* Reduced from 1.25rem */
             border-radius: var(--border-radius);
-            margin-bottom: 1.25rem;
+            /* Pico article { margin: 2-4rem 0 }. Override both sides or collapse hides this. */
+            margin-top: var(--block-spacing-vertical);
+            margin-bottom: 0;
             box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
             border-top: 3px solid;
+        }
+        .panel + .panel {
+            margin-top: calc(var(--block-spacing-vertical) / 2);
         }
         .panel-rx { border-top-color: var(--rx-color); }
         #receive { scroll-margin-top: 0.5rem; }
@@ -111,7 +123,6 @@
             background-color: #475569;
         }
         .indicator.locked { background-color: #10b981; box-shadow: 0 0 5px #10b981; }
-        .indicator.active-tx { background-color: var(--tx-color); box-shadow: 0 0 5px var(--tx-color); }
 
         /* Strict Alignment Grids */
         .fluid-grid {
@@ -140,7 +151,9 @@
             display: flex;
             align-items: center;
             justify-content: flex-end;
+            flex-shrink: 0;
             gap: 0.25rem;
+            white-space: nowrap;
         }
 
         label {
@@ -171,6 +184,16 @@
             margin: 0 !important; 
             display: inline-block !important; 
             box-shadow: none !important;
+            white-space: nowrap !important;
+        }
+        #rxBwReadoutText {
+            width: auto !important;
+            min-width: 6ch;
+            max-width: none !important;
+            flex: none;
+            cursor: default;
+            overflow-wrap: normal;
+            word-break: normal;
         }
         .readout-input:focus {
             outline: none;
@@ -179,7 +202,112 @@
         }
         input[type=number]::-webkit-inner-spin-button, 
         input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
-        input[type="checkbox"] { margin: 0 !important; width: 16px !important; height: 16px !important; }
+        input[type="checkbox"] {
+            margin: 0 !important;
+            width: 0.9rem !important;
+            height: 0.9rem !important;
+            accent-color: var(--rx-color);
+        }
+        .panel-tx input[type="checkbox"] { accent-color: var(--tx-color); }
+
+        .chip, .seg .chip {
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 !important;
+            padding: 0.18rem 0.6rem !important;
+            border: 1px solid rgba(255,255,255,0.22);
+            border-radius: 12px;
+            background: transparent !important;
+            color: #cbd5e1 !important;
+            font-weight: 600;
+            font-size: 0.75rem !important;
+            line-height: 1.2;
+            cursor: pointer;
+            user-select: none;
+            white-space: nowrap;
+            width: auto !important;
+            height: auto !important;
+            box-shadow: none !important;
+        }
+        .chip input[type="checkbox"] {
+            position: absolute;
+            inset: 0;
+            opacity: 0;
+            width: 100% !important;
+            height: 100% !important;
+            margin: 0 !important;
+            cursor: pointer;
+            z-index: 1;
+        }
+        .chip input[type="checkbox"]::before,
+        .chip input[type="checkbox"]::after {
+            display: none !important;
+            content: none !important;
+        }
+        .panel-rx .chip:has(input:checked),
+        .panel-rx .seg:has(#rxPolToggle:checked) [data-pol="rhcp"],
+        .panel-rx .seg:not(:has(#rxPolToggle:checked)) [data-pol="lhcp"] {
+            color: var(--rx-color) !important;
+            border-color: var(--rx-color);
+            background: rgba(56, 189, 248, 0.16) !important;
+        }
+        .panel-tx .chip:has(input:checked) {
+            color: #fecdd3 !important;
+            border-color: var(--tx-color);
+            background: rgba(244, 63, 94, 0.16) !important;
+        }
+        .chip:has(input:focus-visible),
+        .seg .chip:focus-visible {
+            outline: 2px solid currentColor;
+            outline-offset: 1px;
+        }
+        .seg {
+            position: relative;
+            display: inline-flex;
+            align-items: stretch;
+            border: 1px solid rgba(255,255,255,0.22);
+            border-radius: 12px;
+            overflow: hidden;
+        }
+        .seg > input {
+            position: absolute;
+            opacity: 0;
+            width: 0 !important;
+            height: 0 !important;
+            pointer-events: none;
+        }
+        .seg .chip {
+            border: none;
+            border-radius: 0;
+            background: transparent;
+            color: #cbd5e1;
+        }
+        .seg .chip + .chip { border-left: 1px solid rgba(255,255,255,0.18); }
+        .chip-row {
+            display: flex;
+            align-items: center;
+            gap: 0.3rem;
+            flex-wrap: wrap;
+        }
+        .chip-arm {
+            display: inline-grid !important;
+            justify-items: center;
+        }
+        .chip-arm > span { grid-area: 1 / 1; }
+        .chip-arm .chip-on,
+        .chip-arm .chip-stop { visibility: hidden; }
+        .chip-arm:has(input:checked) .chip-off { visibility: hidden; }
+        .chip-arm:has(input:checked) .chip-on { visibility: visible; }
+        .chip-arm:has(input:checked):hover .chip-on,
+        .chip-arm:has(input:checked):focus-within .chip-on { visibility: hidden; }
+        .chip-arm:has(input:checked):hover .chip-stop,
+        .chip-arm:has(input:checked):focus-within .chip-stop { visibility: visible; }
+        @media (hover: none) {
+            .chip-arm:has(input:checked) .chip-on { visibility: hidden; }
+            .chip-arm:has(input:checked) .chip-stop { visibility: visible; }
+        }
 
         /* Compact Phase Cards */
         .phase-grid {
@@ -213,15 +341,6 @@
         }
         .panel-rx input[type="range"]::-webkit-slider-thumb { border: 2px solid var(--rx-color); }
         .panel-tx input[type="range"]::-webkit-slider-thumb { border: 2px solid var(--tx-color); }
-
-        .panel-tx input[type="checkbox"]:checked {
-            background-color: var(--tx-color);
-            border-color: var(--tx-color);
-        }
-
-        .panel-tx input[type="checkbox"]:focus {
-            box-shadow: 0 0 0 0.125rem rgba(244, 63, 94, 0.25); /* Subtle red focus ring */
-        }
 
         /* Meters */
         .meter-wrapper {
@@ -292,55 +411,191 @@
         }
         .wifi-input:focus { outline: none; border-color: #f59e0b !important; }
 
-        .net-tabs { display: flex; flex-wrap: wrap; gap: 0.5rem; }
-        .net-tabs button.outline.active {
-            background: rgba(245, 158, 11, 0.15) !important;
-        }
-        .ap-status {
-            display: flex;
-            flex-wrap: wrap;
-            align-items: baseline;
-            gap: 0.5rem 0.85rem;
+        .path-board {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(11.5rem, 1fr));
+            gap: 0.5rem;
             margin: 0 0 0.85rem 0;
         }
-        .ap-copy {
-            margin: 0;
+        .path-group {
+            background: var(--card-bg);
+            border: 1px solid rgba(255,255,255,0.05);
+            border-radius: var(--border-radius);
+            padding: 0.45rem 0.55rem 0.5rem;
+        }
+        .path-group-head {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: 0.4rem;
+            margin-bottom: 0.4rem;
+            font-size: 0.7rem;
+            font-weight: 600;
+            color: #e2e8f0;
+        }
+        .path-slots { display: flex; flex-direction: column; gap: 0.3rem; }
+        .path-slot {
+            display: flex;
+            align-items: center;
+            gap: 0.35rem;
+            font-size: 0.75rem;
             color: #94a3b8;
-            font-size: 0.8rem;
-            flex: 1 1 14rem;
+            min-height: 1.35rem;
+        }
+        .path-slot.up { color: #e2e8f0; }
+        .path-slot.you { color: #fde68a; }
+        .path-name { font-weight: 600; }
+        .path-addr {
+            font-family: var(--font-mono);
+            font-size: 0.6rem;
+            color: #64748b;
+            margin-left: auto;
+        }
+        .path-slot.up .path-addr { color: #94a3b8; }
+        .path-you-tag {
+            display: none;
+            font-size: 0.65rem;
+            font-weight: 700;
+            letter-spacing: 0.04em;
+            color: #f59e0b;
+            text-transform: uppercase;
+        }
+        .path-slot.you .path-you-tag { display: inline; }
+        .path-toggle {
+            position: relative;
+            width: 1.55rem;
+            height: 0.85rem;
+            flex: 0 0 1.55rem;
+            margin: 0;
+        }
+        .path-toggle input {
+            position: absolute; inset: 0; opacity: 0; cursor: pointer; margin: 0;
+        }
+        .path-toggle-ui {
+            display: block; width: 100%; height: 100%;
+            background: #334155; border-radius: 999px; pointer-events: none;
+            position: relative;
+        }
+        .path-toggle-ui::after {
+            content: ''; position: absolute; top: 1px; left: 1px;
+            width: 0.7rem; height: 0.7rem; border-radius: 50%; background: #94a3b8;
+        }
+        .path-toggle input:checked + .path-toggle-ui { background: rgba(245, 158, 11, 0.55); }
+        .path-toggle input:checked + .path-toggle-ui::after { left: calc(100% - 0.75rem); background: #fde68a; }
+        .path-cfg {
+            flex: 0 0 auto;
+            font-size: 0.6rem !important;
+            font-weight: 600;
+            letter-spacing: 0.02em;
+            padding: 0.05rem 0.28rem !important;
+            line-height: 1.2 !important;
+            height: auto !important;
+            width: auto !important;
+            margin: 0 !important;
+            background: transparent !important;
+            color: #94a3b8 !important;
+            border: 1px solid rgba(255,255,255,0.18) !important;
+            border-radius: 3px;
+            cursor: pointer;
+        }
+        .path-fallback {
+            display: flex;
+            align-items: center;
+            gap: 0.35rem;
+            margin: 0.4rem 0 0;
+            font-size: 0.62rem;
+            color: #94a3b8;
+            cursor: pointer;
+        }
+        .path-fallback input { width: 0.7rem; height: 0.7rem; margin: 0; accent-color: #f59e0b; }
+        .path-note {
+            margin: 0.2rem 0 0;
+            font-size: 0.62rem;
+            color: #fbbf24;
+        }
+        .wifi-save {
+            width: 100% !important;
+            padding: 0.55rem !important;
+            border-color: #f59e0b !important;
+            color: #f59e0b !important;
+            font-size: 0.85rem !important;
         }
         .app-list {
-            display: flex;
-            flex-direction: row;
-            flex-wrap: wrap;
-            gap: 0.5rem;
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(8.75rem, 1fr));
+            gap: 0.65rem;
             margin: 0;
         }
         .app-row {
-            display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center;
-            column-gap: 0.5rem; row-gap: 0.12rem; background: var(--card-bg); padding: 0.45rem 0.65rem;
-            border-radius: var(--border-radius); border: 1px solid rgba(255,255,255,0.05);
-            flex: 1 1 10rem; min-width: 10rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+            gap: 0.4rem;
+            background: var(--card-bg);
+            padding: 0.7rem 0.55rem 0.6rem;
+            border-radius: var(--border-radius);
+            border: 1px solid rgba(255,255,255,0.05);
+            min-width: 0;
         }
-        .app-meta { min-width: 0; }
-        .app-name { display: block; font-weight: 600; font-size: 0.85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .app-meta {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.4rem;
+            min-width: 0;
+            width: 100%;
+        }
+        .app-icon {
+            width: 4.5rem; height: 4.5rem; flex: 0 0 4.5rem; object-fit: contain;
+            filter: drop-shadow(0 1px 2px rgba(0,0,0,0.35));
+        }
+        .app-name {
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            line-clamp: 2;
+            overflow: hidden;
+            font-weight: 600;
+            font-size: 0.8rem;
+            line-height: 1.2;
+            white-space: normal;
+            word-break: break-word;
+            width: 100%;
+        }
         .app-https-note {
-            grid-column: 1 / -1; color: #fde68a; font-size: 0.6rem; line-height: 1.1;
-            margin-top: 0.08rem; white-space: nowrap;
+            color: #fde68a; font-size: 0.6rem; line-height: 1.2;
+            white-space: normal;
         }
-        .app-https-note a { color: #fff; font-weight: 700; }
+        .app-https-note a {
+            color: #fff; font-weight: 700; text-decoration: underline;
+            text-underline-offset: 0.12em;
+        }
         .app-blurb { display: none; }
-        .app-actions { display: flex; flex-wrap: nowrap; gap: 0.3rem; align-items: center; flex-shrink: 0; }
-        .app-row.app-active { grid-template-columns: minmax(0, 1fr); }
-        .app-row.app-active .app-actions { grid-column: 1; justify-self: end; }
-        .panel-apps button.outline { color: #c4b5fd; border: 1px solid #8b5cf6; padding: 0.25rem 0.55rem; font-size: 0.75rem; }
-        .panel-apps button.outline.stop { color: #fecdd3; border-color: #f43f5e; }
-        .app-pill {
-            font-size: 0.6rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
-            padding: 0.1rem 0.4rem; border-radius: 999px; background: rgba(0,0,0,0.35); color: #94a3b8;
-            white-space: nowrap;
+        .app-actions {
+            display: flex;
+            flex-direction: column;
+            gap: 0.3rem;
+            align-items: stretch;
+            width: 100%;
         }
-        .app-pill.on { color: #a7f3d0; background: rgba(16, 185, 129, 0.2); }
+        .panel-apps button.outline { color: #c4b5fd; border: 1px solid #8b5cf6; padding: 0.25rem 0.55rem; font-size: 0.75rem; }
+        .app-actions button.outline { width: 100% !important; }
+        .app-toggle-stop { display: none; }
+        .app-actions button.outline.running { color: #a7f3d0; border-color: #10b981; }
+        .app-actions button.outline.running:hover,
+        .app-actions button.outline.running:focus-visible {
+            color: #fecdd3; border-color: #f43f5e;
+        }
+        .app-actions button.outline.running:hover .app-toggle-label,
+        .app-actions button.outline.running:focus-visible .app-toggle-label { display: none; }
+        .app-actions button.outline.running:hover .app-toggle-stop,
+        .app-actions button.outline.running:focus-visible .app-toggle-stop { display: inline; }
+        @media (hover: none) {
+            .app-actions button.outline.running { color: #fecdd3; border-color: #f43f5e; }
+            .app-actions button.outline.running .app-toggle-label { display: none; }
+            .app-actions button.outline.running .app-toggle-stop { display: inline; }
+        }
 
         /* Beam Steering Visualizer */
         .beam-container {
@@ -387,15 +642,13 @@
 
         /* Mobile specific overrides */
         @media (max-width: 600px) {
-            .panel { padding: 0.75rem; margin-bottom: 0.75rem; }
+            .panel { padding: 0.75rem; }
             .header-row { flex-direction: column; align-items: stretch; gap: 0.75rem; }
             .header-row h2 { justify-content: flex-start; }
             .controls-row { justify-content: flex-start; width: 100%; }
             .beam-pad { max-width: 220px; }
             .readout-input { width: 60px !important; font-size: 0.9rem !important; }
             .phase-card .readout-input { width: 45px !important; }
-            .app-row { grid-template-columns: minmax(0, 1fr); }
-            .app-actions { grid-column: 1; justify-self: end; }
         }
     </style>
     <script src="{{ url_for('static', filename='socket.io.min.js') }}"></script>
@@ -406,14 +659,6 @@
             <img src="{{ url_for('static', filename='rf_quad_kit_logo.png') }}" alt="QuadRF" class="logo">
             <span>Controls</span>
         </h1>
-
-        {% if wifi_success_msg %}
-        <div class="banner success">{{ wifi_success_msg }}</div>
-        {% endif %}
-        
-        {% if wifi_error_msg %}
-        <div class="banner error">{{ wifi_error_msg }}</div>
-        {% endif %}
 
         <article class="panel panel-apps">
             <div class="header-row">
@@ -430,12 +675,12 @@
             <div class="header-row">
                 <h2><span class="indicator" style="background-color: var(--rx-color);"></span> Receive</h2>
                 <div class="controls-row">
-                    <label style="cursor: pointer; display: flex; align-items: center; gap: 0.4rem; font-weight: 600; font-size: 0.85rem;">
-                        <input type="checkbox" id="rxPolToggle" role="switch" checked>&nbsp;
-                        <span id="rxPolLabel">RHCP</span>
-                    </label>
+                    <div class="seg" role="group" aria-label="Polarization">
+                        <input type="checkbox" id="rxPolToggle" checked>
+                        <button type="button" class="chip" data-pol="lhcp" id="rxPolLhcpBtn">LHCP</button>
+                        <button type="button" class="chip" data-pol="rhcp" id="rxPolRhcpBtn">RHCP</button>
+                    </div>
                     <div class="status-pill"><div class="indicator" id="rxPllIndicator"></div> PLL</div>
-                    <button id="rxResetBtn" class="outline">Reset</button>
                 </div>
             </div>
 
@@ -459,7 +704,7 @@
                                 <input type="number" id="rxGainNum" value="30" class="readout-input">
                                 <span id="rxGainUnit" class="unit-text">dB</span>
                             </div>
-                            <label style="cursor: pointer;"><input type="checkbox" id="rxAgc" role="switch"> &nbsp;AGC</label>
+                            <label class="chip"><input type="checkbox" id="rxAgc"> AGC</label>
                         </div>
                     </div>
                     <input type="range" id="rxGain" min="0" max="63" step="1" value="30">
@@ -469,7 +714,7 @@
                     <div class="setting-row">
                         <label>Filter BW</label>
                         <div class="value-group">
-                            <span id="rxBwReadoutText" class="readout-input">40.000</span>
+                            <output id="rxBwReadoutText" class="readout-input">40.000</output>
                             <span class="unit-text">MHz</span>
                         </div>
                     </div>
@@ -493,11 +738,11 @@
 
 <div id="rx1AntennaGrp" class="control-group" style="padding: 0; background: transparent; border: none;">
     <div style="display: flex; justify-content: space-between; align-items: center; width: 100%; margin-bottom: 0.75rem; padding: 0 0.25rem;">
-        <label id="rxAutoSteerContainer" style="cursor: pointer; font-size: 0.8rem; font-weight: normal; margin: 0;">
+        <label class="chip" id="rxAutoSteerContainer">
             <input type="checkbox" id="rxAutoSteer" checked> Auto Steer
         </label>
-        <label style="cursor: pointer; font-size: 0.8rem; font-weight: normal; margin: 0;">
-            <input type="checkbox" id="rxControlModeToggle" role="switch"> Manual Phase
+        <label class="chip">
+            <input type="checkbox" id="rxControlModeToggle"> Manual Phase
         </label>
     </div>
 
@@ -577,16 +822,20 @@
             <div class="header-row">
                 <h2><span class="indicator" style="background-color: var(--tx-color);"></span> Transmit</h2>                
                 <div class="controls-row">
-                    <label style="cursor:pointer;"><input type="checkbox" id="txOnOff" role="switch"> <div class="indicator" id="txActiveIndicator"></div> Enable</label>
-                    <div class="status-pill"><div class="indicator" id="txPllIndicator"></div> PLL</div>
-                    <button id="txResetBtn" class="outline">Reset</button>
-                    <div class="status-pill" style="gap: 0.6rem;">
-                        <span style="color: #94a3b8;">Enables:</span>
-                        <label style="cursor:pointer; display: flex; align-items: center; gap: 0.2rem; margin: 0;"><input type="checkbox" class="tx-ant-en" id="txAnt1" checked> 1</label>
-                        <label style="cursor:pointer; display: flex; align-items: center; gap: 0.2rem; margin: 0;"><input type="checkbox" class="tx-ant-en" id="txAnt2" checked> 2</label>
-                        <label style="cursor:pointer; display: flex; align-items: center; gap: 0.2rem; margin: 0;"><input type="checkbox" class="tx-ant-en" id="txAnt3" checked> 3</label>
-                        <label style="cursor:pointer; display: flex; align-items: center; gap: 0.2rem; margin: 0;"><input type="checkbox" class="tx-ant-en" id="txAnt4" checked> 4</label>
+                    <label class="chip chip-arm" title="Enable transmit">
+                        <input type="checkbox" id="txOnOff">
+                        <span class="chip-off">Enable</span>
+                        <span class="chip-on">Enabled</span>
+                        <span class="chip-stop">Disable</span>
+                    </label>
+                    <div class="chip-row">
+                        <span class="unit-text">Enables</span>
+                        <label class="chip"><input type="checkbox" class="tx-ant-en" id="txAnt1" checked> 1</label>
+                        <label class="chip"><input type="checkbox" class="tx-ant-en" id="txAnt2" checked> 2</label>
+                        <label class="chip"><input type="checkbox" class="tx-ant-en" id="txAnt3" checked> 3</label>
+                        <label class="chip"><input type="checkbox" class="tx-ant-en" id="txAnt4" checked> 4</label>
                     </div>
+                    <div class="status-pill"><div class="indicator" id="txPllIndicator"></div> PLL</div>
                 </div>
             </div>
 
@@ -610,7 +859,7 @@
                                 <input type="number" id="txGainNum" value="30" class="readout-input">
                                 <span class="unit-text">dB</span>
                             </div>
-                            <label style="cursor: pointer;"><input type="checkbox" id="txAgc" role="switch"> ALC</label>
+                            <label class="chip"><input type="checkbox" id="txAgc"> ALC</label>
                         </div>
                     </div>
                     <input type="range" id="txGain" min="0" max="63" step="1" value="30">
@@ -631,11 +880,11 @@
 
 <div id="tx1AntennaGrp" class="control-group" style="padding: 0; background: transparent; border: none;">
     <div style="display: flex; justify-content: space-between; align-items: center; width: 100%; margin-bottom: 0.75rem; padding: 0 0.25rem;">
-        <label style="cursor: pointer; font-size: 0.8rem; font-weight: normal; margin: 0;">
+        <label class="chip">
             <input type="checkbox" id="txLockRx"> Lock to Rx beam
         </label>
-        <label style="cursor: pointer; font-size: 0.8rem; font-weight: normal; margin: 0;">
-            <input type="checkbox" id="txControlModeToggle" role="switch"> Manual Phase
+        <label class="chip">
+            <input type="checkbox" id="txControlModeToggle"> Manual Phase
         </label>
     </div>
 
@@ -714,64 +963,105 @@
         <article class="panel panel-wifi">
             <div class="header-row">
                 <h2><span class="indicator" style="background-color: #f59e0b;"></span> Network Setup</h2>
-                <div class="net-tabs">
-                    <button type="button" class="outline net-tab active" data-tab="join">Join Wi-Fi</button>
-                    <button type="button" class="outline net-tab" data-tab="ap">Configure Hotspot</button>
+            </div>
+
+            {% set np = net_paths or {} %}
+            <div class="path-board" id="pathBoard">
+                <div class="path-group">
+                    <div class="path-group-head">Ethernet</div>
+                    <div class="path-slots">
+                        <div class="path-slot{% if np.get('eth_lan', {}).get('up') %} up{% endif %}{% if net_via == 'eth_lan' %} you{% endif %}" data-path="eth_lan">
+                            <div class="indicator{% if np.get('eth_lan', {}).get('up') %} locked{% endif %}"></div>
+                            <span class="path-name">LAN</span>
+                            <span class="path-you-tag">you</span>
+                            <span class="path-addr">{{ np.get('eth_lan', {}).get('addr') or '' }}</span>
+                        </div>
+                        <div class="path-slot{% if np.get('eth_direct', {}).get('up') %} up{% endif %}{% if net_via == 'eth_direct' %} you{% endif %}" data-path="eth_direct">
+                            <div class="indicator{% if np.get('eth_direct', {}).get('up') %} locked{% endif %}"></div>
+                            <span class="path-name">Direct</span>
+                            <span class="path-you-tag">you</span>
+                            <span class="path-addr">{{ np.get('eth_direct', {}).get('addr') or '' }}</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="path-group">
+                    <div class="path-group-head">Wi-Fi</div>
+                    <div class="path-slots">
+                        <div class="path-slot{% if np.get('wifi_sta', {}).get('up') %} up{% endif %}{% if net_via == 'wifi_sta' %} you{% endif %}" data-path="wifi_sta">
+                            <div class="indicator{% if np.get('wifi_sta', {}).get('up') %} locked{% endif %}"></div>
+                            <span class="path-name">Client</span>
+                            <label class="path-toggle">
+                                <input type="checkbox" id="wifiStaToggle"{% if wifi_mode == 'sta' %} checked{% endif %}>
+                                <span class="path-toggle-ui"></span>
+                            </label>
+                            <button type="button" class="path-cfg" id="wifiStaCfg">Configure</button>
+                            <span class="path-you-tag">you</span>
+                            <span class="path-addr">{{ np.get('wifi_sta', {}).get('addr') or '' }}</span>
+                        </div>
+                        <div class="path-slot{% if np.get('wifi_ap', {}).get('up') %} up{% endif %}{% if net_via == 'wifi_ap' %} you{% endif %}" data-path="wifi_ap">
+                            <div class="indicator{% if np.get('wifi_ap', {}).get('up') %} locked{% endif %}"></div>
+                            <span class="path-name">Hotspot</span>
+                            <label class="path-toggle">
+                                <input type="checkbox" id="wifiApToggle"{% if wifi_mode == 'ap' %} checked{% endif %}>
+                                <span class="path-toggle-ui"></span>
+                            </label>
+                            <button type="button" class="path-cfg" id="wifiApCfg">Configure</button>
+                            <span class="path-you-tag">you</span>
+                            <span class="path-addr">{{ np.get('wifi_ap', {}).get('addr') or '' }}</span>
+                        </div>
+                    </div>
+                    <label class="path-fallback">
+                        <input type="checkbox" id="wifiFallbackToggle"{% if wifi_fallback %} checked{% endif %}>
+                        If client fails, start hotspot
+                    </label>
+                    <p id="wifiFallbackNote" class="path-note{% if not wifi_fallback_active %} hidden{% endif %}">Hotspot (client failed)</p>
+                </div>
+                <div class="path-group">
+                    <div class="path-group-head">USB-C</div>
+                    <div class="path-slots">
+                        <div class="path-slot{% if np.get('usb', {}).get('up') %} up{% endif %}{% if net_via == 'usb' %} you{% endif %}" data-path="usb">
+                            <div class="indicator{% if np.get('usb', {}).get('up') %} locked{% endif %}"></div>
+                            <span class="path-name">Gadget</span>
+                            <span class="path-you-tag">you</span>
+                            <span class="path-addr">{{ np.get('usb', {}).get('addr') or '' }}</span>
+                        </div>
+                    </div>
                 </div>
             </div>
 
-            <div id="netJoin" class="net-pane">
-                <form method="POST" action="" style="margin-bottom: 0;">
-                    <input type="hidden" name="intent" value="wifi">
-                    <div class="fluid-grid" style="align-items: end; margin-bottom: 0;">
-                        <div class="control-group">
-                            <label style="margin-bottom: 0.5rem;">Network Name (SSID)</label>
-                            <input type="text" name="ssid" class="wifi-input" required placeholder="e.g. MyHomeNetwork">
-                        </div>
-                        
-                        <div class="control-group">
-                            <label style="margin-bottom: 0.5rem;">Password</label>
-                            <input type="password" name="password" class="wifi-input" placeholder="(Leave blank if open)">
-                        </div>
-                        
-                        <div class="control-group" style="background: transparent; border: none; padding: 0;">
-                            <button type="submit" class="outline" style="width: 100% !important; padding: 0.7rem !important; border-color: #f59e0b; color: #f59e0b; font-size: 0.9rem !important;">
-                                Connect & Reboot
-                            </button>
-                        </div>
-                    </div>
-                </form>
-            </div>
+            <div id="wifiBanner" class="banner hidden"></div>
 
-            <div id="netAp" class="net-pane hidden">
-                <div class="ap-status">
-                    {% if hotspot_active %}
-                    <div class="status-pill"><div class="indicator locked"></div> Hotspot up</div>
-                    <p class="ap-copy">SSID <strong>{{ ap_ssid }}</strong>. Clients on this network will have to reconnect if you change the name or password.</p>
-                    {% else %}
-                    <div class="status-pill"><div class="indicator"></div> Hotspot standby</div>
-                    <p class="ap-copy">SSID <strong>{{ ap_ssid }}</strong>. Broadcasts when no saved Wi-Fi is in range.</p>
-                    {% endif %}
-                </div>
-                <form method="POST" action="" style="margin-bottom: 0;">
-                    <input type="hidden" name="intent" value="ap">
-                    <div class="fluid-grid" style="align-items: end; margin-bottom: 0;">
-                        <div class="control-group">
-                            <label style="margin-bottom: 0.5rem;">Hotspot Name (SSID)</label>
-                            <input type="text" name="ap_ssid" class="wifi-input" required maxlength="32" value="{{ ap_ssid }}" placeholder="QuadRF">
-                        </div>
-                        <div class="control-group">
-                            <label style="margin-bottom: 0.5rem;">Hotspot Password</label>
-                            <input type="password" name="ap_password" class="wifi-input" minlength="8" maxlength="63" placeholder="(Leave blank for an open network)">
-                        </div>
-                        <div class="control-group" style="background: transparent; border: none; padding: 0;">
-                            <button type="submit" class="outline" style="width: 100% !important; padding: 0.7rem !important; border-color: #f59e0b; color: #f59e0b; font-size: 0.9rem !important;">
-                                Save Hotspot
-                            </button>
-                        </div>
+            <form id="netJoin" class="net-pane hidden" style="margin-bottom: 0;">
+                <div class="fluid-grid" style="align-items: end; margin-bottom: 0;">
+                    <div class="control-group">
+                        <label style="margin-bottom: 0.5rem;">Network Name (SSID)</label>
+                        <input type="text" id="staSsid" class="wifi-input" placeholder="e.g. MyHomeNetwork" value="{{ wifi_sta_ssid }}">
                     </div>
-                </form>
-            </div>
+                    <div class="control-group">
+                        <label style="margin-bottom: 0.5rem;">Password</label>
+                        <input type="password" id="staPassword" class="wifi-input" placeholder="(Leave blank if open)">
+                    </div>
+                    <div class="control-group" style="background: transparent; border: none; padding: 0;">
+                        <button type="submit" class="outline wifi-save">Save network</button>
+                    </div>
+                </div>
+            </form>
+
+            <form id="netAp" class="net-pane hidden" style="margin-bottom: 0;">
+                <div class="fluid-grid" style="align-items: end; margin-bottom: 0;">
+                    <div class="control-group">
+                        <label style="margin-bottom: 0.5rem;">Hotspot Name (SSID)</label>
+                        <input type="text" id="apSsid" class="wifi-input" maxlength="32" value="{{ ap_ssid }}" placeholder="QuadRF">
+                    </div>
+                    <div class="control-group">
+                        <label style="margin-bottom: 0.5rem;">Hotspot Password</label>
+                        <input type="password" id="apPassword" class="wifi-input" minlength="8" maxlength="63" placeholder="(Leave blank for an open network)">
+                    </div>
+                    <div class="control-group" style="background: transparent; border: none; padding: 0;">
+                        <button type="submit" class="outline wifi-save">Save hotspot</button>
+                    </div>
+                </div>
+            </form>
         </article>
 
         <article class="panel panel-console" style="padding: 0;">
@@ -1130,15 +1420,13 @@
                 updateToneBounds(state.rx_bw_k);
                 updateIfUnfocused('rxBwSlider', state.rx_bw_k);
                 if (document.activeElement !== document.getElementById('rxBwSlider')) {
-                    document.getElementById('rxBwReadoutText').innerText = (240 / state.rx_bw_k).toFixed(3);
+                    document.getElementById('rxBwReadoutText').textContent = (240 / state.rx_bw_k).toFixed(3);
                     document.getElementById('rxBwK').innerText = state.rx_bw_k;
                 }
             }
             if(state.rx_pol !== undefined) {
                 const isRhcp = (state.rx_pol.toLowerCase() === 'rhcp');
                 updateCheckbox('rxPolToggle', isRhcp);
-                const labelEl = document.getElementById('rxPolLabel');
-                if(labelEl) labelEl.innerText = isRhcp ? 'RHCP' : 'LHCP';
             }            
             if(state.rx_antenna_mode !== undefined) {
                 const el = document.getElementById('rxAntennaMode');
@@ -1207,6 +1495,20 @@
             // PLL
             if (state.rx_pll_locked !== undefined) document.getElementById('rxPllIndicator').classList.toggle('locked', state.rx_pll_locked);
             if (state.tx_pll_locked !== undefined) document.getElementById('txPllIndicator').classList.toggle('locked', state.tx_pll_locked);
+
+            if (state.paths) {
+                document.querySelectorAll('#pathBoard .path-slot').forEach(el => {
+                    const p = state.paths[el.dataset.path];
+                    if (!p) return;
+                    el.classList.toggle('up', !!p.up);
+                    const dot = el.querySelector('.indicator');
+                    if (dot) dot.classList.toggle('locked', !!p.up);
+                    const addr = el.querySelector('.path-addr');
+                    if (addr) addr.textContent = (p.up && p.addr) ? p.addr : '';
+                    el.classList.toggle('you', state.via === el.dataset.path);
+                });
+                applyWifiControls(state);
+            }
         }
 
         async function fetchState() {
@@ -1243,6 +1545,7 @@
         const appsApi = '{{ url_for("apps_status") }}';
         const appsStartApi = '{{ url_for("apps_start") }}';
         const appsStopApi = '{{ url_for("apps_stop") }}';
+        const appsIconUrl = '{{ url_for("app_icon", icon="__icon__") }}';
 
         const desktopHost = '{{ desktop_host }}';
 
@@ -1266,7 +1569,8 @@
 
         function applyAppState(data) {
             if (!data || !Array.isArray(data.apps)) return;
-            data.apps.forEach((app) => {
+            const appIds = new Set(data.apps.map((app) => String(app.id)));
+            data.apps.forEach((app, i) => {
                 let row = appListEl.querySelector(`[data-app="${app.id}"]`);
                 if (!row) {
                     row = document.createElement('div');
@@ -1274,30 +1578,58 @@
                     row.dataset.app = app.id;
                     row.innerHTML = `
                         <div class="app-meta">
+                            <img class="app-icon hidden" alt="">
                             <span class="app-name"></span>
                         </div>
                         <div class="app-actions">
-                            <span class="app-pill">stopped</span>
-                            <button type="button" class="outline app-start">Launch</button>
-                            <button type="button" class="outline stop app-stop">Stop</button>
-                            <button type="button" class="outline app-open">Open</button>
+                            <button type="button" class="outline app-toggle">Launch</button>
+                            <button type="button" class="outline app-open hidden">Open</button>
                         </div>
                         <small class="app-https-note hidden" title="Camera access requires HTTPS.">* Camera needs HTTPS. <a href="/setup/security/" target="_blank" rel="noopener">Set up</a></small>`;
                     appListEl.appendChild(row);
-                    row.querySelector('.app-start').addEventListener('click', () => controlApp(app.id, 'start', row.dataset.open));
-                    row.querySelector('.app-stop').addEventListener('click', () => controlApp(app.id, 'stop'));
+                    row.querySelector('.app-toggle').addEventListener('click', () => {
+                        if (row.classList.contains('app-active')) controlApp(app.id, 'stop');
+                        else controlApp(app.id, 'start', row.dataset.open);
+                    });
                     row.querySelector('.app-open').addEventListener('click', () => window.open(resolveOpen(row.dataset.open), '_blank'));
+                    const icon = row.querySelector('.app-icon');
+                    icon.addEventListener('load', () => icon.classList.remove('hidden'));
+                    icon.addEventListener('error', () => icon.classList.add('hidden'));
                 }
                 row.querySelector('.app-name').textContent = app.name;
+                row.title = app.blurb || app.name;
+                const icon = row.querySelector('.app-icon');
+                icon.alt = app.name;
+                if (app.icon && icon.dataset.icon !== app.icon) {
+                    icon.dataset.icon = app.icon;
+                    icon.classList.add('hidden');
+                    icon.src = appsIconUrl.replace('__icon__', encodeURIComponent(app.icon));
+                } else if (!app.icon) {
+                    icon.dataset.icon = '';
+                    icon.removeAttribute('src');
+                    icon.classList.add('hidden');
+                }
                 row.querySelector('.app-https-note').classList.toggle('hidden', app.id !== 'ar' || window.isSecureContext);
                 row.classList.toggle('app-active', !!app.running);
-                const pill = row.querySelector('.app-pill');
-                pill.textContent = app.running ? 'running' : (app.installed ? 'stopped' : 'not installed');
-                pill.classList.toggle('on', !!app.running);
-                row.querySelector('.app-start').classList.toggle('hidden', !app.installed || app.running);
-                row.querySelector('.app-stop').classList.toggle('hidden', !app.running);
+                const toggle = row.querySelector('.app-toggle');
+                toggle.hidden = !app.installed;
+                toggle.disabled = !app.installed;
+                if (app.running) {
+                    toggle.innerHTML = '<span class="app-toggle-label">Running</span><span class="app-toggle-stop">Stop</span>';
+                } else {
+                    toggle.textContent = 'Launch';
+                }
+                toggle.classList.toggle('running', !!app.running);
+                toggle.title = app.running ? 'Stop' : 'Launch';
+                toggle.setAttribute('aria-label', app.running ? `Stop ${app.name}` : `Launch ${app.name}`);
                 row.querySelector('.app-open').classList.toggle('hidden', !app.open || !app.running);
                 row.dataset.open = app.open || '';
+                if (appListEl.children[i] !== row) {
+                    appListEl.insertBefore(row, appListEl.children[i] || null);
+                }
+            });
+            appListEl.querySelectorAll('.app-row[data-app]').forEach((row) => {
+                if (!appIds.has(row.dataset.app)) row.remove();
             });
             scrollToReceiveOnce();
         }
@@ -1355,12 +1687,146 @@
             window.open(desktopUrl(), '_blank');
         });
 
-        document.querySelectorAll('.net-tab').forEach((btn) => {
-            btn.addEventListener('click', () => {
-                document.querySelectorAll('.net-tab').forEach((b) => b.classList.toggle('active', b === btn));
-                document.getElementById('netJoin').classList.toggle('hidden', btn.dataset.tab !== 'join');
-                document.getElementById('netAp').classList.toggle('hidden', btn.dataset.tab !== 'ap');
+        const wifiModeApi = '{{ url_for("network_mode") }}';
+        const wifiFallbackApi = '{{ url_for("network_fallback") }}';
+        const wifiStationApi = '{{ url_for("network_station") }}';
+        const wifiHotspotApi = '{{ url_for("network_hotspot") }}';
+        const wifiStaToggle = document.getElementById('wifiStaToggle');
+        const wifiApToggle = document.getElementById('wifiApToggle');
+        const wifiFallbackToggle = document.getElementById('wifiFallbackToggle');
+        const wifiFallbackNote = document.getElementById('wifiFallbackNote');
+        const netJoin = document.getElementById('netJoin');
+        const netAp = document.getElementById('netAp');
+        const wifiBanner = document.getElementById('wifiBanner');
+        let wifiBusy = false;
+        let wifiVia = '{{ net_via or "" }}';
+
+        function showWifiBanner(kind, text) {
+            if (!text) {
+                wifiBanner.classList.add('hidden');
+                wifiBanner.textContent = '';
+                return;
+            }
+            wifiBanner.classList.remove('hidden', 'success', 'error');
+            wifiBanner.classList.add(kind);
+            wifiBanner.textContent = text;
+        }
+
+        function showWifiForm(which) {
+            netJoin.classList.toggle('hidden', which !== 'sta');
+            netAp.classList.toggle('hidden', which !== 'ap');
+        }
+
+        function applyWifiControls(state) {
+            wifiVia = state.via || wifiVia;
+            if (wifiFallbackNote) {
+                wifiFallbackNote.classList.toggle('hidden', !state.wifi_fallback_active);
+            }
+            if (wifiBusy) return;
+            if (state.wifi_mode) {
+                wifiStaToggle.checked = state.wifi_mode === 'sta';
+                wifiApToggle.checked = state.wifi_mode === 'ap';
+            }
+            if (typeof state.wifi_fallback === 'boolean') {
+                wifiFallbackToggle.checked = state.wifi_fallback;
+            }
+            if (state.wifi_sta_ssid && document.activeElement !== document.getElementById('staSsid')) {
+                document.getElementById('staSsid').value = state.wifi_sta_ssid;
+            }
+        }
+
+        async function postWifi(url, body) {
+            const res = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
             });
+            let data = {};
+            try { data = await res.json(); } catch (e) { data = {}; }
+            if (!res.ok || data.status === 'error') {
+                const err = new Error(data.message || 'request failed');
+                err.needConfig = !!data.need_config;
+                throw err;
+            }
+            applyState(data);
+            return data;
+        }
+
+        async function setWifiMode(mode) {
+            wifiBusy = true;
+            try {
+                if (mode !== 'ap' && wifiVia === 'wifi_ap') {
+                    showWifiBanner('error', 'Leaving the hotspot drops this session if you are on it. Ethernet and USB still reach the QuadRF.');
+                }
+                await postWifi(wifiModeApi, { mode });
+                showWifiBanner('success', mode === 'off' ? 'Wi-Fi off.' : (mode === 'ap' ? 'Hotspot on.' : 'Joining saved network.'));
+            } catch (e) {
+                if (e.needConfig) {
+                    showWifiForm('sta');
+                    showWifiBanner('error', e.message);
+                } else {
+                    showWifiBanner('error', e.message);
+                }
+            } finally {
+                wifiBusy = false;
+            }
+        }
+
+        wifiStaToggle.addEventListener('change', () => {
+            if (wifiStaToggle.checked) wifiApToggle.checked = false;
+            setWifiMode(wifiStaToggle.checked ? 'sta' : 'off');
+        });
+        wifiApToggle.addEventListener('change', () => {
+            if (wifiApToggle.checked) wifiStaToggle.checked = false;
+            setWifiMode(wifiApToggle.checked ? 'ap' : 'off');
+        });
+        wifiFallbackToggle.addEventListener('change', async () => {
+            wifiBusy = true;
+            try {
+                await postWifi(wifiFallbackApi, { enabled: wifiFallbackToggle.checked });
+            } catch (e) {
+                showWifiBanner('error', e.message);
+            } finally {
+                wifiBusy = false;
+            }
+        });
+        document.getElementById('wifiStaCfg').addEventListener('click', () => {
+            showWifiForm(netJoin.classList.contains('hidden') ? 'sta' : null);
+        });
+        document.getElementById('wifiApCfg').addEventListener('click', () => {
+            showWifiForm(netAp.classList.contains('hidden') ? 'ap' : null);
+        });
+        netJoin.addEventListener('submit', async (ev) => {
+            ev.preventDefault();
+            wifiBusy = true;
+            try {
+                await postWifi(wifiStationApi, {
+                    ssid: document.getElementById('staSsid').value,
+                    password: document.getElementById('staPassword').value,
+                });
+                showWifiForm(null);
+                showWifiBanner('success', 'Saved client network. Toggle Client to join.');
+            } catch (e) {
+                showWifiBanner('error', e.message);
+            } finally {
+                wifiBusy = false;
+            }
+        });
+        netAp.addEventListener('submit', async (ev) => {
+            ev.preventDefault();
+            wifiBusy = true;
+            try {
+                await postWifi(wifiHotspotApi, {
+                    ssid: document.getElementById('apSsid').value,
+                    password: document.getElementById('apPassword').value,
+                });
+                showWifiForm(null);
+                showWifiBanner('success', 'Saved hotspot settings.');
+            } catch (e) {
+                showWifiBanner('error', e.message);
+            } finally {
+                wifiBusy = false;
+            }
         });
 
         function throttle(func, limit) {
@@ -1416,7 +1882,6 @@
         initBeamVisualizer('rx');
         initBeamVisualizer('tx');
 
-        document.getElementById('rxResetBtn').addEventListener('click', () => sendCommand('rx_reset', true));
         bindFreqControls('rxFreq', 'rxFreqNum', 'rx_freq');
         bindFreqControls('rxToneFreq', 'rxToneNum', 'rx_tone');
 
@@ -1439,14 +1904,24 @@
         });
 
         document.getElementById('rxPolToggle').addEventListener('change', (e) => {
-            const pol = e.target.checked ? 'rhcp' : 'lhcp';
-            document.getElementById('rxPolLabel').innerText = pol.toUpperCase();
-            if (e.isTrusted) sendCommand('rx_pol', pol);
+            if (e.isTrusted) sendCommand('rx_pol', e.target.checked ? 'rhcp' : 'lhcp');
+        });
+        document.getElementById('rxPolRhcpBtn').addEventListener('click', () => {
+            const cb = document.getElementById('rxPolToggle');
+            if (cb.checked) return;
+            cb.checked = true;
+            sendCommand('rx_pol', 'rhcp');
+        });
+        document.getElementById('rxPolLhcpBtn').addEventListener('click', () => {
+            const cb = document.getElementById('rxPolToggle');
+            if (!cb.checked) return;
+            cb.checked = false;
+            sendCommand('rx_pol', 'lhcp');
         });
 
         document.getElementById('rxBwSlider').addEventListener('input', (e) => {
             let kValue = parseInt(e.target.value); let bw = (240 / kValue).toFixed(3);
-            document.getElementById('rxBwReadoutText').innerText = bw; document.getElementById('rxBwK').innerText = kValue;
+            document.getElementById('rxBwReadoutText').textContent = bw; document.getElementById('rxBwK').innerText = kValue;
             updateToneBounds(kValue); throttledSend('rx_bw', bw);
         });
         updateToneBounds(parseInt(document.getElementById('rxBwSlider').value));
@@ -1485,9 +1960,7 @@
 
         bindPhaseControls('rx');
 
-        document.getElementById('txResetBtn').addEventListener('click', () => sendCommand('tx_reset', true));
         document.getElementById('txOnOff').addEventListener('change', (e) => {
-            document.getElementById('txActiveIndicator').classList.toggle('active-tx', e.target.checked);
             if (e.isTrusted) sendCommand('tx_on_off', e.target.checked);
         });
 

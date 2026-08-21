@@ -1,6 +1,7 @@
 #!/bin/bash
-# Bring up the QuadRF access point when wlan0 cannot join a saved network.
-# Run once at boot by quadrf-hotspot.service.
+# wlan0 client, fallback AP, or off. Boot uses "start" (honours the last
+# user mode). The GUI calls sta/ap/off for a live switch; those persist
+# QUADRF_WIFI_MODE. Fallback AP after a failed client join does not.
 set -euo pipefail
 
 . /usr/share/quadrf/functions.sh
@@ -10,15 +11,39 @@ AP_CONF=/etc/dnsmasq.d/quadrf-wlan0-ap.conf
 LAN_CONF=/etc/dnsmasq.d/quadrf-wlan0-lan.conf
 CONFIG_TXT="${QUADRF_BOOT_DIR}/config.txt"
 STA_TIMEOUT=12
-
 WPA_CONF=/etc/wpa_supplicant/wpa_supplicant.conf
+LOCKFILE=/run/quadrf-hotspot.lock
 
 log() { logger -t quadrf-hotspot -- "$*"; echo "$*"; }
 
 restart_dnsmasq() {
     # SIGHUP does not reread snippets in /etc/dnsmasq.d. Do not make a
     # network-startup hook wait for the full service restart.
-    systemctl restart --no-block dnsmasq.service 2>/dev/null
+    systemctl restart --no-block dnsmasq.service 2>/dev/null || true
+}
+
+wifi_disabled() {
+    [[ -f "${CONFIG_TXT}" ]] &&
+        grep -qE '^[[:space:]]*#?[[:space:]]*dtoverlay=disable-wifi' "${CONFIG_TXT}"
+}
+
+wifi_mode() {
+    case "${QUADRF_WIFI_MODE:-sta}" in
+        ap|off|sta) printf '%s\n' "${QUADRF_WIFI_MODE:-sta}" ;;
+        *) printf 'sta\n' ;;
+    esac
+}
+
+wifi_fallback() {
+    case "${QUADRF_WIFI_FALLBACK:-yes}" in
+        no|NO|false|FALSE|0) return 1 ;;
+        *) return 0 ;;
+    esac
+}
+
+persist_mode() {
+    quadrf_conf_set QUADRF_WIFI_MODE "$1"
+    QUADRF_WIFI_MODE="$1"
 }
 
 sta_ready() {
@@ -43,59 +68,107 @@ restore_lan_dns() {
     log "restored resolver ${dns} after AP bring-up"
 }
 
+stop_sta() {
+    systemctl stop wpa_supplicant 2>/dev/null || true
+    pkill -f 'wpa_supplicant.*wlan0' 2>/dev/null || true
+    if command -v dhclient >/dev/null; then
+        timeout 2 dhclient -r wlan0 >/dev/null 2>&1 || true
+        pkill -f 'dhclient.*wlan0' 2>/dev/null || true
+    fi
+}
+
+stop_ap() {
+    systemctl stop hostapd.service 2>/dev/null || true
+    systemctl stop isc-dhcp-server.service 2>/dev/null || true
+    rm -f /run/dhcp-server/dhcpd.pid /var/run/dhcpd.pid
+    if [[ -f "${AP_CONF}" ]]; then
+        rm -f "${AP_CONF}"
+        restart_dnsmasq
+    fi
+}
+
+radio_down() {
+    stop_ap
+    stop_sta
+    ip addr flush dev wlan0 2>/dev/null || true
+    rm -f "${LAN_CONF}" "${AP_CONF}"
+    ip link set dev wlan0 down 2>/dev/null || true
+}
+
+ensure_wlan() {
+    if wifi_disabled; then
+        log "dtoverlay=disable-wifi is set in ${CONFIG_TXT}; wlan0 is unavailable"
+        return 1
+    fi
+    if ! ip link show wlan0 &>/dev/null; then
+        log "no wlan0 interface"
+        return 1
+    fi
+    return 0
+}
+
+# brcmfmac wants a down/up when leaving AP mode.
+radio_reset() {
+    ip link set dev wlan0 down || true
+    stop_sta
+    ip addr flush dev wlan0 2>/dev/null || true
+    ip link set dev wlan0 up || true
+}
+
+# Drop a dhclient lease on our own AP (wlan0=192.168.44.12) so mDNS never
+# advertises a client address as the appliance.
+wlan_only_ap_addr() {
+    ip -4 -o addr show dev wlan0 scope global 2>/dev/null | while read -r _ _ _ cidr _; do
+        addr="${cidr%%/*}"
+        [[ "${addr}" == "${QUADRF_AP_ADDRESS}" ]] && continue
+        ip addr del "${cidr}" dev wlan0 2>/dev/null || true
+    done
+}
+
 keep_sta() {
-    log "wlan0 associated, staying in station mode"
+    log "wlan0 associated, staying in client mode"
     if [[ -f "${AP_CONF}" ]]; then
         rm -f "${AP_CONF}"
         restart_dnsmasq || true
     fi
-    exit 0
+    if [[ -x /usr/sbin/quadrf-dns-update ]]; then
+        /usr/sbin/quadrf-dns-update || true
+    fi
 }
 
-if [[ -f "${CONFIG_TXT}" ]] &&
-   grep -qE '^[[:space:]]*#?[[:space:]]*dtoverlay=disable-wifi' "${CONFIG_TXT}"; then
-    log "dtoverlay=disable-wifi is set in ${CONFIG_TXT}; wlan0 is unavailable"
-    exit 1
-fi
-
-if ! ip link show wlan0 &>/dev/null; then
-    log "no wlan0 interface, skipping access point"
-    exit 0
-fi
-
-ip link set dev wlan0 up || true
-if has_saved_network; then
-    wpa_supplicant -B -i wlan0 -c "${WPA_CONF}" >/dev/null 2>&1 || true
-fi
-
-deadline=$((SECONDS + STA_TIMEOUT))
-while (( SECONDS < deadline )); do
-    if iw dev wlan0 link 2>/dev/null | grep -q 'Connected to' &&
-       ! ip -4 -o addr show dev wlan0 scope global 2>/dev/null | grep -q .; then
-        timeout 8 dhclient -1 wlan0 >/dev/null 2>&1 || true
+try_station() {
+    stop_ap
+    radio_reset
+    if ! has_saved_network; then
+        log "no saved client network"
+        return 1
     fi
-    sta_ready && keep_sta
-    sleep 1
-done
-sta_ready && keep_sta
+    # Do not let the daemon inherit the flock fd; it would hold the lock forever.
+    wpa_supplicant -B -i wlan0 -c "${WPA_CONF}" 9>&- >/dev/null 2>&1 || true
+    local deadline=$((SECONDS + STA_TIMEOUT))
+    while (( SECONDS < deadline )); do
+        if iw dev wlan0 link 2>/dev/null | grep -q 'Connected to' &&
+           ! ip -4 -o addr show dev wlan0 scope global 2>/dev/null | grep -q .; then
+            timeout 8 dhclient -1 wlan0 9>&- >/dev/null 2>&1 || true
+        fi
+        sta_ready && return 0
+        sleep 1
+    done
+    sta_ready
+}
 
-log "no wlan0 association after ${STA_TIMEOUT}s, starting ${QUADRF_AP_SSID} access point"
+start_ap() {
+    stop_sta
+    radio_reset
+    rm -f "${LAN_CONF}"
+    iw dev wlan0 set power_save off 2>/dev/null || true
+    ip addr add "${QUADRF_AP_ADDRESS}/24" dev wlan0 2>/dev/null || true
+    wlan_only_ap_addr
+    sleep 2
 
-ip link set dev wlan0 down
-systemctl stop wpa_supplicant 2>/dev/null || true
-pkill -f 'wpa_supplicant.*wlan0' 2>/dev/null || true
-pkill -f 'dhclient.*wlan0' 2>/dev/null || true
-ip addr flush dev wlan0
-rm -f "${LAN_CONF}"
-
-ip link set dev wlan0 up
-iw dev wlan0 set power_save off
-ip addr add "${QUADRF_AP_ADDRESS}/24" dev wlan0
-sleep 2
-
-# Names for AP clients. Do not use address=/#/... — that is global in
-# dnsmasq and hijacks DNS on eth0/usb0 (apt, etc.) while the AP is up.
-cat > "${AP_CONF}" <<EOF
+    # Names for AP clients. Do not use address=/#/... — that is global in
+    # dnsmasq and hijacks DNS on eth0/usb0 (apt, etc.) while the AP is up.
+    cat > "${AP_CONF}" <<EOF
 interface=wlan0
 no-dhcp-interface=wlan0
 interface-name=${QUADRF_HOSTNAME}.local,wlan0
@@ -104,17 +177,96 @@ interface-name=$(quadrf_desktop_mdns),wlan0
 interface-name=$(quadrf_desktop_mdns_short),wlan0
 EOF
 
-systemctl unmask hostapd.service 2>/dev/null || true
-if ! systemctl start hostapd.service ||
-   ! systemctl is-active --quiet hostapd.service; then
-    log "hostapd failed to start, see journalctl -u hostapd"
-    exit 1
-fi
+    systemctl unmask hostapd.service 2>/dev/null || true
+    if ! systemctl start hostapd.service ||
+       ! systemctl is-active --quiet hostapd.service; then
+        log "hostapd failed to start, see journalctl -u hostapd"
+        return 1
+    fi
 
-rm -f /run/dhcp-server/dhcpd.pid /var/run/dhcpd.pid
-systemctl start isc-dhcp-server || log "isc-dhcp-server failed, clients will not get leases"
-restart_dnsmasq || log "dnsmasq restart request failed"
-restore_lan_dns
-systemctl try-restart quadrf-mdns.service 2>/dev/null || true
+    rm -f /run/dhcp-server/dhcpd.pid /var/run/dhcpd.pid
+    systemctl start isc-dhcp-server || log "isc-dhcp-server failed, clients will not get leases"
+    restart_dnsmasq || log "dnsmasq restart request failed"
+    restore_lan_dns
+    wlan_only_ap_addr
+    log "access point up: SSID ${QUADRF_AP_SSID} on ${QUADRF_AP_ADDRESS}"
+}
 
-log "access point up: SSID ${QUADRF_AP_SSID} on ${QUADRF_AP_ADDRESS}"
+apply_sta() {
+    if try_station; then
+        keep_sta
+        return 0
+    fi
+    if wifi_fallback; then
+        log "no wlan0 association after ${STA_TIMEOUT}s, starting ${QUADRF_AP_SSID} access point"
+        start_ap
+        return 0
+    fi
+    log "no wlan0 association after ${STA_TIMEOUT}s, AP fallback disabled"
+    return 0
+}
+
+cmd_start() {
+    if wifi_disabled; then
+        log "dtoverlay=disable-wifi is set in ${CONFIG_TXT}; wlan0 is unavailable"
+        return 1
+    fi
+    if ! ip link show wlan0 &>/dev/null; then
+        log "no wlan0 interface, skipping"
+        return 0
+    fi
+    case "$(wifi_mode)" in
+        off)
+            log "QUADRF_WIFI_MODE=off, leaving wlan0 down"
+            radio_down
+            ;;
+        ap)
+            start_ap
+            ;;
+        *)
+            apply_sta
+            ;;
+    esac
+}
+
+cmd_sta() {
+    ensure_wlan || return 1
+    persist_mode sta
+    apply_sta
+}
+
+cmd_ap() {
+    ensure_wlan || return 1
+    persist_mode ap
+    start_ap
+}
+
+cmd_off() {
+    persist_mode off
+    if ip link show wlan0 &>/dev/null; then
+        radio_down
+    fi
+    log "wlan0 off"
+}
+
+cmd_fallback() {
+    case "${1:-}" in
+        yes|no) ;;
+        *) echo "usage: $0 fallback yes|no" >&2; return 1 ;;
+    esac
+    quadrf_conf_set QUADRF_WIFI_FALLBACK "$1"
+    log "QUADRF_WIFI_FALLBACK=$1"
+}
+
+cmd="${1:-start}"
+exec 9>"${LOCKFILE}"
+flock 9
+
+case "${cmd}" in
+    start|"") cmd_start ;;
+    sta) cmd_sta ;;
+    ap) cmd_ap ;;
+    off) cmd_off ;;
+    fallback) cmd_fallback "${2:-}" ;;
+    *) echo "usage: $0 [start|sta|ap|off|fallback yes|no]" >&2; exit 1 ;;
+esac

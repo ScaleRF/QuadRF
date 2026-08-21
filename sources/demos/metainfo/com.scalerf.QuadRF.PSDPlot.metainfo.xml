@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.scalerf.QuadRF.PSDPlot</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <name>PSD Plot</name>
+  <summary>Display a live spectrum from the QuadRF sample ring</summary>
+  <description>
+    <p>PSD Plot reads the QuadRF CSI sample ring and displays a continuously updated power spectral density view on the appliance desktop.</p>
+  </description>
+  <launchable type="desktop-id">com.scalerf.QuadRF.PSDPlot.desktop</launchable>
+  <provides>
+    <binary>quadrf-psd</binary>
+  </provides>
+  <url type="homepage">https://quadrf.com/</url>
+  <developer id="com.scalerf">
+    <name>Scale RF</name>
+  </developer>
+  <content_rating type="oars-1.1"/>
+</component>

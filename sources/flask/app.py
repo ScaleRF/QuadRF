@@ -1,13 +1,15 @@
-from flask import Flask, render_template, request, jsonify, redirect
+from flask import Flask, abort, jsonify, redirect, render_template, request, send_file
 from werkzeug.middleware.proxy_fix import ProxyFix
 from flask_socketio import SocketIO
 import json
 import os
+import signal
 import subprocess
 import threading
 import time
 import math
 import re
+from app_icons import find_app_icon
 
 app = Flask(__name__)
 app.config['TEMPLATES_AUTO_RELOAD'] = True # Force Flask to bypass template caching
@@ -21,8 +23,10 @@ socketio = SocketIO(app, async_mode='threading')
 SDR_CLI = os.environ.get("QUADRF_JTAG", "/usr/bin/quadrf-jtag")
 WIFI_CLI = os.environ.get("QUADRF_APPLY_WIFI", "/usr/sbin/quadrf-apply-wifi")
 AP_CLI = os.environ.get("QUADRF_APPLY_AP", "/usr/sbin/quadrf-apply-ap")
+HOTSPOT_CLI = os.environ.get("QUADRF_HOTSPOT", "/usr/sbin/quadrf-hotspot")
 APP_CLI = os.environ.get("QUADRF_APP", "/usr/sbin/quadrf-app")
 CONF_PATH = os.environ.get("QUADRF_CONF", "/etc/quadrf/quadrf.conf")
+WPA_CONF = os.environ.get("QUADRF_WPA_CONF", "/etc/wpa_supplicant/wpa_supplicant.conf")
 
 
 def load_quadrf_conf(path=CONF_PATH):
@@ -43,12 +47,162 @@ def load_quadrf_conf(path=CONF_PATH):
     return conf
 
 
-def hotspot_is_up():
-    return subprocess.run(["systemctl", "is-active", "--quiet", "hostapd.service"]).returncode == 0
+ETH_DIRECT = "10.55.1.1"
+USB_DIRECT = "10.55.0.1"
+AP_DEFAULT = "192.168.44.1"
 
 
-def run_sudo(cmd):
-    return subprocess.run(["sudo", "-n", *cmd], capture_output=True, text=True)
+def _carrier(iface):
+    try:
+        with open(f"/sys/class/net/{iface}/carrier", encoding="ascii") as fh:
+            return fh.read().strip() == "1"
+    except OSError:
+        return False
+
+
+def _iface_v4():
+    addrs = {}
+    try:
+        proc = subprocess.run(
+            ["ip", "-4", "-o", "addr", "show", "scope", "global"],
+            capture_output=True, text=True, timeout=1,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return addrs
+    for line in proc.stdout.splitlines():
+        parts = line.split()
+        if len(parts) < 4 or parts[2] != "inet":
+            continue
+        iface = parts[1]
+        addr = parts[3].split("/", 1)[0]
+        addrs.setdefault(iface, []).append(addr)
+    return addrs
+
+
+def _normalize_ip(addr):
+    if not addr:
+        return ""
+    addr = addr.strip().strip("[]")
+    if addr.lower().startswith("::ffff:"):
+        addr = addr[7:]
+    return addr.split("%", 1)[0]
+
+
+def _via_header():
+    return _normalize_ip(request.headers.get("X-QuadRF-Via", ""))
+
+
+def get_network_status(via_addr=None):
+    """Path-up from addresses/carrier, plus which path accepted this request."""
+    conf = load_quadrf_conf()
+    ap_addr = conf.get("QUADRF_AP_ADDRESS", AP_DEFAULT) or AP_DEFAULT
+    addrs = _iface_v4()
+    eth = addrs.get("eth0", [])
+    wlan = addrs.get("wlan0", [])
+    usb = addrs.get("usb0", [])
+    eth_lan_addrs = [a for a in eth if a != ETH_DIRECT]
+    wlan_sta_addrs = [a for a in wlan if a != ap_addr]
+
+    eth_carrier = _carrier("eth0")
+    paths = {
+        "eth_lan": {
+            "up": eth_carrier and bool(eth_lan_addrs),
+            "addr": eth_lan_addrs[0] if eth_lan_addrs else None,
+        },
+        "eth_direct": {
+            "up": eth_carrier and ETH_DIRECT in eth,
+            "addr": ETH_DIRECT if ETH_DIRECT in eth else None,
+        },
+        "wifi_sta": {
+            "up": bool(wlan_sta_addrs),
+            "addr": wlan_sta_addrs[0] if wlan_sta_addrs else None,
+        },
+        "wifi_ap": {
+            "up": ap_addr in wlan,
+            "addr": ap_addr if ap_addr in wlan else None,
+        },
+        "usb": {
+            "up": USB_DIRECT in usb,
+            "addr": USB_DIRECT if USB_DIRECT in usb else None,
+        },
+    }
+
+    via = None
+    via_addr = _normalize_ip(via_addr)
+    if via_addr:
+        if via_addr == ETH_DIRECT:
+            via = "eth_direct"
+        elif via_addr == USB_DIRECT:
+            via = "usb"
+        elif via_addr == ap_addr:
+            via = "wifi_ap"
+        elif via_addr in eth_lan_addrs:
+            via = "eth_lan"
+        elif via_addr in wlan_sta_addrs:
+            via = "wifi_sta"
+
+    mode = wifi_mode_from_conf(conf)
+    fallback = wifi_fallback_from_conf(conf)
+    return {
+        "paths": paths,
+        "via": via,
+        "wifi_mode": mode,
+        "wifi_fallback": fallback,
+        "wifi_sta_ssid": wifi_sta_ssid(),
+        "wifi_fallback_active": mode == "sta" and paths["wifi_ap"]["up"],
+    }
+
+
+def wifi_mode_from_conf(conf=None):
+    conf = conf if conf is not None else load_quadrf_conf()
+    mode = (conf.get("QUADRF_WIFI_MODE") or "sta").strip().lower()
+    return mode if mode in ("sta", "ap", "off") else "sta"
+
+
+def wifi_fallback_from_conf(conf=None):
+    conf = conf if conf is not None else load_quadrf_conf()
+    value = (conf.get("QUADRF_WIFI_FALLBACK") or "yes").strip().lower()
+    return value not in ("no", "false", "0")
+
+
+def wifi_sta_ssid(path=None):
+    try:
+        with open(path or WPA_CONF, encoding="utf-8") as fh:
+            text = fh.read()
+    except OSError:
+        return None
+    quoted = re.search(r'^\s*ssid="([^"]*)"', text, re.M)
+    raw = quoted.group(1) if quoted else None
+    if raw is None:
+        bare = re.search(r"^\s*ssid=(\S+)", text, re.M)
+        raw = bare.group(1) if bare else None
+    if not raw or raw.lower() == "none":
+        return None
+    return raw
+
+
+def has_saved_station():
+    return bool(wifi_sta_ssid())
+
+
+def run_sudo(cmd, timeout=30):
+    proc = subprocess.Popen(
+        ["sudo", "-n", *cmd],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
+    try:
+        stdout, stderr = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        proc.wait()
+        raise
+    return subprocess.CompletedProcess(proc.args, proc.returncode, stdout, stderr)
 
 
 def app_cli(*args):
@@ -167,57 +321,21 @@ def get_sdr_status():
         
     return state
 
-@app.route('/', methods=['GET', 'POST'])
+@app.route('/', methods=['GET'])
 def index():
-    wifi_success_msg = None
-    wifi_error_msg = None
     conf = load_quadrf_conf()
-
-    if request.method == 'POST':
-        intent = request.form.get('intent', 'wifi')
-        if intent == 'ap':
-            ssid = request.form.get('ap_ssid', '').strip()
-            password = request.form.get('ap_password', '')
-            if not ssid:
-                wifi_error_msg = "Hotspot SSID is required."
-            else:
-                try:
-                    proc = run_sudo([AP_CLI, ssid, password] if password else [AP_CLI, ssid])
-                    if proc.returncode != 0:
-                        wifi_error_msg = (proc.stderr or proc.stdout or "Failed to apply hotspot settings.").strip()
-                    else:
-                        conf = load_quadrf_conf()
-                        note = (proc.stdout or "").strip()
-                        wifi_success_msg = note or f"Hotspot SSID set to '{ssid}'."
-                        if hotspot_is_up():
-                            wifi_success_msg += " - Devices on the AP must reconnect."
-                except Exception as e:
-                    wifi_error_msg = f"Failed to apply hotspot settings: {e}"
-        else:
-            ssid = request.form.get('ssid', '').strip()
-            password = request.form.get('password', '').strip()
-
-            if not ssid:
-                wifi_error_msg = "SSID is required to connect to a new network."
-            else:
-                try:
-                    log_file = open('/tmp/wifi_debug.log', 'w')
-                    subprocess.Popen(
-                        ['sudo', WIFI_CLI, ssid, password],
-                        stdout=log_file,
-                        stderr=subprocess.STDOUT
-                    )
-                    wifi_success_msg = f"Network settings applied! QuadRF is rebooting to connect to '{ssid}'. Please switch your device to use this same new network and refresh this page in ~30 seconds."
-                except Exception as e:
-                    wifi_error_msg = f"Failed to execute network script: {e}"
     hostname = conf.get('QUADRF_HOSTNAME', 'quadrf')
+    net = get_network_status(_via_header())
     return render_template(
         'index.html',
-        wifi_success_msg=wifi_success_msg,
-        wifi_error_msg=wifi_error_msg,
         ap_ssid=conf.get('QUADRF_AP_SSID', 'QuadRF'),
-        hotspot_active=hotspot_is_up(),
         desktop_host=f"{hostname}d.local",
+        net_paths=net["paths"],
+        net_via=net["via"],
+        wifi_mode=net["wifi_mode"],
+        wifi_fallback=net["wifi_fallback"],
+        wifi_sta_ssid=net["wifi_sta_ssid"] or '',
+        wifi_fallback_active=net["wifi_fallback_active"],
     )
 
 @app.route('/split')
@@ -238,7 +356,74 @@ def split():
 
 @app.route('/api/status', methods=['GET'])
 def get_status():
-    return jsonify(get_sdr_status())
+    state = get_sdr_status()
+    state.update(get_network_status(_via_header()))
+    return jsonify(state)
+
+
+def _json_body():
+    return request.get_json(silent=True) or {}
+
+
+def _cli_error(proc, fallback):
+    return (proc.stderr or proc.stdout or fallback).strip()
+
+
+@app.route('/api/network/mode', methods=['POST'])
+def network_mode():
+    mode = (_json_body().get("mode") or "").strip().lower()
+    if mode not in ("sta", "ap", "off"):
+        return jsonify({"status": "error", "message": "mode must be sta, ap, or off"}), 400
+    if mode == "sta" and not has_saved_station():
+        return jsonify({
+            "status": "error",
+            "need_config": True,
+            "message": "Save a network first.",
+        }), 400
+    try:
+        proc = run_sudo([HOTSPOT_CLI, mode], timeout=40)
+    except subprocess.TimeoutExpired:
+        return jsonify({"status": "error", "message": "Wi-Fi switch timed out"}), 500
+    if proc.returncode != 0:
+        return jsonify({"status": "error", "message": _cli_error(proc, "Wi-Fi switch failed")}), 500
+    return jsonify({"status": "ok", **get_network_status(_via_header())})
+
+
+@app.route('/api/network/fallback', methods=['POST'])
+def network_fallback():
+    enabled = _json_body().get("enabled")
+    if not isinstance(enabled, bool):
+        return jsonify({"status": "error", "message": "enabled must be true or false"}), 400
+    proc = run_sudo([HOTSPOT_CLI, "fallback", "yes" if enabled else "no"])
+    if proc.returncode != 0:
+        return jsonify({"status": "error", "message": _cli_error(proc, "failed to set fallback")}), 500
+    return jsonify({"status": "ok", **get_network_status(_via_header())})
+
+
+@app.route('/api/network/station', methods=['POST'])
+def network_station():
+    body = _json_body()
+    ssid = (body.get("ssid") or "").strip()
+    password = body.get("password") or ""
+    if not ssid:
+        return jsonify({"status": "error", "message": "SSID is required"}), 400
+    proc = run_sudo([WIFI_CLI, ssid, password] if password else [WIFI_CLI, ssid])
+    if proc.returncode != 0:
+        return jsonify({"status": "error", "message": _cli_error(proc, "failed to save client network")}), 500
+    return jsonify({"status": "ok", **get_network_status(_via_header())})
+
+
+@app.route('/api/network/hotspot', methods=['POST'])
+def network_hotspot():
+    body = _json_body()
+    ssid = (body.get("ssid") or "").strip()
+    password = body.get("password") or ""
+    if not ssid:
+        return jsonify({"status": "error", "message": "Hotspot SSID is required"}), 400
+    proc = run_sudo([AP_CLI, ssid, password] if password else [AP_CLI, ssid])
+    if proc.returncode != 0:
+        return jsonify({"status": "error", "message": _cli_error(proc, "failed to save hotspot")}), 500
+    return jsonify({"status": "ok", **get_network_status(_via_header())})
 
 def broadcast_full_status():
     """Fetches the latest state and pushes it to all connected WebSocket clients."""
@@ -341,6 +526,18 @@ def apps_status():
     if payload is None:
         return jsonify({"status": "error", "message": (proc.stderr or proc.stdout or "app status failed").strip()}), 500
     return jsonify(payload)
+
+
+@app.route('/api/apps/icon/<icon>', methods=['GET'])
+def app_icon(icon):
+    path = find_app_icon(icon)
+    if path is None:
+        abort(404)
+    response = send_file(path, conditional=True)
+    response.cache_control.public = True
+    response.cache_control.max_age = 86400
+    return response
+
 
 @app.route('/api/apps/start', methods=['POST'])
 def apps_start():
