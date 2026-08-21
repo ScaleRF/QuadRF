@@ -16,11 +16,13 @@ src="${work}/openocd"
 mkdir -p "${work}" "${OUT}"
 
 if [ ! -d "${src}/.git" ]; then
-    git clone --recurse-submodules "${OPENOCD_REPO}" "${src}"
+    git clone "${OPENOCD_REPO}" "${src}"
 fi
 git -C "${src}" fetch origin
 git -C "${src}" checkout -f "${OPENOCD_COMMIT}"
-git -C "${src}" submodule update --init --recursive
+# --enable-internal-jimtcl needs this tree. libjaylink comes from Debian's
+# libjaylink-dev (bootstrap nosubmodule); gitlab.zapb.de 502s the release.
+git -C "${src}" submodule update --init jimtcl
 
 rm -rf "${src}/debian"
 cp -a "${here}/debian" "${src}/debian"
