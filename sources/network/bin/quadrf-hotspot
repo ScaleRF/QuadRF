@@ -13,6 +13,8 @@ CONFIG_TXT="${QUADRF_BOOT_DIR}/config.txt"
 STA_TIMEOUT=12
 WPA_CONF=/etc/wpa_supplicant/wpa_supplicant.conf
 LOCKFILE=/run/quadrf-hotspot.lock
+CAPTIVE_DNS_PID=/run/quadrf-captive-dns.pid
+CAPTIVE_DNS_PORT=10053
 
 log() { logger -t quadrf-hotspot -- "$*"; echo "$*"; }
 
@@ -77,7 +79,63 @@ stop_sta() {
     fi
 }
 
+stop_captive_dns() {
+    if [[ -f "${CAPTIVE_DNS_PID}" ]]; then
+        kill "$(cat "${CAPTIVE_DNS_PID}")" 2>/dev/null || true
+        rm -f "${CAPTIVE_DNS_PID}"
+    fi
+    pkill -f -- '--pid-file=/run/quadrf-captive-dns.pid' 2>/dev/null || true
+    nft_bin="$(command -v nft 2>/dev/null || true)"
+    [[ -z "${nft_bin}" && -x /usr/sbin/nft ]] && nft_bin=/usr/sbin/nft
+    if [[ -n "${nft_bin}" ]]; then
+        "${nft_bin}" delete table ip quadrf_captive 2>/dev/null || true
+    else
+        iptables -t nat -D PREROUTING -i wlan0 -p udp --dport 53 \
+            -m comment --comment quadrf-captive-dns -j REDIRECT \
+            --to-ports "${CAPTIVE_DNS_PORT}" 2>/dev/null || true
+        iptables -t nat -D PREROUTING -i wlan0 -p tcp --dport 53 \
+            -m comment --comment quadrf-captive-dns -j REDIRECT \
+            --to-ports "${CAPTIVE_DNS_PORT}" 2>/dev/null || true
+    fi
+}
+
+# Wildcard DNS for AP clients only. address=/#/ in the shared dnsmasq is
+# global and would steal names on eth0/usb0 (apt, etc.) while the AP is up.
+start_captive_dns() {
+    stop_captive_dns
+    nft_bin="$(command -v nft 2>/dev/null || true)"
+    [[ -z "${nft_bin}" && -x /usr/sbin/nft ]] && nft_bin=/usr/sbin/nft
+
+    dnsmasq --conf-file=/dev/null \
+        --pid-file="${CAPTIVE_DNS_PID}" \
+        --dhcp-leasefile=/run/quadrf-captive-dns.leases \
+        --listen-address="${QUADRF_AP_ADDRESS}" \
+        --port="${CAPTIVE_DNS_PORT}" \
+        --bind-interfaces \
+        --no-resolv --no-hosts \
+        --address="/#/${QUADRF_AP_ADDRESS}" \
+        --except-interface=lo \
+        --user=dnsmasq || {
+        log "captive DNS failed to start"
+        return 0
+    }
+    if [[ -n "${nft_bin}" ]]; then
+        "${nft_bin}" -f - <<EOF || log "captive DNS nft rules failed"
+table ip quadrf_captive {
+    chain prerouting {
+        type nat hook prerouting priority dstnat;
+        iifname "wlan0" udp dport 53 redirect to :${CAPTIVE_DNS_PORT}
+        iifname "wlan0" tcp dport 53 redirect to :${CAPTIVE_DNS_PORT}
+    }
+}
+EOF
+    else
+        log "nftables not installed, AP clients will not hit captive DNS"
+    fi
+}
+
 stop_ap() {
+    stop_captive_dns
     systemctl stop hostapd.service 2>/dev/null || true
     systemctl stop isc-dhcp-server.service 2>/dev/null || true
     rm -f /run/dhcp-server/dhcpd.pid /var/run/dhcpd.pid
@@ -187,6 +245,7 @@ EOF
     rm -f /run/dhcp-server/dhcpd.pid /var/run/dhcpd.pid
     systemctl start isc-dhcp-server || log "isc-dhcp-server failed, clients will not get leases"
     restart_dnsmasq || log "dnsmasq restart request failed"
+    start_captive_dns
     restore_lan_dns
     wlan_only_ap_addr
     log "access point up: SSID ${QUADRF_AP_SSID} on ${QUADRF_AP_ADDRESS}"

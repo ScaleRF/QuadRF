@@ -16,34 +16,39 @@ map $http_upgrade $connection_upgrade {
     ''      close;
 }
 
-# Captive portal answers, so phones and laptops on the QuadRF access point stop
-# nagging and land on the appliance instead.
+# Unknown Host, including OS captive-portal probes on the access point.
+# Do not return the Success / 204 bodies: those suppress the Sign In sheet.
+# Apple wants 200 HTML here; Android/Windows follow the 302 to HOSTNAME.local.
 server {
     listen 80 default_server;
     listen [::]:80 default_server;
     server_name _;
 
+    root /usr/share/quadrf/captive;
+    add_header Cache-Control "no-store";
+
+    location = /generate_204 {
+        return 302 http://@HOSTNAME@.local/;
+    }
+
+    location = /gen_204 {
+        return 302 http://@HOSTNAME@.local/;
+    }
+
     location = /connecttest.txt {
-        add_header Content-Type text/plain;
-        return 200 "Microsoft Connect Test";
+        return 302 http://@HOSTNAME@.local/;
     }
 
     location = /ncsi.txt {
-        add_header Content-Type text/plain;
-        return 200 "Microsoft NCSI";
+        return 302 http://@HOSTNAME@.local/;
     }
 
-    location = /hotspot-detect.html {
-        add_header Content-Type text/html;
-        return 200 "<html><body>Success</body></html>";
-    }
-
-    location = /generate_204 {
-        return 204;
+    location = /success.txt {
+        return 302 http://@HOSTNAME@.local/;
     }
 
     location / {
-        return 302 http://@HOSTNAME@.local/;
+        try_files /index.html =404;
     }
 }
 

@@ -178,6 +178,8 @@ apply() {
     render "${SHARE}/nginx-site.in" /etc/nginx/sites-available/quadrf
     install -d -m 755 /usr/share/quadrf/security
     render "${SHARE}/security.in" /usr/share/quadrf/security/index.html
+    install -d -m 755 /usr/share/quadrf/captive
+    render "${SHARE}/captive.in" /usr/share/quadrf/captive/index.html
     quadrf_write_hostapd /etc/hostapd/quadrf.conf
     render "${SHARE}/dhcpd.conf.in" /etc/quadrf/dhcpd.conf
 
@@ -246,6 +248,10 @@ apply() {
     [ -x /usr/sbin/quadrf-ethernet ] && /usr/sbin/quadrf-ethernet || true
     [ -x /usr/sbin/quadrf-usb ] && /usr/sbin/quadrf-usb || true
     prune_dns_names
+
+    if nginx -t >/dev/null 2>&1; then
+        systemctl reload nginx.service 2>/dev/null || true
+    fi
 }
 
 remove() {
@@ -266,8 +272,10 @@ remove() {
           /etc/network/interfaces.d/quadrf-wlan0.cfg \
           /etc/network/interfaces.d/quadrf-usb0.cfg \
           /usr/share/quadrf/security/index.html \
+          /usr/share/quadrf/captive/index.html \
           /etc/quadrf/dhcpd.conf
     rmdir /usr/share/quadrf/security 2>/dev/null || true
+    rmdir /usr/share/quadrf/captive 2>/dev/null || true
 }
 
 case "${1:-apply}" in

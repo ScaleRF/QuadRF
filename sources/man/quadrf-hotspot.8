@@ -57,10 +57,17 @@ If client does not associate, the appliance comes up on
 .B QUADRF_AP_SSID
 at
 .B QUADRF_AP_ADDRESS
-when fallback is enabled. Wildcard DNS
-.RB ( address=/#/ )
-is not used: it is global in dnsmasq and would hijack names on eth0 and usb0
-while the AP is up.
+when fallback is enabled. AP clients get a captive DNS listener that
+answers every name with
+.B QUADRF_AP_ADDRESS
+so the phone Sign In sheet can load. That listener is bound to wlan0 via
+nftables/iptables redirect; it is not
+.RB address=/#/
+in the shared dnsmasq, which would hijack names on eth0 and usb0.
+DHCP option 114 advertises
+.BR http://HOSTNAME.local/
+as the portal URI. Unknown HTTP hosts serve a page naming that address;
+Android and Windows probes 302 there.
 .PP
 The script exits with an error if
 .B dtoverlay=disable-wifi

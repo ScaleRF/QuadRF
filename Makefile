@@ -205,6 +205,8 @@ install-network:
 		$(DESTDIR)$(datadir)/network/nginx-vnc.conf
 	$(INSTALL) -D -m 644 $(SRC)/network/security/index.html.in \
 		$(DESTDIR)$(datadir)/network/security.in
+	$(INSTALL) -D -m 644 $(SRC)/network/nginx/captive.html.in \
+		$(DESTDIR)$(datadir)/network/captive.in
 	$(INSTALL) -D -m 644 $(SRC)/network/hostapd/quadrf.conf.in $(DESTDIR)$(datadir)/network/hostapd.conf.in
 	$(INSTALL) -D -m 644 $(SRC)/network/dhcp/dhcpd.conf.in $(DESTDIR)$(datadir)/network/dhcpd.conf.in
 	$(INSTALL) -D -m 644 $(SRC)/network/sudoers.in $(DESTDIR)$(datadir)/network/sudoers.in

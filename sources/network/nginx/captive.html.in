@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#0f172a">
+  <meta http-equiv="refresh" content="0;url=http://@HOSTNAME@.local/">
+  <title>QuadRF</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #0f172a;
+      color: #e2e8f0;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #0f172a; }
+    main { width: min(420px, calc(100% - 2rem)); margin: 0 auto; padding: 3rem 0 4rem; text-align: center; }
+    h1 { margin: 0 0 .4rem; font-size: clamp(1.8rem, 6vw, 2.4rem); color: #fff; }
+    p { line-height: 1.55; color: #cbd5e1; }
+    .url {
+      display: block; margin: 1.4rem 0; padding: 1rem .8rem; border-radius: 12px;
+      background: #1e293b; border: 1px solid #38bdf8; color: #7dd3fc;
+      font: 700 1.35rem/1.3 ui-monospace, SFMono-Regular, Consolas, monospace;
+      text-decoration: none; word-break: break-all;
+    }
+    .button {
+      display: inline-block; padding: .85rem 1.2rem; border-radius: 8px;
+      background: #0284c7; color: #fff; font-weight: 700; text-decoration: none;
+      border: 1px solid #38bdf8;
+    }
+    .small { color: #94a3b8; font-size: .86rem; }
+    .small a { color: #7dd3fc; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>QuadRF</h1>
+  <p>This Wi-Fi has no internet. Open this address in your browser:</p>
+  <a class="url" href="http://@HOSTNAME@.local/">@HOSTNAME@.local</a>
+  <p><a class="button" href="http://@HOSTNAME@.local/">Continue</a></p>
+  <p class="small">If the name does not load, use <a href="http://@AP_ADDRESS@/">@AP_ADDRESS@</a>.</p>
+</main>
+</body>
+</html>
