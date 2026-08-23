@@ -360,7 +360,6 @@ int max2850_init(int fd)
     // End with main register programming (clear local bit).
     if (max2850_word(fd, 0, (uint16_t)(max2850_base_regs[0] | 0x00)) != 0) return -1;
 
-    // Eval-kit Main0 is MODE=Tx with PA bias on; E_TX=0 still heats the tile.
     if (max2850_set_idle(fd, 40) != 0) return -1;
 
     return 0;
