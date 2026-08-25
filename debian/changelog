@@ -1,3 +1,10 @@
+quadrf (1.0.7) trixie; urgency=medium
+
+  * Faster JTAG writes via batched transfers in fpga-csi.
+  * VAS-cached LO tunes in RF Vision (2 ms → 0.01 ms PLL lock).
+
+ -- QuadRF Engineering <contact@ScaleRF.com>  Tue, 25 Aug 2026 12:41:28 -0700
+
 quadrf (1.0.6) trixie; urgency=medium
 
   * Discover package-owned web application descriptors from apps.d and reuse
