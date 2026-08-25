@@ -35,9 +35,16 @@ and the
 .I overlays/
 directory. Default:
 .IR /boot/firmware .
+.TP
 .B QUADRF_HOSTNAME
 mDNS and nginx name. Clients reach the appliance at
 .IR HOSTNAME.local .
+The Linux hostname stays
+.B quadrf
+(DietPi images ship as
+.BR DietPi ;
+.B quadrf apply
+replaces that). Collision rename and Network Setup edit this value only.
 The locally generated server certificate uses the same name; changing it and
 running
 .B quadrf apply

@@ -99,6 +99,48 @@ quadrf_block_remove() {
     rm -f "${tmp}"
 }
 
+# Linux hostname is the factory name. QUADRF_HOSTNAME is mDNS/nginx only, so a
+# collision rename to quadrf-2 must not retitle the kernel hostname (prompt,
+# DHCP, DietPi tools). DietPi images ship as DietPi.
+quadrf_set_os_hostname() {
+    name="${1:-quadrf}"
+    have="$(tr -d ' \t\r\n' < /etc/hostname 2>/dev/null || true)"
+
+    if [ "${have}" != "${name}" ]; then
+        if command -v hostnamectl >/dev/null 2>&1; then
+            hostnamectl set-hostname --static "${name}" 2>/dev/null ||
+                hostnamectl set-hostname "${name}" 2>/dev/null || true
+        fi
+        if [ "$(hostname 2>/dev/null || true)" != "${name}" ] ||
+           [ "$(tr -d ' \t\r\n' < /etc/hostname 2>/dev/null || true)" != "${name}" ]; then
+            printf '%s\n' "${name}" > /etc/hostname 2>/dev/null || true
+            hostname "${name}" 2>/dev/null || true
+        fi
+    fi
+    if command -v hostnamectl >/dev/null 2>&1; then
+        hostnamectl set-hostname --pretty "${name}" 2>/dev/null || true
+    fi
+
+    if [ -f /etc/hosts ]; then
+        if grep -qE '^127\.0\.1\.1[[:space:]]' /etc/hosts; then
+            tmp="$(mktemp)"
+            awk -v name="${name}" '
+                $1 == "127.0.1.1" { print "127.0.1.1\t" name; next }
+                { print }
+            ' /etc/hosts > "${tmp}"
+            cat "${tmp}" > /etc/hosts
+            rm -f "${tmp}"
+        else
+            printf '127.0.1.1\t%s\n' "${name}" >> /etc/hosts
+        fi
+    fi
+
+    for dietpi_txt in "${QUADRF_BOOT_DIR:-/boot/firmware}/dietpi.txt" /boot/dietpi.txt; do
+        [ -f "${dietpi_txt}" ] || continue
+        quadrf_setting_set "${dietpi_txt}" AUTO_SETUP_NET_HOSTNAME "${name}" || true
+    done
+}
+
 # Set key=value in a flat configuration file, replacing an existing (possibly
 # commented out) assignment.
 quadrf_setting_set() {

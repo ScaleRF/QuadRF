@@ -246,6 +246,10 @@ apply() {
     systemctl unmask hostapd.service 2>/dev/null || true
     systemctl disable hostapd.service isc-dhcp-server.service 2>/dev/null || true
 
+    # Kernel hostname stays quadrf. Avahi host-name below is the mDNS label
+    # and can be quadrf-2; do not feed QUADRF_HOSTNAME into hostnamectl.
+    quadrf_set_os_hostname quadrf
+
     # Host A/AAAA records have no ifindex, so a LAN client would get the AP
     # address for HOSTNAME.local. quadrf-mdns-alias publishes per interface.
     # Reflector off: several interfaces up would echo us and become HOSTNAME-2.
