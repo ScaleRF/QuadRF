@@ -3,6 +3,7 @@ usr/sbin/quadrf-ethernet
 usr/sbin/quadrf-usb
 usr/sbin/quadrf-apply-wifi
 usr/sbin/quadrf-apply-ap
+usr/sbin/quadrf-apply-hostname
 usr/sbin/quadrf-dns-update
 usr/sbin/quadrf-mdns-alias
 usr/share/quadrf/network/
@@ -25,3 +26,4 @@ usr/share/man/man8/quadrf-usb.8
 usr/share/man/man8/quadrf-dns-update.8
 usr/share/man/man8/quadrf-apply-wifi.8
 usr/share/man/man8/quadrf-apply-ap.8
+usr/share/man/man8/quadrf-apply-hostname.8
