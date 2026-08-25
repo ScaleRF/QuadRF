@@ -1790,7 +1790,7 @@
             if (typeof state.wifi_fallback === 'boolean') {
                 wifiFallbackToggle.checked = state.wifi_fallback;
             }
-            if (state.wifi_sta_ssid && document.activeElement !== document.getElementById('staSsid')) {
+            if (state.wifi_sta_ssid && netJoin.classList.contains('hidden')) {
                 document.getElementById('staSsid').value = state.wifi_sta_ssid;
             }
             if (state.hostname) {
