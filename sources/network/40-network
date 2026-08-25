@@ -290,12 +290,16 @@ apply() {
     quadrf_set_os_hostname quadrf
 
     # Host A/AAAA records have no ifindex, so a LAN client would get the AP
-    # address for HOSTNAME.local. quadrf-mdns-alias publishes per interface.
+    # address for HOSTNAME.local. Avahi also publishes loopback when
+    # publish-addresses=yes; quadrf-mdns then treats 127.0.0.1 as a clash
+    # and renames to HOSTNAME-2. quadrf-mdns-alias is the only publisher.
     # Reflector off: several interfaces up would echo us and become HOSTNAME-2.
     if [ -f /etc/avahi/avahi-daemon.conf ]; then
         quadrf_setting_set /etc/avahi/avahi-daemon.conf host-name "${QUADRF_HOSTNAME}"
         quadrf_setting_set /etc/avahi/avahi-daemon.conf enable-reflector no
         quadrf_setting_set /etc/avahi/avahi-daemon.conf publish-addresses no
+        quadrf_setting_set /etc/avahi/avahi-daemon.conf publish-hinfo no
+        quadrf_setting_set /etc/avahi/avahi-daemon.conf publish-workstation no
         systemctl try-restart avahi-daemon.service 2>/dev/null || true
     fi
 
