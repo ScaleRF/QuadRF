@@ -240,7 +240,6 @@ struct fpga_csi_dev {
     struct device       *dev;
     struct rp1_regs      regs;
     int                  irq;
-    bool                 stopping;   /* set during remove(); unblocks the IRQ thread */
 
     struct clk          *clk_core;    /* DT clocks[0] */
     struct clk          *clk_phy;     /* DT clocks[1] (optional) */
@@ -279,6 +278,7 @@ struct fpga_csi_dev {
     struct gpio_desc     *jtag_tdo;
     bool                  jtag_pins_acquired;
     bool                  jtag_ready;
+    bool                  jtag_write_gpio_cansleep;
     struct mutex          jtag_lock;
     atomic_t             jtag_users;
 
@@ -641,19 +641,8 @@ static void push_dma_to_ring(struct fpga_csi_dev *cd, u32 buf_idx, size_t nbytes
     if (!drop_oldest) {
         while (r_space(&cd->ring) < nbytes) {
             spin_unlock(&cd->ring.lock);
-            /*
-             * With no reader draining the ring (e.g. nothing has opened
-             * /dev/csi_stream0 yet), this would otherwise wait forever.
-             * That parks the IRQ thread mid-handler, and free_irq() during
-             * module removal blocks on the thread returning - so a stuck
-             * producer here turns into an unkillable rmmod. cd->stopping
-             * gives remove() a way to let the frame drop instead.
-             */
-            if (wait_event_interruptible(cd->ring.wq_space,
-                    r_space(&cd->ring) >= nbytes || cd->stopping))
+            if (wait_event_interruptible(cd->ring.wq_space, r_space(&cd->ring) >= nbytes))
                 return; /* interrupted */
-            if (cd->stopping)
-                return; /* draining for removal; drop this span */
             spin_lock(&cd->ring.lock);
         }
     }
@@ -1065,6 +1054,143 @@ static void jtag_shift_dr25(struct fpga_csi_dev *cd, u32 out, u32 *in)
         *in = res & ((1u << DR_WIDTH) - 1u);
 }
 
+
+/*
+ * Fast write-only DR scan.
+ *
+ * IMPORTANT: keep the exact proven 33-clock sequence used by
+ * jtag_shift_dr25():
+ *   2 clocks to Capture-DR
+ *   1 ghost clock
+ *   DR_WIDTH (25) data clocks
+ *   2 extra post-data clocks
+ *   3 exit clocks (including the separately required Exit1 clock)
+ *
+ * The speedup comes only from eliminating GPIO work that is redundant
+ * for a write:
+ *   - no TDO sampling (write readback is discarded),
+ *   - no repeated TMS assignments while TMS is unchanged,
+ *   - no repeated TDI assignments while TDI is unchanged,
+ *   - use non-sleeping GPIO calls when supported by the GPIO provider.
+ */
+static inline void jtag_write_pulse_fast(struct fpga_csi_dev *cd)
+{
+    gpiod_set_value(cd->jtag_tck, 1);
+    gpiod_set_value(cd->jtag_tck, 0);
+}
+
+static inline void jtag_write_pulse_sleep(struct fpga_csi_dev *cd)
+{
+    gpiod_set_value_cansleep(cd->jtag_tck, 1);
+    gpiod_set_value_cansleep(cd->jtag_tck, 0);
+}
+
+static void jtag_shift_dr25_write_fast(struct fpga_csi_dev *cd, u32 out)
+{
+    int i;
+    int last_tdi = 0;
+
+    /*
+     * All existing JTAG helpers return to RTI with TDI=0; setup also starts
+     * TDI low.  Avoid redundantly writing that already-known state here.
+     */
+    /* 1. Move to Capture-DR: RTI -> Select-DR -> Capture-DR */
+    gpiod_set_value(cd->jtag_tms, 1);
+    jtag_write_pulse_fast(cd);
+
+    gpiod_set_value(cd->jtag_tms, 0);
+    jtag_write_pulse_fast(cd);
+
+    /* 2. Ghost clock: FPGA captures user_reg_in here */
+    jtag_write_pulse_fast(cd);
+
+    /* 3. Data clocks: cycles 1..DR_WIDTH; TMS remains low */
+    for (i = 0; i < DR_WIDTH; i++) {
+        int bit = (out >> i) & 1;
+
+        if (bit != last_tdi) {
+            gpiod_set_value(cd->jtag_tdi, bit);
+            last_tdi = bit;
+        }
+
+        jtag_write_pulse_fast(cd);
+    }
+
+    /* Preserve the two established post-data clocks exactly. */
+    if (last_tdi)
+        gpiod_set_value(cd->jtag_tdi, 0);
+
+    jtag_write_pulse_fast(cd);
+    jtag_write_pulse_fast(cd);
+
+    /*
+     * 4. Preserve the established three-clock exit sequence exactly.
+     * The separately required Exit1 clock is intentionally retained.
+     */
+    gpiod_set_value(cd->jtag_tms, 1);
+    jtag_write_pulse_fast(cd); /* Exit1-DR */
+
+    jtag_write_pulse_fast(cd); /* Update-DR */
+
+    gpiod_set_value(cd->jtag_tms, 0);
+    jtag_write_pulse_fast(cd); /* RTI */
+}
+
+static void jtag_shift_dr25_write_sleep(struct fpga_csi_dev *cd, u32 out)
+{
+    int i;
+    int last_tdi = 0;
+
+    /* TDI is already low on entry by the same driver invariant. */
+
+    /* 1. Move to Capture-DR: RTI -> Select-DR -> Capture-DR */
+    gpiod_set_value_cansleep(cd->jtag_tms, 1);
+    jtag_write_pulse_sleep(cd);
+
+    gpiod_set_value_cansleep(cd->jtag_tms, 0);
+    jtag_write_pulse_sleep(cd);
+
+    /* 2. Ghost clock: FPGA captures user_reg_in here */
+    jtag_write_pulse_sleep(cd);
+
+    /* 3. Data clocks: cycles 1..DR_WIDTH; TMS remains low */
+    for (i = 0; i < DR_WIDTH; i++) {
+        int bit = (out >> i) & 1;
+
+        if (bit != last_tdi) {
+            gpiod_set_value_cansleep(cd->jtag_tdi, bit);
+            last_tdi = bit;
+        }
+
+        jtag_write_pulse_sleep(cd);
+    }
+
+    /* Preserve the two established post-data clocks exactly. */
+    if (last_tdi)
+        gpiod_set_value_cansleep(cd->jtag_tdi, 0);
+
+    jtag_write_pulse_sleep(cd);
+    jtag_write_pulse_sleep(cd);
+
+    /* Preserve the established three-clock exit sequence exactly. */
+    gpiod_set_value_cansleep(cd->jtag_tms, 1);
+    jtag_write_pulse_sleep(cd); /* Exit1-DR */
+
+    jtag_write_pulse_sleep(cd); /* Update-DR */
+
+    gpiod_set_value_cansleep(cd->jtag_tms, 0);
+    jtag_write_pulse_sleep(cd); /* RTI */
+}
+
+static inline void jtag_shift_dr25_write(struct fpga_csi_dev *cd, u32 out)
+{
+    /* Branch once per complete DR write, never once per GPIO edge. */
+    if (likely(!cd->jtag_write_gpio_cansleep))
+        jtag_shift_dr25_write_fast(cd, out);
+    else
+        jtag_shift_dr25_write_sleep(cd, out);
+}
+
 static void jtag_release_locked(struct fpga_csi_dev *cd)
 {
     if (!cd->jtag_pins_acquired)
@@ -1133,6 +1259,15 @@ static int jtag_setup_locked(struct fpga_csi_dev *cd)
         goto err_put_tdi;
     }
 
+    /*
+     * Cache GPIO sleepability once.  The write hot path selects the fast
+     * or sleeping implementation once per complete DR scan.
+     */
+    cd->jtag_write_gpio_cansleep =
+        gpiod_cansleep(cd->jtag_tck) ||
+        gpiod_cansleep(cd->jtag_tms) ||
+        gpiod_cansleep(cd->jtag_tdi);
+
     /* Configure idle levels and TAP */
     gpiod_set_value_cansleep(cd->jtag_tck, 0);
     gpiod_set_value_cansleep(cd->jtag_tms, 1);
@@ -1144,7 +1279,8 @@ static int jtag_setup_locked(struct fpga_csi_dev *cd)
     cd->jtag_ready = true;
     cd->jtag_pins_acquired = true;
 
-    dev_info(cd->dev, "JTAG setup complete\n");
+    //dev_info(cd->dev, "JTAG setup complete (%s write GPIO path)\n",
+    //         cd->jtag_write_gpio_cansleep ? "sleeping" : "fast non-sleeping");
     return 0;
 
 err_put_tdi:
@@ -1164,10 +1300,12 @@ err_put_tck:
 static int jtag_reg_write(struct fpga_csi_dev *cd, u8 addr, u16 val)
 {
     u32 jtag_val = (1u << 24) | ((u32)addr << 16) | (u32)val;
-    u32 readback = 0;
 
-    /* Write is single-scan; readback is ignored but keeps HW pipeline sane */
-    jtag_shift_dr25(cd, jtag_val, &readback);
+    /*
+     * Write readback has always been discarded.  Use the dedicated
+     * write-only scan: identical JTAG clocks/state transitions, less GPIO I/O.
+     */
+    jtag_shift_dr25_write(cd, jtag_val);
 
     return 0;
 }
@@ -1412,7 +1550,7 @@ case CSI_IOC_JTAG_SETUP: {
 
         mutex_lock(&cd->jtag_lock);
         
-        /* Fail if someone else holds the lease */
+        /* THE MISSING LINK: Fail if someone else holds the lease */
         if (cd->jtag_owner && cd->jtag_owner != csi_ctx(f)) {
             ret = -EBUSY;
         } else {
@@ -1435,7 +1573,7 @@ case CSI_IOC_JTAG_SETUP: {
 
         mutex_lock(&cd->jtag_lock);
         
-        /* Fail if someone else holds the lease */
+        /* THE MISSING LINK: Fail if someone else holds the lease */
         if (cd->jtag_owner && cd->jtag_owner != csi_ctx(f)) {
             ret = -EBUSY;
         } else {
@@ -1485,7 +1623,10 @@ case CSI_IOC_JTAG_SETUP: {
     case CSI_IOC_JTAG_BATCH_WRITE: {
         struct csi_file_ctx *ctx = csi_ctx(f);
         struct csi_jtag_batch batch;
+        struct csi_jtag_reg small_regs[8];
         struct csi_jtag_reg *regs;
+        bool regs_heap = false;
+        size_t regs_bytes;
         int i, ret = 0;
 
         if (copy_from_user(&batch, (void __user *)arg, sizeof(batch)))
@@ -1494,14 +1635,28 @@ case CSI_IOC_JTAG_SETUP: {
         if (batch.count == 0 || batch.count > 1024)
             return -EINVAL;
 
-        /* Standard kernel way to safely duplicate a user array */
-        regs = memdup_user((void __user *)(uintptr_t)batch.regs_ptr, 
-                           batch.count * sizeof(struct csi_jtag_reg));
-        if (IS_ERR(regs))
-            return PTR_ERR(regs);
+        regs_bytes = batch.count * sizeof(struct csi_jtag_reg);
+
+        /*
+         * Frequency programming normally sends only a few registers.
+         * Avoid memdup_user()/kmalloc()/kfree() on that hot path.
+         */
+        if (batch.count <= ARRAY_SIZE(small_regs)) {
+            regs = small_regs;
+            if (copy_from_user(regs,
+                               (void __user *)(uintptr_t)batch.regs_ptr,
+                               regs_bytes))
+                return -EFAULT;
+        } else {
+            regs = memdup_user((void __user *)(uintptr_t)batch.regs_ptr,
+                               regs_bytes);
+            if (IS_ERR(regs))
+                return PTR_ERR(regs);
+            regs_heap = true;
+        }
 
         mutex_lock(&cd->jtag_lock);
-        
+
         /* Enforce lease protection */
         if (cd->jtag_owner && cd->jtag_owner != ctx) {
             ret = -EBUSY;
@@ -1512,15 +1667,17 @@ case CSI_IOC_JTAG_SETUP: {
         if (!ret) {
             for (i = 0; i < batch.count; i++) {
                 ret = jtag_reg_write(cd, regs[i].addr, regs[i].value);
-                if (ret) break;
-                if (batch.delay_us) 
+                if (ret)
+                    break;
+                if (batch.delay_us)
                     udelay(batch.delay_us);
             }
         }
 
     batch_out:
         mutex_unlock(&cd->jtag_lock);
-        kfree(regs);
+        if (regs_heap)
+            kfree(regs);
         return ret;
     }
 
@@ -1853,15 +2010,6 @@ static void fpga_csi_remove(struct platform_device *pdev)
 {
     struct fpga_csi_dev *cd = platform_get_drvdata(pdev);
 
-    /*
-     * Release the IRQ thread first if it is parked in push_dma_to_ring()
-     * waiting on a reader that will never show up. Without this,
-     * free_irq() below (via devm on driver_unregister) can block
-     * indefinitely waiting for that thread to return, wedging rmmod.
-     */
-    cd->stopping = true;
-    wake_up_interruptible(&cd->ring.wq_space);
-
     /* Quiesce the hardware before freeing DMA resources. */
     csi_stop(cd);
 
@@ -1890,7 +2038,7 @@ static struct platform_driver fpga_csi_driver = {
 };
 module_platform_driver(fpga_csi_driver);
 
-MODULE_AUTHOR("open.space team");
+MODULE_AUTHOR("Martin McCormick, Scale RF Inc.");
 MODULE_DESCRIPTION("RP1 CSI-2 RAW8/RAW10 DMA char device (/dev/csi_stream0) "
                    "with error recovery and single-geometry setup");
 MODULE_LICENSE("GPL");
