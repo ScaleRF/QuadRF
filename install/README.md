@@ -49,8 +49,6 @@ At first boot, you will be prompted to update passwords and install software. Yo
 
 Once you're logged into your QuadRF Pi 5 using SSH (or a keyboard and monitor), simply run (as root): <br/>
 ```bash
-# Install open-ssh
-dietpi-software install 105
 # trust key + add repo
 sudo install -d -m 0755 /etc/apt/keyrings
 curl -fsSL https://scalerf.github.io/QuadRF/quadrf.gpg \
@@ -91,7 +89,7 @@ Install metapackages `quadrf` or `quadrf-headless`, or pick components. [docs/in
 | `quadrf-fpga-dkms` | CSI and DSI kernel drivers, built by DKMS                                                                                                                 |
 | `quadrf-soapy`     | `mipi` and `quadrf` SoapySDR modules, SoapyRemote service                                                                                                 |
 | `quadrf-gui`       | Flask control panel on port 8080                                                                                                                          |
-| `quadrf-network`   | nginx, dnsmasq, mDNS, access point                                                                                                                        |
+| `quadrf-network`   | nginx, dnsmasq, mDNS, access point, OpenSSH (SFTP)                                                                                                        |
 | `quadrf-demos`     | Spatial RF Vision, PSD plot, NTSC decoder (`mpv`), AR                                                                                                     |
 | `quadrf-desktop`   | KasmVNC session with QuadRF launchers                                                                                                                 |
 | `quadrf-gnuradio`  | Example flowgraphs                                                                                                                                        |

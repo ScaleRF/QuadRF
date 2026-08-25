@@ -205,7 +205,46 @@ publish_nginx() {
     reload_nginx
 }
 
+# DietPi images listen with Dropbear on :22. openssh-server is a package
+# Depends so apt installs it in this transaction; dietpi-software cannot run
+# here (dpkg lock). Stop Dropbear so sshd can bind. SFTP is openssh-sftp-server.
+dietpi_sw_state() {
+    file="$1"
+    id="$2"
+    state="$3"
+    key="aSOFTWARE_INSTALL_STATE[${id}]"
+    [ -f "${file}" ] || return 0
+    if grep -qF "${key}=" "${file}"; then
+        sed -i "s|^[[:space:]]*aSOFTWARE_INSTALL_STATE\\[${id}\\]=.*|${key}=${state}|" "${file}"
+    else
+        printf '%s=%s\n' "${key}" "${state}" >> "${file}"
+    fi
+}
+
+prefer_openssh() {
+    if dpkg-query -s dropbear >/dev/null 2>&1 ||
+       dpkg-query -s dropbear-run >/dev/null 2>&1; then
+        systemctl stop dropbear.service 2>/dev/null || true
+        systemctl disable dropbear.service 2>/dev/null || true
+        systemctl mask dropbear.service 2>/dev/null || true
+    fi
+
+    systemctl unmask ssh.service 2>/dev/null || true
+    systemctl enable ssh.service 2>/dev/null || true
+    systemctl start ssh.service 2>/dev/null || true
+
+    # 104 Dropbear, 105 OpenSSH. DietPi defaults 104 to installed unless
+    # the file records 0. AUTO_SETUP_SSH_SERVER_INDEX -2 is OpenSSH.
+    dietpi_sw_state /boot/dietpi/.installed 104 0
+    dietpi_sw_state /boot/dietpi/.installed 105 2
+    for dietpi_txt in "${QUADRF_BOOT_DIR}/dietpi.txt" /boot/dietpi.txt; do
+        [ -f "${dietpi_txt}" ] || continue
+        quadrf_setting_set "${dietpi_txt}" AUTO_SETUP_SSH_SERVER_INDEX -2 || true
+    done
+}
+
 apply() {
+    prefer_openssh
     publish_nginx
     quadrf_write_hostapd /etc/hostapd/quadrf.conf
     render "${SHARE}/dhcpd.conf.in" /etc/quadrf/dhcpd.conf
