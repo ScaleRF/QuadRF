@@ -737,32 +737,76 @@
         resetHideTimer(); 
     };
 
-    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-        navigator.mediaDevices.getUserMedia({
-            video: { 
-                facingMode: "environment",
-                width: { ideal: 1920 },
-                height: { ideal: 1080 }
-            }
-        }).then(stream => {
-            video.srcObject = stream;
-            
-            video.onloadedmetadata = () => {
-                const [track] = stream.getVideoTracks();
-                const capabilities = track.getCapabilities();
-
-                if ('zoom' in capabilities) {
-                    track.applyConstraints({
-                        advanced: [{ zoom: capabilities.zoom.min }]
-                    }).catch(err => console.error("Min zoom lock failed:", err));
+    function startCamera() {
+        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+            navigator.mediaDevices.getUserMedia({
+                video: {
+                    facingMode: "environment",
+                    width: { ideal: 1920 },
+                    height: { ideal: 1080 }
                 }
-            };
-        }).catch(err => {
-            showCameraError(err);
-        });
-    } else {
-        showCameraError({ name: 'NotSupportedError', message: 'Camera APIs are unavailable.' });
+            }).then(stream => {
+                video.srcObject = stream;
+
+                video.onloadedmetadata = () => {
+                    const [track] = stream.getVideoTracks();
+                    const capabilities = track.getCapabilities();
+
+                    if ('zoom' in capabilities) {
+                        track.applyConstraints({
+                            advanced: [{ zoom: capabilities.zoom.min }]
+                        }).catch(err => console.error("Min zoom lock failed:", err));
+                    }
+                };
+            }).catch(err => {
+                showCameraError(err);
+            });
+        } else {
+            showCameraError({ name: 'NotSupportedError', message: 'Camera APIs are unavailable.' });
+        }
     }
+
+    // When an HTTP user has already installed/trusted the QuadRF certificate,
+    // transparently upgrade them to HTTPS instead of showing setup instructions.
+    // `mode: no-cors` avoids requiring CORS headers, while TLS certificate
+    // validation still happens normally: an untrusted/bad certificate rejects
+    // the fetch, and only then do we fall back to the HTTP setup guidance.
+    async function tryHttpsUpgrade() {
+        if (window.location.protocol !== 'http:') return false;
+
+        // HTTPS is served on the standard TLS port even if the HTTP URL was
+        // explicitly written with :80. Preserve the path/query/hash on redirect.
+        const httpsOrigin = `https://${window.location.hostname}`;
+        const target = httpsOrigin + window.location.pathname +
+            window.location.search + window.location.hash;
+        const probe = httpsOrigin + '/quadrf-root-ca.sha256?https_probe=' + Date.now();
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 1800);
+
+        statusDiv.innerText = 'Checking secure connection...';
+        statusDiv.style.color = '#ff0';
+
+        try {
+            await fetch(probe, {
+                method: 'GET',
+                mode: 'no-cors',
+                cache: 'no-store',
+                credentials: 'omit',
+                signal: controller.signal
+            });
+            clearTimeout(timer);
+            window.location.replace(target);
+            return true;
+        } catch (e) {
+            clearTimeout(timer);
+            return false;
+        }
+    }
+
+    (async () => {
+        if (await tryHttpsUpgrade()) return;
+        startCamera();
+    })();
 
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${wsProtocol}//${window.location.host}/ws`;
