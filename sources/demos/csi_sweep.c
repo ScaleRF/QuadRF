@@ -269,33 +269,19 @@ static inline void stamp_pixel_add(uint16_t *acc, int px, int py,
 }
 
 // ------------------------------------------------------------
-// Read telemetry (per frame)
+// CSI ring reader
 // ------------------------------------------------------------
 
-typedef struct {
-    uint64_t ns_getinfo;
-    uint64_t ns_copy;
-    uint64_t ns_consume;
-    uint64_t calls_getinfo;
-    uint64_t calls_consume;
-    uint64_t wraps;
-} read_telem_t;
-
 static void ring_wait_and_get_one_block_fast(int fd, const void *ring, uint64_t ring_size,
-                                             uint8_t *dst, read_telem_t *rt)
+                                             uint8_t *dst)
 {
     int spins = WAIT_SPIN_ITERS;
 
     while (1)
     {
-        uint64_t t0 = now_ns();
         struct csi_ring_info ri;
         if (ioctl(fd, CSI_IOC_GET_RING_INFO, &ri) < 0)
             die("CSI_IOC_GET_RING_INFO");
-        uint64_t t1 = now_ns();
-
-        rt->ns_getinfo += (t1 - t0);
-        rt->calls_getinfo++;
 
         uint32_t used = ring_used_bytes(ri.head, ri.tail, ring_size);
         used -= (used % BYTES_PER_FRAME);
@@ -306,13 +292,7 @@ static void ring_wait_and_get_one_block_fast(int fd, const void *ring, uint64_t 
             uint32_t drop = used - max_keep;
             drop -= (drop % BYTES_PER_FRAME);
             if (drop)
-            {
-                uint64_t tc0 = now_ns();
                 consume_bytes(fd, drop);
-                uint64_t tc1 = now_ns();
-                rt->ns_consume += (tc1 - tc0);
-                rt->calls_consume++;
-            }
             spins = WAIT_SPIN_ITERS;
             continue;
         }
@@ -323,24 +303,13 @@ static void ring_wait_and_get_one_block_fast(int fd, const void *ring, uint64_t 
 
             uint32_t n1 = BLOCK_BYTES;
             if ((uint64_t)tail + (uint64_t)n1 > ring_size)
-            {
                 n1 = (uint32_t)ring_size - tail;
-                rt->wraps++;
-            }
 
-            uint64_t tm0 = now_ns();
             memcpy(dst, (const uint8_t*)ring + tail, n1);
             uint32_t rem = BLOCK_BYTES - n1;
             if (rem) memcpy(dst + n1, (const uint8_t*)ring, rem);
-            uint64_t tm1 = now_ns();
-            rt->ns_copy += (tm1 - tm0);
 
-            uint64_t tc0 = now_ns();
             consume_bytes(fd, BLOCK_BYTES);
-            uint64_t tc1 = now_ns();
-            rt->ns_consume += (tc1 - tc0);
-            rt->calls_consume++;
-
             return;
         }
 
@@ -1339,31 +1308,18 @@ static int adjust_rx_gain(int fd, int adjust)
 // ------------------------------------------------------------
 
 typedef struct {
-    uint64_t frame_idx;
-
     double t_read_ms;
     double t_lo_ms;
     double t_fft_ms;
     double t_proc_ms;
     double t_frame_ms;
 
-    // Read breakdown
-    double t_read_getinfo_ms;
-    double t_read_copy_ms;
-    double t_read_consume_ms;
-    uint64_t read_calls_getinfo;
-    uint64_t read_calls_consume;
-    uint64_t read_wraps;
-
-    uint32_t blocks;
     uint32_t points;
 
     float rf_activity;
     double fps;
     
     // --- DOA FIELDS ---
-    float azimuth;
-    float elevation;
     float centroid_u;
     float centroid_v;
     int has_lock_angles;
@@ -1465,6 +1421,54 @@ static inline int heap_push_topk(heap_item_t *h, int size, int cap, float v, int
 // Mongoose Web Stream
 // ------------------------------------------------------------
 
+#define AR_SETTINGS_PATH "/var/lib/quadrf/demos/ar_settings.json"
+#define AR_WEB_ROOT      "/usr/share/quadrf/ar"
+#define AR_SETTINGS_MAX  512
+
+static char ar_settings_json[AR_SETTINGS_MAX];
+static int  ar_settings_len = 0;
+
+static void ar_settings_load_file(void)
+{
+    FILE *f = fopen(AR_SETTINGS_PATH, "r");
+    if (!f) return;
+
+    size_t n = fread(ar_settings_json, 1, sizeof(ar_settings_json) - 1, f);
+    fclose(f);
+
+    while (n > 0 && (ar_settings_json[n - 1] == '\n' || ar_settings_json[n - 1] == '\r'))
+        n--;
+
+    ar_settings_json[n] = '\0';
+    ar_settings_len = (int)n;
+}
+
+static void ar_settings_save_file(const char *json, int len)
+{
+    if (len <= 0 || len >= AR_SETTINGS_MAX) return;
+
+    memcpy(ar_settings_json, json, (size_t)len);
+    ar_settings_json[len] = '\0';
+    ar_settings_len = len;
+
+    FILE *f = fopen(AR_SETTINGS_PATH, "w");
+    if (!f) return;
+
+    fwrite(ar_settings_json, 1, (size_t)ar_settings_len, f);
+    fputc('\n', f);
+    fclose(f);
+}
+
+static void ar_settings_send(struct mg_connection *c)
+{
+    if (ar_settings_len <= 0) return;
+
+    char msg[AR_SETTINGS_MAX + 16];
+    int n = snprintf(msg, sizeof(msg), "settings:%s", ar_settings_json);
+    if (n > 0 && n < (int)sizeof(msg))
+        mg_ws_send(c, msg, (size_t)n, WEBSOCKET_OP_TEXT);
+}
+
 // Handle incoming HTTP and WebSocket events
 static void web_ev_handler(struct mg_connection *c, int ev, void *ev_data) {
     if (ev == MG_EV_HTTP_MSG) {
@@ -1473,24 +1477,30 @@ static void web_ev_handler(struct mg_connection *c, int ev, void *ev_data) {
             // Upgrade to WebSocket
             mg_ws_upgrade(c, hm, NULL);
             printf("[Web] Client connected to WS stream.\n");
+            ar_settings_send(c);
         } else {
-            // Serve the local directory (where index.html lives)
-            struct mg_http_serve_opts opts = {.root_dir = "."};
+            struct mg_http_serve_opts opts = {.root_dir = AR_WEB_ROOT};
             mg_http_serve_dir(c, ev_data, &opts);
         }
     } else if (ev == MG_EV_WS_MSG) {
         struct mg_ws_message *wm = (struct mg_ws_message *) ev_data;
         ctx_t *ctx = (ctx_t *)c->fn_data;
-        char buf[64];
+        char buf[AR_SETTINGS_MAX + 16];
         
-        int len = wm->data.len < sizeof(buf) - 1 ? wm->data.len : sizeof(buf) - 1;
+        int len = wm->data.len < sizeof(buf) - 1 ? (int)wm->data.len : (int)sizeof(buf) - 1;
         memcpy(buf, wm->data.buf, len); 
         
         buf[len] = '\0';
         
         if (strncmp(buf, "mirror:", 7) == 0) {
-            ctx->mirror_display = !ctx->mirror_display;
-            printf("[Web] Toggled mirror display: %d\n", ctx->mirror_display);
+            const char *arg = buf + 7;
+            if (strcmp(arg, "toggle") == 0)
+                ctx->mirror_display = !ctx->mirror_display;
+            else if (arg[0] == '0' || arg[0] == '1')
+                ctx->mirror_display = (arg[0] == '1');
+            else
+                ctx->mirror_display = !ctx->mirror_display;
+            printf("[Web] Mirror display: %d\n", ctx->mirror_display);
         } else if (strncmp(buf, "gain:", 5) == 0) {
             int val = atoi(buf + 5);
             struct csi_jtag_reg r;
@@ -1500,7 +1510,11 @@ static void web_ev_handler(struct mg_connection *c, int ev, void *ev_data) {
                 if (jtag_write_u16(ctx->fd, r.addr, r.value) == 0)
                     printf("[Web] Hardware RX Gain set to: %d\n", val & 0x7F);
             }
-        // --- NEW: Handle Web GUI Lock/Unlock Commands ---
+        } else if (strncmp(buf, "settings:", 9) == 0) {
+            if (strcmp(buf + 9, "get") == 0)
+                ar_settings_send(c);
+            else
+                ar_settings_save_file(buf + 9, len - 9);
         } else if (strncmp(buf, "lock:", 5) == 0) {
             double target_freq = atof(buf + 5);
             ctx->target_freq = target_freq;
@@ -1673,13 +1687,19 @@ static void *worker(void *arg)
             // Search 7 steps. Bias the search downwards (-4 to +2 steps) 
             // to account for the UI visually overshooting the true frequency 
             // due to pipeline lag during the fast sweep.
-            #define SEARCH_STEPS 7
+            enum { SEARCH_STEPS = 7 };
+            int search_aborted = 0;
             double search_steps[SEARCH_STEPS];
             for (int s = 0; s < SEARCH_STEPS; s++) {
                 search_steps[s] = c->target_freq + (s - 4) * LO_STEP_MHZ;
             }
 
             for (int s = 0; s < SEARCH_STEPS; s++) {
+                if (c->sweep_mode != MODE_SEARCH) {
+                    search_aborted = 1;
+                    break;
+                }
+
                 double test_lo = search_steps[s];
                 
                 // Keep within valid hardware tuning bounds
@@ -1692,14 +1712,17 @@ static void *worker(void *arg)
                 // 2. Wait a LONG time (50ms). This guarantees the LO is fully settled
                 // and the hardware FIFOs/USB pipelines are completely saturated 
                 // with data exclusively from this new frequency.
-                usleep(50000); 
+                usleep(50000);
+                if (c->sweep_mode != MODE_SEARCH) {
+                    search_aborted = 1;
+                    break;
+                }
 
                 // 3. Nuke everything currently sitting in the host ring buffer
                 flush_ring_buffer(c->fd, c->ring_size);
 
                 // 4. Acquire ONE undeniably fresh block
-                read_telem_t dummy_rt = {0};
-                ring_wait_and_get_one_block_fast(c->fd, c->ring, c->ring_size, blk, &dummy_rt);
+                ring_wait_and_get_one_block_fast(c->fd, c->ring, c->ring_size, blk);
 
                 // 5. Run FFTs
                 for (int ch = 0; ch < CHANNELS; ++ch) {
@@ -1725,6 +1748,17 @@ static void *worker(void *arg)
                         global_best_lo = test_lo; 
                     }
                 }
+            }
+
+            // A single-click/web unlock can arrive while the slow search is running.
+            // Do not let the completed search overwrite that release with MODE_LOCK.
+            if (search_aborted || c->sweep_mode != MODE_SEARCH) {
+                pipelined_lo = sweep_prog[0].freq_mhz;
+                (void)program_sweep_entry(c->fd, &sweep_prog[0]);
+                usleep(VCO_FAST_STARTUP_GUARD_US);
+                flush_ring_buffer(c->fd, c->ring_size);
+                ema_init = 0;
+                continue;
             }
 
             // 7. Calculate refined true center frequency
@@ -1759,7 +1793,6 @@ static void *worker(void *arg)
         uint64_t ns_read = 0, ns_lo = 0, ns_fft = 0, ns_proc = 0;
         uint32_t blocks = 0, points = 0;
         float activity_sum = 0.0f;
-        read_telem_t rt = (read_telem_t){0};
 
         // --- DOA ACCUMULATORS ---
         float sum_u = 0.0f;
@@ -1797,7 +1830,7 @@ static void *worker(void *arg)
 
             // 1. Acquire Block
             uint64_t tr0 = now_ns();
-            ring_wait_and_get_one_block_fast(c->fd, c->ring, c->ring_size, blk, &rt);
+            ring_wait_and_get_one_block_fast(c->fd, c->ring, c->ring_size, blk);
             ns_read += (now_ns() - tr0);
             blocks++;
 
@@ -2019,8 +2052,6 @@ static void *worker(void *arg)
             c->telem.centroid_v = ema_v;
             
             // Boresight Mapping: Broadside (0,0) = 0  Az, 0  El
-            c->telem.azimuth = asinf(ema_u) * (180.0f / (float)M_PI);
-            c->telem.elevation = asinf(ema_v) * (180.0f / (float)M_PI);
             c->telem.has_lock_angles = 1;
         } else {
             c->telem.has_lock_angles = 0;
@@ -2036,13 +2067,11 @@ static void *worker(void *arg)
         double t_frame_ms = ns_to_ms(t_frame1 - t_frame0);
         double fps = (t_frame_ms > 1e-9) ? (1000.0 / t_frame_ms) : 0.0;
 
-        c->telem.frame_idx = frame_idx;
         c->telem.t_read_ms  = ns_to_ms(ns_read);
         c->telem.t_lo_ms    = ns_to_ms(ns_lo);
         c->telem.t_fft_ms   = ns_to_ms(ns_fft);
         c->telem.t_proc_ms  = ns_to_ms(ns_proc);
         c->telem.t_frame_ms = t_frame_ms;
-        c->telem.blocks = blocks;
         c->telem.points = points;
         
         float denom = (float)iter_limit * (float)base_topk_capacity;
@@ -2341,6 +2370,58 @@ static void draw_ui_buttons(SDL_Renderer *ren, int win_w, int win_h)
     SDL_RenderDrawLine(ren, x + BTN_SIZE - 15, y3, x + BTN_SIZE - 25, y3 + 15);
 }
 
+static int request_lock_from_canvas_click(ctx_t *ctx, const uint32_t *pix,
+                                          int mx, int my, int win_w, int win_h)
+{
+    if (win_w <= 0 || win_h <= 0)
+        return 0;
+
+    // Reverse the displayed crop back to logical CANVAS coordinates.
+    const int src_w = CANVAS_W;
+    const int src_h = 200;
+    const int src_x = (CANVAS_W - src_w) / 2;
+    const int src_y = (CANVAS_H - src_h) / 2;
+    const int cx = src_x + (mx * src_w) / win_w;
+    const int cy = src_y + (my * src_h) / win_h;
+
+    // Average stamped pixels in an 11x11 neighborhood around the click.
+    const int radius = 5;
+    float sum_r = 0.0f, sum_g = 0.0f, sum_b = 0.0f;
+    int count = 0;
+
+    for (int dy = -radius; dy <= radius; ++dy) {
+        for (int dx = -radius; dx <= radius; ++dx) {
+            const int px = cx + dx;
+            const int py = cy + dy;
+            if ((unsigned)px >= CANVAS_W || (unsigned)py >= CANVAS_H)
+                continue;
+
+            const uint32_t c_val = pix[py * CANVAS_W + px];
+            if (((c_val >> 24) & 0xFFu) == 0)
+                continue;
+
+            sum_r += (float)((c_val >> 16) & 0xFFu);
+            sum_g += (float)((c_val >> 8) & 0xFFu);
+            sum_b += (float)(c_val & 0xFFu);
+            count++;
+        }
+    }
+
+    if (!count)
+        return 0;
+
+    const float inv = 1.0f / ((float)count * 255.0f);
+    const float hue = rgb_to_hue(sum_r * inv, sum_g * inv, sum_b * inv);
+    const double visual_freq = FREQ_MIN_MHZ + hue * (FREQ_MAX_MHZ - FREQ_MIN_MHZ);
+
+    // Compensate for the one-hop display/pipeline lag, then let the worker
+    // perform the existing multi-step peak search before entering MODE_LOCK.
+    ctx->target_freq = visual_freq - LO_STEP_MHZ;
+    ctx->sweep_mode = MODE_SEARCH;
+    printf("-> Double-click: initiating peak search near %.2f MHz\n", ctx->target_freq);
+    return 1;
+}
+
 // ------------------------------------------------------------
 // Main / SDL
 // ------------------------------------------------------------
@@ -2350,7 +2431,7 @@ static void usage(const char *argv0)
     fprintf(stderr,
         "Usage: %s [--headless] [--camera] [--cam_w W] [--cam_h H] [--cam_fps FPS] [--cam_cmd 'CMD']\n"
         "  --headless         Run without opening SDL GUI (web streaming only)\n"
-        "  --camera           Enable camera underlay via libcamera-vid\n"
+        "  --camera           Enable camera underlay via rpicam-vid\n"
         "  --cam_w/--cam_h    Camera capture resolution (default 640x480)\n"
         "  --cam_fps          Camera framerate (default 30)\n"
         "  --cam_cmd          Override capture command (must output raw I420 frames)\n",
@@ -2536,10 +2617,13 @@ int main(int argc, char **argv)
     ctx.back  = back;
     pthread_mutex_init(&ctx.mtx, NULL);
 
-    ctx.mirror_display = 0;
+    ctx.mirror_display = 1;
     ctx.sweep_mode = MODE_SWEEP;
     ctx.output_fraction = 0.25f; // 1.0: output 100% of top bins
     ctx.headless = headless;
+
+    // Restore persisted browser-side AR calibration/settings before clients connect.
+    ar_settings_load_file();
 
     // main worker thread
     pthread_t th;
@@ -2589,91 +2673,34 @@ int main(int argc, char **argv)
                     }
                 }
 
-                // --- MOUSE CLICKS ---
-                if (e.type == SDL_MOUSEBUTTONDOWN) {
-                    int mx = e.button.x;
-                    int my = e.button.y;
-                    
-                    int bx = win_w - BTN_SIZE - BTN_MARGIN;
-                    int by_start = (win_h - (3 * BTN_SIZE + 2 * BTN_MARGIN)) / 2;
-                    
-                    // LEFT CLICK
-                    if (e.button.button == SDL_BUTTON_LEFT) {
-                        // 1. Check if user clicked the UI buttons on the right
-                        if (mx >= bx && mx <= bx + BTN_SIZE && my >= by_start && my <= by_start + 3*BTN_SIZE + 2*BTN_MARGIN) {
-                            if (my >= by_start && my <= by_start + BTN_SIZE) {
-                                adjust_rx_gain(fd, +2);
-                            }
-                            else if (my >= by_start + BTN_SIZE + BTN_MARGIN && my <= by_start + 2*BTN_SIZE + BTN_MARGIN) {
-                                adjust_rx_gain(fd, -2);
-                            }
-                            else if (my >= by_start + 2*(BTN_SIZE + BTN_MARGIN) && my <= by_start + 3*BTN_SIZE + 2*BTN_MARGIN) {
-                                ctx.mirror_display = !ctx.mirror_display;
-                                printf("Swap: %d\n", ctx.mirror_display);
-                            }
-                        } 
-                        // 2. Otherwise, user clicked the canvas area
-                        else {
-                            // Reverse the window cropping coordinates back to the logical CANVAS coordinates
-                            int cur_w, cur_h;
-                            SDL_GetRendererOutputSize(ren, &cur_w, &cur_h);
-                            
-                            int src_w = CANVAS_W;
-                            int src_h = 200; 
-                            int src_x = (CANVAS_W - src_w) / 2; 
-                            int src_y = (CANVAS_H - src_h) / 2; 
+                if (e.type == SDL_MOUSEBUTTONDOWN && e.button.button == SDL_BUTTON_LEFT) {
+                    const int mx = e.button.x;
+                    const int my = e.button.y;
+                    const int bx = win_w - BTN_SIZE - BTN_MARGIN;
+                    const int by_start = (win_h - (3 * BTN_SIZE + 2 * BTN_MARGIN)) / 2;
+                    const int in_ui_column =
+                        mx >= bx && mx <= bx + BTN_SIZE &&
+                        my >= by_start && my <= by_start + 3 * BTN_SIZE + 2 * BTN_MARGIN;
 
-                            int cx = src_x + (mx * src_w) / cur_w;
-                            int cy = src_y + (my * src_h) / cur_h;
-
-                            // Sample an 11x11 neighborhood around the click for average color
-                            int radius = 5; 
-                            float sum_r = 0, sum_g = 0, sum_b = 0;
-                            int count = 0;
-
-                            for (int dy = -radius; dy <= radius; dy++) {
-                                for (int dx = -radius; dx <= radius; dx++) {
-                                    int px = cx + dx;
-                                    int py = cy + dy;
-                                    if (px >= 0 && px < CANVAS_W && py >= 0 && py < CANVAS_H) {
-                                        uint32_t c_val = pix[py * CANVAS_W + px];
-                                        uint8_t a = (c_val >> 24) & 0xFF;
-                                        
-                                        // Only sample pixels that have actually been stamped (alpha > 0)
-                                        if (a > 0) { 
-                                            sum_r += (c_val >> 16) & 0xFF;
-                                            sum_g += (c_val >> 8) & 0xFF;
-                                            sum_b += c_val & 0xFF;
-                                            count++;
-                                        }
-                                    }
-                                }
-                            }
-                            
-                            // If we found stamped points, trigger the SEARCH mode
-                            if (count > 0) {
-                                float avg_r = sum_r / count / 255.0f;
-                                float avg_g = sum_g / count / 255.0f;
-                                float avg_b = sum_b / count / 255.0f;
-                                
-                                float h = rgb_to_hue(avg_r, avg_g, avg_b);
-                                
-                                // The raw visual frequency on the screen
-                                double visual_freq = FREQ_MIN_MHZ + h * (FREQ_MAX_MHZ - FREQ_MIN_MHZ);
-                                
-                                // 1. Provide the ballpark estimate compensating for 1-step lag
-                                ctx.target_freq = visual_freq - LO_STEP_MHZ;
-                                
-                                // 2. Hand off to the worker thread to flush, search, and lock
-                                ctx.sweep_mode = MODE_SEARCH;
-                                printf("-> Initiating Peak Search near %.2f MHz\n", ctx.target_freq);
-                            }
+                    // UI controls retain normal single-click behavior.
+                    if (in_ui_column) {
+                        if (my <= by_start + BTN_SIZE) {
+                            adjust_rx_gain(fd, +2);
+                        } else if (my >= by_start + BTN_SIZE + BTN_MARGIN &&
+                                   my <= by_start + 2 * BTN_SIZE + BTN_MARGIN) {
+                            adjust_rx_gain(fd, -2);
+                        } else if (my >= by_start + 2 * (BTN_SIZE + BTN_MARGIN)) {
+                            ctx.mirror_display = !ctx.mirror_display;
+                            printf("Swap: %d\n", ctx.mirror_display);
                         }
-                    } 
-                    // RIGHT CLICK -> Resume Sweeping
-                    else if (e.button.button == SDL_BUTTON_RIGHT) {
+                    } else if (e.button.clicks >= 2) {
+                        // Double left-click on an RF point => search and track it.
+                        (void)request_lock_from_canvas_click(&ctx, pix, mx, my, win_w, win_h);
+                    } else {
+                        // A single left-click on the canvas always releases tracking.
+                        if (ctx.sweep_mode != MODE_SWEEP)
+                            printf("-> Single-click: resumed LO sweep\n");
                         ctx.sweep_mode = MODE_SWEEP;
-                        printf("-> Resumed LO sweep\n");
                     }
                 }
             }
