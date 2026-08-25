@@ -200,7 +200,7 @@ certutil -d "sql:$quadrf_nss_db" -A -t "C,," -n "QuadRF Local Root" \
       <input id="chromeRestartUrl" value="chrome://restart" readonly aria-label="Chrome restart address">
       <button type="button" data-copy="chromeRestartUrl">Copy</button>
     </div>
-    <p class="small">After Chrome reopens, use the <strong>Open QuadRF over HTTPS</strong> link above. Simply returning to <code>http://quadrf.local/</code> will still display “Not secure.”</p>
+    <p class="small">After Chrome reopens, use the <strong>Open QuadRF over HTTPS</strong> link above. Simply returning to <code>http://@HOSTNAME@.local/</code> will still display “Not secure.”</p>
   </section>
 
   <details class="card" id="firefoxHelp" hidden>

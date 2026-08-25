@@ -15,14 +15,21 @@ AP_PREFIX="${QUADRF_AP_ADDRESS%.*}"
 render() {
     desktop="$(quadrf_desktop_mdns)"
     desktop_short="$(quadrf_desktop_mdns_short)"
-    sed -e "s|@HOSTNAME@|${QUADRF_HOSTNAME}|g" \
+    tmp="$(mktemp)"
+    if ! sed -e "s|@HOSTNAME@|${QUADRF_HOSTNAME}|g" \
         -e "s|@DESKTOP@|${desktop}|g" \
         -e "s|@DESKTOP_SHORT@|${desktop_short}|g" \
         -e "s|@SSID@|${QUADRF_AP_SSID}|g" \
         -e "s|@AP_ADDRESS@|${QUADRF_AP_ADDRESS}|g" \
         -e "s|@AP_PREFIX@|${AP_PREFIX}|g" \
         -e "s|@USER@|${QUADRF_USER}|g" \
-        "$1" > "$2"
+        "$1" > "${tmp}"; then
+        rm -f "${tmp}"
+        echo "quadrf: failed to render $1" >&2
+        return 1
+    fi
+    cat "${tmp}" > "$2"
+    rm -f "${tmp}"
 }
 
 STOLEN_DIR=/var/lib/quadrf/stolen-ifaces
@@ -174,12 +181,32 @@ prune_dns_names() {
     fi
 }
 
-apply() {
+reload_nginx() {
+    if nginx -t >/dev/null 2>&1; then
+        systemctl reload nginx.service 2>/dev/null || true
+    fi
+}
+
+# Write the site and reload. Hostname apply calls this before the rest of
+# apply so HTTP matches mDNS even if tls/ifup later runs long.
+publish_nginx() {
     render "${SHARE}/nginx-site.in" /etc/nginx/sites-available/quadrf
     install -d -m 755 /usr/share/quadrf/security
     render "${SHARE}/security.in" /usr/share/quadrf/security/index.html
     install -d -m 755 /usr/share/quadrf/captive
-    render "${SHARE}/captive.in" /usr/share/quadrf/captive/index.html
+    if [ -f "${SHARE}/captive.in" ]; then
+        render "${SHARE}/captive.in" /usr/share/quadrf/captive/index.html
+    else
+        echo "quadrf: ${SHARE}/captive.in missing, not writing captive page" >&2
+        rm -f /usr/share/quadrf/captive/index.html
+    fi
+    ln -sfn /etc/nginx/sites-available/quadrf /etc/nginx/sites-enabled/quadrf
+    rm -f /etc/nginx/sites-enabled/default
+    reload_nginx
+}
+
+apply() {
+    publish_nginx
     quadrf_write_hostapd /etc/hostapd/quadrf.conf
     render "${SHARE}/dhcpd.conf.in" /etc/quadrf/dhcpd.conf
 
@@ -249,9 +276,7 @@ apply() {
     [ -x /usr/sbin/quadrf-usb ] && /usr/sbin/quadrf-usb || true
     prune_dns_names
 
-    if nginx -t >/dev/null 2>&1; then
-        systemctl reload nginx.service 2>/dev/null || true
-    fi
+    reload_nginx
 }
 
 remove() {
@@ -280,6 +305,7 @@ remove() {
 
 case "${1:-apply}" in
     apply)  apply ;;
+    nginx)  publish_nginx ;;
     remove) remove ;;
-    *)      echo "usage: $0 [apply|remove]" >&2; exit 1 ;;
+    *)      echo "usage: $0 [apply|nginx|remove]" >&2; exit 1 ;;
 esac

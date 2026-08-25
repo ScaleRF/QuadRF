@@ -2,5 +2,6 @@
 # Lets the web GUI reconfigure Wi-Fi and start/stop demos without a password.
 @USER@ ALL=(ALL) NOPASSWD: /usr/sbin/quadrf-apply-wifi
 @USER@ ALL=(ALL) NOPASSWD: /usr/sbin/quadrf-apply-ap
+@USER@ ALL=(ALL) NOPASSWD: /usr/sbin/quadrf-apply-hostname
 @USER@ ALL=(ALL) NOPASSWD: /usr/sbin/quadrf-hotspot
 @USER@ ALL=(ALL) NOPASSWD: /usr/sbin/quadrf-app

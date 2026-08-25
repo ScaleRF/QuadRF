@@ -12,6 +12,7 @@ quadrf_load_conf() {
     QUADRF_USER=dietpi
     QUADRF_BOOT_DIR=/boot/firmware
     QUADRF_HOSTNAME=quadrf
+    QUADRF_HOSTNAME_LOCK=no
     QUADRF_AP_SSID=QuadRF
     QUADRF_AP_PASS=
     QUADRF_AP_ADDRESS=192.168.44.1

@@ -5,11 +5,16 @@
 # would pick the AP address (192.168.44.1) and fail. 40-network turns
 # publish-addresses off; this process is the only publisher.
 # A two-label name like desktop.HOSTNAME.local is ignored by browser mDNS.
+#
+# One EntryGroup per interface so a LAN collision does not withdraw
+# direct-connect records. On COLLISION, unless QUADRF_HOSTNAME_LOCK is set,
+# persist HOSTNAME-2 via quadrf-apply-hostname and re-apply site config.
 
 import os
 import socket
 import subprocess
 import sys
+import time
 
 try:
     import avahi
@@ -21,13 +26,17 @@ except ImportError as exc:
     sys.exit(1)
 
 CONF = os.environ.get("QUADRF_CONF", "/etc/quadrf/quadrf.conf")
+HELPER = os.environ.get("QUADRF_APPLY_HOSTNAME", "/usr/sbin/quadrf-apply-hostname")
 POLL_SEC = 2
+JOINER_GRACE_SEC = 45
 AP_DEFAULT = "192.168.44.1"
+MAX_ALT = 99
 
 
 def load_conf():
     hostname = "quadrf"
     ap_addr = AP_DEFAULT
+    locked = False
     try:
         with open(CONF, encoding="utf-8") as fh:
             for raw in fh:
@@ -36,9 +45,12 @@ def load_conf():
                     hostname = line.split("=", 1)[1].strip().strip("'\"") or hostname
                 elif line.startswith("QUADRF_AP_ADDRESS="):
                     ap_addr = line.split("=", 1)[1].strip().strip("'\"") or ap_addr
+                elif line.startswith("QUADRF_HOSTNAME_LOCK="):
+                    val = line.split("=", 1)[1].strip().strip("'\"").lower()
+                    locked = val in ("yes", "true", "1")
     except OSError:
         pass
-    return hostname, ap_addr
+    return hostname, ap_addr, locked
 
 
 def _slash24(addr):
@@ -46,6 +58,25 @@ def _slash24(addr):
     if len(parts) != 4:
         return ""
     return ".".join(parts[:3])
+
+
+def alias_names(hostname):
+    return [
+        f"{hostname}.local",
+        f"{hostname}-desktop.local",
+        f"{hostname}d.local",
+    ]
+
+
+def alternative_hostname(name):
+    # avahi_alternative_host_name: trailing -N increments, else append -2.
+    i = name.rfind("-")
+    if i > 0 and name[i + 1 :].isdigit():
+        n = int(name[i + 1 :]) + 1
+        if n > MAX_ALT:
+            return None
+        return f"{name[:i]}-{n}"
+    return f"{name}-2"
 
 
 def keep_addr(iface, addr, ap_addr):
@@ -88,14 +119,19 @@ def iface_addrs(ap_addr):
 
 
 class Publisher:
-    def __init__(self, names, ap_addr):
-        self.names = names
-        self.ap_addr = ap_addr
+    def __init__(self):
+        self.base = "quadrf"
+        self.ap_addr = AP_DEFAULT
+        self.locked = False
+        self._renaming = None
+        self.started = time.monotonic()
         self.bus = dbus.SystemBus()
         self.server = None
-        self.group = None
-        self.published = None
+        self.slots = {}
+        self.browsers = []
         self._avahi_gone = False
+        self._busy = False
+        self._again = False
         dbus.Interface(
             self.bus.get_object(dbus.BUS_DAEMON_NAME, dbus.BUS_DAEMON_PATH),
             dbus.BUS_DAEMON_IFACE,
@@ -120,6 +156,7 @@ class Publisher:
                 avahi.DBUS_INTERFACE_SERVER,
             )
             self._avahi_gone = False
+            self._watch_peers()
             return True
         except dbus.DBusException as exc:
             self.server = None
@@ -130,81 +167,287 @@ class Publisher:
             return False
 
     def drop_group(self):
-        if self.group is not None:
-            try:
-                self.group.Reset()
-            except dbus.DBusException:
-                pass
-        self.group = None
-        self.published = None
+        for idx in list(self.slots):
+            self._drop_slot(idx)
 
-    def _entry_group(self):
-        if self.group is None:
+    def _drop_slot(self, idx):
+        slot = self.slots.pop(idx, None)
+        if slot is None or slot["group"] is None:
+            return
+        try:
+            slot["group"].Reset()
+        except dbus.DBusException:
+            pass
+
+    def _group_for(self, idx, slot):
+        if slot["group"] is None:
             path = self.server.EntryGroupNew()
-            self.group = dbus.Interface(
+            group = dbus.Interface(
                 self.bus.get_object(avahi.DBUS_NAME, path),
                 avahi.DBUS_INTERFACE_ENTRY_GROUP,
             )
-        return self.group
+            group.connect_to_signal(
+                "StateChanged",
+                lambda state, error, i=idx: self._group_state(i, state, error),
+            )
+            slot["group"] = group
+        return slot["group"]
 
-    def publish(self):
-        if self.server is None and not self.attach():
-            return True
+    def _spawn_rename(self, nxt):
+        if self._renaming == nxt:
+            return
+        self._renaming = nxt
+        print(f"quadrf-mdns-alias: {self.base}.local taken, applying {nxt}.local",
+              flush=True)
         try:
-            if int(self.server.GetState()) != avahi.SERVER_RUNNING:
-                return True
+            subprocess.Popen(
+                [HELPER, "rename", nxt],
+                stdin=subprocess.DEVNULL,
+                start_new_session=True,
+                close_fds=True,
+            )
+        except OSError as exc:
+            self._renaming = None
+            print(f"quadrf-mdns-alias: rename failed ({exc})",
+                  file=sys.stderr, flush=True)
+
+    def _group_state(self, idx, state, error):
+        slot = self.slots.get(idx)
+        if slot is None:
+            return
+        state = int(state)
+        if state == avahi.ENTRY_GROUP_ESTABLISHED:
+            slot["ok"] = True
+            slot["conflict"] = None
+            return
+        if state == avahi.ENTRY_GROUP_FAILURE:
+            print(f"quadrf-mdns-alias: {slot['iface']} group failed ({error})",
+                  file=sys.stderr, flush=True)
+            slot["ok"] = False
+            slot["key"] = None
+            return
+        if state != avahi.ENTRY_GROUP_COLLISION:
+            return
+        slot["ok"] = False
+        slot["key"] = None
+        if self.locked:
+            slot["conflict"] = (idx, slot.get("addr"))
+            print(f"quadrf-mdns-alias: {slot['iface']} collision on "
+                  f"{self.base}.local, locked", flush=True)
+            return
+        nxt = alternative_hostname(self.base)
+        if nxt is None:
+            print(f"quadrf-mdns-alias: {slot['iface']} collision, "
+                  f"no names left after {self.base}.local",
+                  file=sys.stderr, flush=True)
+            return
+        self._spawn_rename(nxt)
+
+    def _watch_peers(self):
+        self.browsers = []
+        if self.server is None:
+            return
+        for stype in ("_quadrf._tcp", "_soapy._tcp"):
+            try:
+                path = self.server.ServiceBrowserNew(
+                    avahi.IF_UNSPEC,
+                    avahi.PROTO_UNSPEC,
+                    stype,
+                    "local",
+                    dbus.UInt32(0),
+                )
+                browser = dbus.Interface(
+                    self.bus.get_object(avahi.DBUS_NAME, path),
+                    avahi.DBUS_INTERFACE_SERVICE_BROWSER,
+                )
+                browser.connect_to_signal("ItemNew", self._peer_new)
+                self.browsers.append(browser)
+            except dbus.DBusException as exc:
+                print(f"quadrf-mdns-alias: peer watch {stype} failed ({exc})",
+                      file=sys.stderr, flush=True)
+
+    def _peer_new(self, iface, proto, name, stype, domain, flags):
+        own = int(getattr(avahi, "LOOKUP_RESULT_OUR_OWN", 16))
+        if int(flags) & own:
+            return
+        try:
+            self.server.ResolveService(
+                iface, proto, name, stype, domain,
+                avahi.PROTO_INET, dbus.UInt32(0),
+                reply_handler=self._peer_resolved,
+                error_handler=lambda *_a: None,
+            )
         except dbus.DBusException:
-            self.attach()
-            return True
+            pass
 
-        pairs = iface_addrs(self.ap_addr)
-        key = tuple((idx, addr) for idx, _, addr in pairs)
-        if key == self.published:
-            return True
-        if not pairs:
-            self.drop_group()
-            print("quadrf-mdns-alias: no IPv4 addresses yet", flush=True)
-            return True
+    def _peer_resolved(self, _iface, _proto, _name, _stype, _domain, host,
+                       _aproto, addr, _port, _txt, flags):
+        own = int(getattr(avahi, "LOOKUP_RESULT_OUR_OWN", 16))
+        if int(flags) & own:
+            return
+        host = str(host).rstrip(".").lower()
+        addr = str(addr)
+        if host != f"{self.base}.local":
+            return
+        our = {a for _, _, a in iface_addrs(self.ap_addr)}
+        if addr in our:
+            return
+        if self.locked or self._renaming:
+            return
+        nxt = alternative_hostname(self.base)
+        if nxt is None:
+            return
+        print(f"quadrf-mdns-alias: {host} also at {addr}, applying {nxt}.local",
+              flush=True)
+        self._spawn_rename(nxt)
 
+    def _probe_peers(self):
+        if self.locked or self._renaming:
+            return True
+        if time.monotonic() - self.started > JOINER_GRACE_SEC:
+            return True
         try:
-            group = self._entry_group()
+            proc = subprocess.run(
+                ["avahi-browse", "-rk", "_quadrf._tcp"],
+                capture_output=True, text=True, timeout=4,
+            )
+            out = proc.stdout or ""
+        except subprocess.TimeoutExpired as exc:
+            out = exc.stdout or ""
+            if isinstance(out, bytes):
+                out = out.decode("utf-8", "replace")
+        except OSError:
+            return True
+        our = {a for _, _, a in iface_addrs(self.ap_addr)}
+        want = f"{self.base}.local"
+        host = None
+        for line in out.splitlines():
+            s = line.strip()
+            if s.startswith("hostname ="):
+                host = s.split("=", 1)[1].strip().strip("[]")
+            elif s.startswith("address =") and host:
+                addr = s.split("=", 1)[1].strip().strip("[]")
+                if host.lower() == want and addr not in our:
+                    nxt = alternative_hostname(self.base)
+                    if nxt:
+                        print(f"quadrf-mdns-alias: {host} also at {addr}, "
+                              f"applying {nxt}.local", flush=True)
+                        self._spawn_rename(nxt)
+                    return True
+        return True
+
+    def _publish_iface(self, idx, iface, addr):
+        slot = self.slots.get(idx)
+        if slot is None:
+            slot = {
+                "iface": iface,
+                "addr": addr,
+                "group": None,
+                "key": None,
+                "ok": False,
+                "conflict": None,
+            }
+            self.slots[idx] = slot
+        else:
+            slot["iface"] = iface
+            slot["addr"] = addr
+
+        key = (idx, addr)
+        if key == slot["key"] or key == slot["conflict"]:
+            return
+
+        names = alias_names(self.base)
+        try:
+            group = self._group_for(idx, slot)
             if not group.IsEmpty():
                 group.Reset()
             flags = dbus.UInt32(avahi.PUBLISH_NO_REVERSE)
-            for idx, _iface, addr in pairs:
-                for name in self.names:
-                    group.AddAddress(
-                        dbus.Int32(idx),
-                        dbus.Int32(avahi.PROTO_INET),
-                        flags,
-                        name,
-                        addr,
-                    )
+            svc_flags = dbus.UInt32(0)
+            for name in names:
+                group.AddAddress(
+                    dbus.Int32(idx),
+                    dbus.Int32(avahi.PROTO_INET),
+                    flags,
+                    name,
+                    addr,
+                )
+            group.AddService(
+                dbus.Int32(idx),
+                dbus.Int32(avahi.PROTO_INET),
+                svc_flags,
+                self.base,
+                "_quadrf._tcp",
+                "local",
+                f"{self.base}.local",
+                dbus.UInt16(80),
+                [],
+            )
             group.Commit()
         except dbus.DBusException as exc:
-            print(f"quadrf-mdns-alias: publish failed ({exc})",
+            print(f"quadrf-mdns-alias: {iface} publish failed ({exc})",
                   file=sys.stderr, flush=True)
-            self.drop_group()
-            self.server = None
-            return True
+            self._drop_slot(idx)
+            return
 
-        self.published = key
-        mapping = " ".join(f"{iface}={addr}" for _idx, iface, addr in pairs)
-        print(f"quadrf-mdns-alias: {mapping} -> {' '.join(self.names)}",
+        print(f"quadrf-mdns-alias: {iface}={addr} -> {' '.join(names)}",
               flush=True)
+        slot["key"] = key
+
+    def publish(self):
+        if self._busy:
+            self._again = True
+            return True
+        self._busy = True
+        try:
+            self._publish()
+            while self._again:
+                self._again = False
+                self._publish()
+        finally:
+            self._busy = False
         return True
+
+    def _publish(self):
+        hostname, ap_addr, locked = load_conf()
+        self.ap_addr = ap_addr
+        self.locked = locked
+        if self._renaming and hostname == self._renaming:
+            print(f"quadrf-mdns-alias: now {hostname}.local", flush=True)
+            self._renaming = None
+            self.drop_group()
+        if hostname != self.base:
+            self.base = hostname
+            self.drop_group()
+        if self._renaming:
+            return
+
+        if self.server is None and not self.attach():
+            return
+        try:
+            if int(self.server.GetState()) != avahi.SERVER_RUNNING:
+                return
+        except dbus.DBusException:
+            self.attach()
+            return
+
+        pairs = iface_addrs(self.ap_addr)
+        live = {idx for idx, _, _ in pairs}
+        for idx in list(self.slots):
+            if idx not in live:
+                self._drop_slot(idx)
+        if not pairs:
+            print("quadrf-mdns-alias: no IPv4 addresses yet", flush=True)
+            return
+        for idx, iface, addr in pairs:
+            self._publish_iface(idx, iface, addr)
 
 
 def main():
-    hostname, ap_addr = load_conf()
-    names = [
-        f"{hostname}.local",
-        f"{hostname}-desktop.local",
-        f"{hostname}d.local",
-    ]
     DBusGMainLoop(set_as_default=True)
-    pub = Publisher(names, ap_addr)
+    pub = Publisher()
     GLib.timeout_add_seconds(POLL_SEC, pub.publish)
+    GLib.timeout_add_seconds(3, lambda: (pub._probe_peers(), False)[1])
+    GLib.timeout_add_seconds(15, pub._probe_peers)
     GLib.MainLoop().run()
 
 

@@ -42,10 +42,11 @@ The locally generated server certificate uses the same name; changing it and
 running
 .B quadrf apply
 issues a replacement from the existing local root CA.
-Change this when several QuadRFs share a LAN; avahi otherwise collides and
-renames one unit to
-.IR quadrf-2.local .
-The remote desktop is also published as
+A second unit on the LAN takes
+.IR HOSTNAME-2
+unless
+.B QUADRF_HOSTNAME_LOCK
+is yes. The remote desktop is also published as
 .IR HOSTNAME-desktop.local
 and
 .IR HOSTNAMEd.local
@@ -57,6 +58,17 @@ are the same name). Browsers do not resolve
 .IR desktop.HOSTNAME.local .
 Default:
 .BR quadrf .
+.TP
+.B QUADRF_HOSTNAME_LOCK
+.BR yes
+stops automatic rename when another unit holds the same mDNS name.
+The joining unit is the one that becomes
+.IR HOSTNAME-2 ;
+the unit that already has the name keeps it. The Network Setup page
+shows this control when the name is not the factory
+.BR quadrf .
+Default:
+.BR no .
 .TP
 .B QUADRF_AP_SSID
 SSID of the fallback access point. Default:
@@ -103,6 +115,7 @@ is used.
 QUADRF_USER=operator
 QUADRF_BOOT_DIR=/boot/firmware
 QUADRF_HOSTNAME=quadrf-14
+QUADRF_HOSTNAME_LOCK=no
 QUADRF_AP_SSID=QuadRF-14
 QUADRF_AP_PASS=
 QUADRF_AP_ADDRESS=192.168.44.1
@@ -111,4 +124,5 @@ QUADRF_WIFI_FALLBACK=yes
 QUADRF_OPENOCD=
 .fi
 .SH SEE ALSO
-.BR quadrf (1)
+.BR quadrf (1),
+.BR quadrf-apply-hostname (8)

@@ -114,9 +114,21 @@ This re-runs the package config hooks under `/usr/lib/quadrf/apply.d/`
 (firmware block, service account drop-ins, generated nginx/dnsmasq/hostapd/
 sudoers, desktop layout).
 
-Several QuadRFs on one LAN share the default mDNS name `quadrf.local`. Avahi
-then renames one unit to `quadrf-2.local`. Set a distinct `QUADRF_HOSTNAME` on
-each unit and re-run `sudo quadrf apply` if you need stable names.
+### Multiple QuadRFs on one network
+
+The QuadRF starts with the mDNS hostname **quadrf**. When a second QuadRF
+joins the LAN, it picks the next free name **quadrf-2**, then **quadrf-3**,
+and so on. Its control panel, remote desktop, and HTTPS setup all use that
+new name, ex: **https://quadrf-2.local/** ...
+
+The direct-connect address does not change when several units share a LAN.
+
+In **Network Setup** you can edit the name (the `quadrf` part of
+**quadrf.local**) and **Save**. On a custom name (or **quadrf-2**), **Don't
+yield this name** stops the unit from becoming **name-2** if that name is
+already taken. **Reset** tries **quadrf.local** again. Save reloads nginx
+then runs `quadrf apply`. The page at the old name will drop; open the new
+`HOSTNAME.local` URL.
 
 The initial web entry point is HTTP. A fresh installation also creates a local
 root CA and a separate HTTPS server certificate. Open `http://HOSTNAME.local/setup/security/` to install that root on

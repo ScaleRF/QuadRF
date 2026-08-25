@@ -23,6 +23,7 @@ socketio = SocketIO(app, async_mode='threading')
 SDR_CLI = os.environ.get("QUADRF_JTAG", "/usr/bin/quadrf-jtag")
 WIFI_CLI = os.environ.get("QUADRF_APPLY_WIFI", "/usr/sbin/quadrf-apply-wifi")
 AP_CLI = os.environ.get("QUADRF_APPLY_AP", "/usr/sbin/quadrf-apply-ap")
+HOSTNAME_CLI = os.environ.get("QUADRF_APPLY_HOSTNAME", "/usr/sbin/quadrf-apply-hostname")
 HOTSPOT_CLI = os.environ.get("QUADRF_HOTSPOT", "/usr/sbin/quadrf-hotspot")
 APP_CLI = os.environ.get("QUADRF_APP", "/usr/sbin/quadrf-app")
 CONF_PATH = os.environ.get("QUADRF_CONF", "/etc/quadrf/quadrf.conf")
@@ -143,6 +144,7 @@ def get_network_status(via_addr=None):
 
     mode = wifi_mode_from_conf(conf)
     fallback = wifi_fallback_from_conf(conf)
+    hostname = (conf.get("QUADRF_HOSTNAME") or "quadrf").strip() or "quadrf"
     return {
         "paths": paths,
         "via": via,
@@ -150,7 +152,22 @@ def get_network_status(via_addr=None):
         "wifi_fallback": fallback,
         "wifi_sta_ssid": wifi_sta_ssid(),
         "wifi_fallback_active": mode == "sta" and paths["wifi_ap"]["up"],
+        "hostname": hostname,
+        "hostname_lock": hostname_lock_from_conf(conf),
     }
+
+
+HOSTNAME_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
+
+
+def hostname_lock_from_conf(conf=None):
+    conf = conf if conf is not None else load_quadrf_conf()
+    value = (conf.get("QUADRF_HOSTNAME_LOCK") or "no").strip().lower()
+    return value in ("yes", "true", "1")
+
+
+def valid_hostname(name):
+    return bool(name) and HOSTNAME_RE.fullmatch(name) is not None
 
 
 def wifi_mode_from_conf(conf=None):
@@ -185,7 +202,7 @@ def has_saved_station():
     return bool(wifi_sta_ssid())
 
 
-def run_sudo(cmd, timeout=30):
+def run_sudo(cmd, timeout=30, kill_on_timeout=True):
     proc = subprocess.Popen(
         ["sudo", "-n", *cmd],
         stdout=subprocess.PIPE,
@@ -196,6 +213,10 @@ def run_sudo(cmd, timeout=30):
     try:
         stdout, stderr = proc.communicate(timeout=timeout)
     except subprocess.TimeoutExpired:
+        if not kill_on_timeout:
+            # Hostname apply reloads nginx first, then keeps going. Killing it
+            # leaves mDNS on the new name and nginx on the old one (404).
+            return subprocess.CompletedProcess(proc.args, 0, "", "still running")
         try:
             os.killpg(proc.pid, signal.SIGKILL)
         except ProcessLookupError:
@@ -330,6 +351,8 @@ def index():
         'index.html',
         ap_ssid=conf.get('QUADRF_AP_SSID', 'QuadRF'),
         desktop_host=f"{hostname}d.local",
+        hostname=hostname,
+        hostname_lock=net["hostname_lock"],
         net_paths=net["paths"],
         net_via=net["via"],
         wifi_mode=net["wifi_mode"],
@@ -424,6 +447,41 @@ def network_hotspot():
     if proc.returncode != 0:
         return jsonify({"status": "error", "message": _cli_error(proc, "failed to save hotspot")}), 500
     return jsonify({"status": "ok", **get_network_status(_via_header())})
+
+
+@app.route('/api/network/hostname', methods=['POST'])
+def network_hostname():
+    body = _json_body()
+    if "lock" in body:
+        if not isinstance(body["lock"], bool):
+            return jsonify({"status": "error", "message": "lock must be true or false"}), 400
+        proc = run_sudo([HOSTNAME_CLI, "lock", "yes" if body["lock"] else "no"])
+        if proc.returncode != 0:
+            return jsonify({"status": "error", "message": _cli_error(proc, "failed to set name lock")}), 500
+        return jsonify({"status": "ok", **get_network_status(_via_header())})
+    name = (body.get("name") or "").strip().lower()
+    if name:
+        if not valid_hostname(name):
+            return jsonify({
+                "status": "error",
+                "message": "name must be a hostname label (letters, digits, hyphen)",
+            }), 400
+        try:
+            proc = run_sudo([HOSTNAME_CLI, "set", name], timeout=90, kill_on_timeout=False)
+        except subprocess.TimeoutExpired:
+            return jsonify({"status": "ok", **get_network_status(_via_header())})
+        if proc.returncode != 0:
+            return jsonify({"status": "error", "message": _cli_error(proc, "failed to set hostname")}), 500
+        return jsonify({"status": "ok", **get_network_status(_via_header())})
+    if body.get("reset"):
+        try:
+            proc = run_sudo([HOSTNAME_CLI, "reset"], timeout=90, kill_on_timeout=False)
+        except subprocess.TimeoutExpired:
+            return jsonify({"status": "ok", **get_network_status(_via_header())})
+        if proc.returncode != 0:
+            return jsonify({"status": "error", "message": _cli_error(proc, "failed to reset hostname")}), 500
+        return jsonify({"status": "ok", **get_network_status(_via_header())})
+    return jsonify({"status": "error", "message": "lock, name, or reset required"}), 400
 
 def broadcast_full_status():
     """Fetches the latest state and pushes it to all connected WebSocket clients."""

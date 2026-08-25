@@ -183,6 +183,7 @@ install-network:
 	$(INSTALL) -D -m 755 $(SRC)/network/bin/quadrf-usb $(DESTDIR)$(sbindir)/quadrf-usb
 	$(INSTALL) -D -m 755 $(SRC)/network/bin/quadrf-apply-wifi $(DESTDIR)$(sbindir)/quadrf-apply-wifi
 	$(INSTALL) -D -m 755 $(SRC)/network/bin/quadrf-apply-ap $(DESTDIR)$(sbindir)/quadrf-apply-ap
+	$(INSTALL) -D -m 755 $(SRC)/network/bin/quadrf-apply-hostname $(DESTDIR)$(sbindir)/quadrf-apply-hostname
 	$(INSTALL) -D -m 755 $(SRC)/network/bin/quadrf-dns-update $(DESTDIR)$(sbindir)/quadrf-dns-update
 	$(INSTALL) -D -m 755 $(SRC)/network/bin/quadrf-mdns-alias $(DESTDIR)$(sbindir)/quadrf-mdns-alias
 	$(INSTALL) -D -m 755 $(SRC)/network/bin/quadrf-tls-setup $(DESTDIR)$(libdir)/tls-setup
@@ -222,7 +223,8 @@ install-network:
 	$(INSTALL) -D -m 644 -t $(DESTDIR)$(mandir)/man8 $(SRC)/man/quadrf-hotspot.8 \
 		$(SRC)/man/quadrf-ethernet.8 $(SRC)/man/quadrf-usb.8 \
 		$(SRC)/man/quadrf-dns-update.8 \
-		$(SRC)/man/quadrf-apply-wifi.8 $(SRC)/man/quadrf-apply-ap.8
+		$(SRC)/man/quadrf-apply-wifi.8 $(SRC)/man/quadrf-apply-ap.8 \
+		$(SRC)/man/quadrf-apply-hostname.8
 
 install-demos: demos
 	$(INSTALL) -D -m 755 $(BUILD)/demos/quadrf-rf-vision $(DESTDIR)$(bindir)/quadrf-rf-vision

@@ -1,0 +1,91 @@
+#!/bin/bash
+# Persist QUADRF_HOSTNAME / QUADRF_HOSTNAME_LOCK. rename, set and reset
+# re-run quadrf apply so avahi, nginx, TLS and dnsmasq follow the name.
+# Called by quadrf-mdns-alias on collision and by the web GUI via sudoers.
+set -euo pipefail
+
+. /usr/share/quadrf/functions.sh
+
+FACTORY=quadrf
+LOCKDIR=/run/quadrf
+LOCKFILE="${LOCKDIR}/hostname-rename.lock"
+
+usage() {
+    echo "usage: quadrf-apply-hostname rename <name>|set <name>|reset|lock yes|no" >&2
+    exit 1
+}
+
+valid_hostname() {
+    printf '%s' "$1" | grep -qiE '^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$'
+}
+
+hostname_locked() {
+    quadrf_load_conf
+    v="$(printf '%s' "${QUADRF_HOSTNAME_LOCK:-no}" | tr '[:upper:]' '[:lower:]')"
+    [ "${v}" = yes ] || [ "${v}" = true ] || [ "${v}" = 1 ]
+}
+
+apply_name() {
+    name="$1"
+    if ! valid_hostname "${name}"; then
+        echo "quadrf-apply-hostname: invalid hostname '${name}'" >&2
+        exit 1
+    fi
+    install -d -m 755 "${LOCKDIR}"
+    exec 9>"${LOCKFILE}"
+    if ! flock -n 9; then
+        echo "quadrf-apply-hostname: apply already running"
+        exit 0
+    fi
+    quadrf_load_conf
+    if [ "${QUADRF_HOSTNAME}" = "${name}" ]; then
+        echo "quadrf-apply-hostname: already ${name}"
+        exit 0
+    fi
+    echo "quadrf-apply-hostname: ${QUADRF_HOSTNAME} -> ${name}"
+    quadrf_conf_set QUADRF_HOSTNAME "${name}"
+    # Reload nginx for the new name before the rest of apply (tls, ifup).
+    if [ -x /usr/lib/quadrf/apply.d/40-network ]; then
+        /usr/lib/quadrf/apply.d/40-network nginx
+    fi
+    /usr/bin/quadrf apply
+    systemctl try-restart quadrf-soapy-server.service 2>/dev/null || true
+}
+
+case "${1:-}" in
+    rename)
+        [ -n "${2:-}" ] || usage
+        if hostname_locked; then
+            echo "quadrf-apply-hostname: locked, not renaming" >&2
+            exit 0
+        fi
+        apply_name "$2"
+        ;;
+    set)
+        # Operator path (web GUI). Ignores QUADRF_HOSTNAME_LOCK; that flag
+        # only blocks automatic collision rename.
+        [ -n "${2:-}" ] || usage
+        name="$(printf '%s' "$2" | tr '[:upper:]' '[:lower:]')"
+        apply_name "${name}"
+        if [ "${name}" = "${FACTORY}" ]; then
+            quadrf_conf_set QUADRF_HOSTNAME_LOCK no
+        else
+            quadrf_conf_set QUADRF_HOSTNAME_LOCK yes
+        fi
+        ;;
+    reset)
+        apply_name "${FACTORY}"
+        quadrf_conf_set QUADRF_HOSTNAME_LOCK no
+        ;;
+    lock)
+        case "${2:-}" in
+            yes|no) v="$2" ;;
+            true) v=yes ;;
+            false) v=no ;;
+            *) usage ;;
+        esac
+        quadrf_conf_set QUADRF_HOSTNAME_LOCK "${v}"
+        echo "quadrf-apply-hostname: QUADRF_HOSTNAME_LOCK=${v}"
+        ;;
+    *) usage ;;
+esac

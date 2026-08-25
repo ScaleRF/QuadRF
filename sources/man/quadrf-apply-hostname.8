@@ -1,0 +1,61 @@
+.TH QUADRF-APPLY-HOSTNAME 8 "August 2026" "QuadRF" "QuadRF"
+.SH NAME
+quadrf-apply-hostname \- set or lock the QuadRF mDNS name
+.SH SYNOPSIS
+.B quadrf-apply-hostname
+.B rename
+.I name
+.br
+.B quadrf-apply-hostname
+.B set
+.I name
+.br
+.B quadrf-apply-hostname
+.B reset
+.br
+.B quadrf-apply-hostname
+.B lock
+.BR yes | no
+.SH DESCRIPTION
+.B rename
+writes
+.B QUADRF_HOSTNAME
+and runs
+.BR quadrf apply
+so avahi, nginx, the local server certificate and dnsmasq follow
+.IR name .
+.BR quadrf-mdns-alias
+calls this when another unit already holds the current name, unless
+.B QUADRF_HOSTNAME_LOCK
+is yes.
+.PP
+.B set
+is the operator path: same apply as
+.B rename
+but the lock does not block it. The Network Setup page uses this when
+the hostname field is saved. A name other than
+.B quadrf
+turns the lock on; reset turns it off.
+.PP
+.B reset
+sets the name back to
+.B quadrf
+and applies. If another QuadRF still owns
+.IR quadrf.local
+and the lock is off, this unit will take
+.IR quadrf-2.local
+again.
+.PP
+.B lock
+only writes
+.BR QUADRF_HOSTNAME_LOCK .
+It does not apply. Lock on stops automatic rename; the operator can still
+.BR set
+or
+.BR reset .
+.PP
+The web control panel invokes set, lock and reset through the sudoers rule in
+.IR /etc/sudoers.d/quadrf .
+.SH SEE ALSO
+.BR quadrf (1),
+.BR quadrf.conf (5)

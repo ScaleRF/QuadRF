@@ -508,6 +508,52 @@
             cursor: pointer;
         }
         .path-fallback input { width: 0.7rem; height: 0.7rem; margin: 0; accent-color: #f59e0b; }
+        .hostname-row {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 0.45rem;
+            justify-content: flex-end;
+        }
+        .hostname-edit {
+            display: inline-flex;
+            align-items: baseline;
+            gap: 0;
+            font-family: var(--font-mono);
+            font-weight: 600;
+            font-size: 0.7rem;
+            color: #cbd5e1;
+            background: rgba(0,0,0,0.3);
+            padding: 0.18rem 0.5rem;
+            border-radius: 12px;
+            white-space: nowrap;
+        }
+        .hostname-edit input {
+            width: 9ch !important;
+            min-width: 4ch;
+            max-width: 18ch;
+            background: transparent !important;
+            border: none !important;
+            box-shadow: none !important;
+            color: #fff !important;
+            font-family: inherit !important;
+            font-size: inherit !important;
+            font-weight: 600;
+            padding: 0 !important;
+            margin: 0 !important;
+            height: auto !important;
+            text-align: right;
+        }
+        .hostname-edit input:focus {
+            outline: none;
+            background: rgba(0,0,0,0.15) !important;
+        }
+        .hostname-suffix { color: #94a3b8; }
+        .hostname-lock {
+            max-width: 10.5rem;
+            line-height: 1.25;
+            white-space: normal;
+        }
         .path-note {
             margin: 0.2rem 0 0;
             font-size: 0.62rem;
@@ -963,6 +1009,18 @@
         <article class="panel panel-wifi">
             <div class="header-row">
                 <h2><span class="indicator" style="background-color: #f59e0b;"></span> Network Setup</h2>
+                <div class="hostname-row">
+                    <label class="hostname-edit" title="Edit the mDNS name, then Save. Applies without reboot.">
+                        <input type="text" id="hostnameInput" spellcheck="false" autocomplete="off" autocapitalize="none" maxlength="63" value="{{ hostname|default('quadrf') }}" data-applied="{{ hostname|default('quadrf') }}">
+                        <span class="hostname-suffix">.local</span>
+                    </label>
+                    <button type="button" class="path-cfg hidden" id="hostnameSave">Save</button>
+                    <label class="path-fallback hostname-lock{% if (hostname|default('quadrf')) == 'quadrf' %} hidden{% endif %}" id="hostnameLockLabel" title="When off, this unit takes this name-2.local if another QuadRF already has the name.">
+                        <input type="checkbox" id="hostnameLockToggle"{% if hostname_lock %} checked{% endif %}>
+                        Don't yield this name
+                    </label>
+                    <button type="button" class="path-cfg{% if (hostname|default('quadrf')) == 'quadrf' %} hidden{% endif %}" id="hostnameReset">Reset to quadrf.local</button>
+                </div>
             </div>
 
             {% set np = net_paths or {} %}
@@ -1547,7 +1605,8 @@
         const appsStopApi = '{{ url_for("apps_stop") }}';
         const appsIconUrl = '{{ url_for("app_icon", icon="__icon__") }}';
 
-        const desktopHost = '{{ desktop_host }}';
+        const desktopHostStart = '{{ desktop_host }}';
+        let desktopHost = desktopHostStart;
 
         function desktopUrl() {
             const host = window.location.hostname;
@@ -1691,6 +1750,7 @@
         const wifiFallbackApi = '{{ url_for("network_fallback") }}';
         const wifiStationApi = '{{ url_for("network_station") }}';
         const wifiHotspotApi = '{{ url_for("network_hotspot") }}';
+        const hostnameApi = '{{ url_for("network_hostname") }}';
         const wifiStaToggle = document.getElementById('wifiStaToggle');
         const wifiApToggle = document.getElementById('wifiApToggle');
         const wifiFallbackToggle = document.getElementById('wifiFallbackToggle');
@@ -1732,6 +1792,13 @@
             }
             if (state.wifi_sta_ssid && document.activeElement !== document.getElementById('staSsid')) {
                 document.getElementById('staSsid').value = state.wifi_sta_ssid;
+            }
+            if (state.hostname) {
+                applyHostnameState(state.hostname);
+            }
+            const lockEl = document.getElementById('hostnameLockToggle');
+            if (lockEl && typeof state.hostname_lock === 'boolean' && document.activeElement !== lockEl) {
+                lockEl.checked = state.hostname_lock;
             }
         }
 
@@ -1790,6 +1857,114 @@
                 wifiBusy = false;
             }
         });
+        const hostnameInput = document.getElementById('hostnameInput');
+        const hostnameSave = document.getElementById('hostnameSave');
+        const hostnameLockToggle = document.getElementById('hostnameLockToggle');
+        const hostnameLockLabel = document.getElementById('hostnameLockLabel');
+        const hostnameReset = document.getElementById('hostnameReset');
+        const hostnameLabelRe = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i;
+
+        function hostnameDraft() {
+            return hostnameInput.value.trim().replace(/\.local$/i, '').toLowerCase();
+        }
+
+        function hostnameDirty() {
+            return hostnameDraft() !== (hostnameInput.dataset.applied || '').toLowerCase();
+        }
+
+        function sizeHostnameInput() {
+            hostnameInput.style.setProperty('width', Math.max(4, hostnameInput.value.length + 1) + 'ch', 'important');
+        }
+
+        function syncHostnameUi() {
+            const applied = (hostnameInput.dataset.applied || 'quadrf').toLowerCase();
+            const draft = hostnameDraft();
+            const valid = hostnameLabelRe.test(draft);
+            hostnameSave.classList.toggle('hidden', !hostnameDirty());
+            hostnameSave.disabled = !valid;
+            hostnameSave.title = valid ? 'Apply this name (no reboot)' : 'Use letters, digits, and hyphens';
+            hostnameReset.classList.toggle('hidden', applied === 'quadrf');
+            if (hostnameLockLabel) {
+                hostnameLockLabel.classList.toggle('hidden', applied === 'quadrf');
+                hostnameLockLabel.title = applied === 'quadrf'
+                    ? ''
+                    : `When off, this unit takes ${applied}-2.local if another QuadRF already has ${applied}.local.`;
+            }
+        }
+
+        function applyHostnameState(name) {
+            desktopHost = name + 'd.local';
+            if (document.activeElement === hostnameInput || hostnameDirty()) return;
+            hostnameInput.dataset.applied = name;
+            hostnameInput.value = name;
+            sizeHostnameInput();
+            syncHostnameUi();
+        }
+
+        async function applyHostname(name, viaReset) {
+            wifiBusy = true;
+            hostnameSave.disabled = true;
+            hostnameReset.disabled = true;
+            showWifiBanner('success', `Applying ${name}.local…`);
+            try {
+                await postWifi(hostnameApi, viaReset ? { reset: true } : { name });
+                hostnameInput.dataset.applied = name;
+                hostnameInput.value = name;
+                sizeHostnameInput();
+                syncHostnameUi();
+                desktopHost = name + 'd.local';
+                showWifiBanner('success', `Name is ${name}.local. If this page drops, open http://${name}.local/`);
+            } catch (e) {
+                if (/Failed to fetch|NetworkError|network response was not ok/i.test(e.message || '')) {
+                    hostnameInput.dataset.applied = name;
+                    hostnameInput.value = name;
+                    sizeHostnameInput();
+                    syncHostnameUi();
+                    showWifiBanner('success', `Applying ${name}.local. Reopen at http://${name}.local/ if this page drops.`);
+                } else {
+                    showWifiBanner('error', e.message);
+                }
+            } finally {
+                hostnameSave.disabled = false;
+                hostnameReset.disabled = false;
+                wifiBusy = false;
+                syncHostnameUi();
+            }
+        }
+
+        sizeHostnameInput();
+        syncHostnameUi();
+        hostnameInput.addEventListener('input', () => {
+            const stripped = hostnameInput.value.replace(/\.local$/i, '');
+            if (stripped !== hostnameInput.value) hostnameInput.value = stripped;
+            sizeHostnameInput();
+            syncHostnameUi();
+        });
+        hostnameInput.addEventListener('keydown', (e) => {
+            if (e.key !== 'Enter') return;
+            e.preventDefault();
+            const name = hostnameDraft();
+            if (hostnameDirty() && hostnameLabelRe.test(name)) applyHostname(name, false);
+        });
+        hostnameSave.addEventListener('click', () => {
+            const name = hostnameDraft();
+            if (hostnameDirty() && hostnameLabelRe.test(name)) applyHostname(name, false);
+        });
+        hostnameLockToggle.addEventListener('change', async () => {
+            wifiBusy = true;
+            try {
+                await postWifi(hostnameApi, { lock: hostnameLockToggle.checked });
+                showWifiBanner('success', hostnameLockToggle.checked
+                    ? 'This unit will keep this name even if another QuadRF is using it.'
+                    : 'If another QuadRF already has this name, this unit will take the next free name-2.local.');
+            } catch (e) {
+                hostnameLockToggle.checked = !hostnameLockToggle.checked;
+                showWifiBanner('error', e.message);
+            } finally {
+                wifiBusy = false;
+            }
+        });
+        hostnameReset.addEventListener('click', () => applyHostname('quadrf', true));
         document.getElementById('wifiStaCfg').addEventListener('click', () => {
             showWifiForm(netJoin.classList.contains('hidden') ? 'sta' : null);
         });
