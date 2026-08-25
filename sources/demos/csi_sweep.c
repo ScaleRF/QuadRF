@@ -1421,54 +1421,6 @@ static inline int heap_push_topk(heap_item_t *h, int size, int cap, float v, int
 // Mongoose Web Stream
 // ------------------------------------------------------------
 
-#define AR_SETTINGS_PATH "/var/lib/quadrf/demos/ar_settings.json"
-#define AR_WEB_ROOT      "/usr/share/quadrf/ar"
-#define AR_SETTINGS_MAX  512
-
-static char ar_settings_json[AR_SETTINGS_MAX];
-static int  ar_settings_len = 0;
-
-static void ar_settings_load_file(void)
-{
-    FILE *f = fopen(AR_SETTINGS_PATH, "r");
-    if (!f) return;
-
-    size_t n = fread(ar_settings_json, 1, sizeof(ar_settings_json) - 1, f);
-    fclose(f);
-
-    while (n > 0 && (ar_settings_json[n - 1] == '\n' || ar_settings_json[n - 1] == '\r'))
-        n--;
-
-    ar_settings_json[n] = '\0';
-    ar_settings_len = (int)n;
-}
-
-static void ar_settings_save_file(const char *json, int len)
-{
-    if (len <= 0 || len >= AR_SETTINGS_MAX) return;
-
-    memcpy(ar_settings_json, json, (size_t)len);
-    ar_settings_json[len] = '\0';
-    ar_settings_len = len;
-
-    FILE *f = fopen(AR_SETTINGS_PATH, "w");
-    if (!f) return;
-
-    fwrite(ar_settings_json, 1, (size_t)ar_settings_len, f);
-    fputc('\n', f);
-    fclose(f);
-}
-
-static void ar_settings_send(struct mg_connection *c)
-{
-    if (ar_settings_len <= 0) return;
-
-    char msg[AR_SETTINGS_MAX + 16];
-    int n = snprintf(msg, sizeof(msg), "settings:%s", ar_settings_json);
-    if (n > 0 && n < (int)sizeof(msg))
-        mg_ws_send(c, msg, (size_t)n, WEBSOCKET_OP_TEXT);
-}
-
 // Handle incoming HTTP and WebSocket events
 static void web_ev_handler(struct mg_connection *c, int ev, void *ev_data) {
     if (ev == MG_EV_HTTP_MSG) {
@@ -1477,7 +1429,6 @@ static void web_ev_handler(struct mg_connection *c, int ev, void *ev_data) {
             // Upgrade to WebSocket
             mg_ws_upgrade(c, hm, NULL);
             printf("[Web] Client connected to WS stream.\n");
-            ar_settings_send(c);
         } else {
             struct mg_http_serve_opts opts = {.root_dir = AR_WEB_ROOT};
             mg_http_serve_dir(c, ev_data, &opts);
@@ -1485,22 +1436,16 @@ static void web_ev_handler(struct mg_connection *c, int ev, void *ev_data) {
     } else if (ev == MG_EV_WS_MSG) {
         struct mg_ws_message *wm = (struct mg_ws_message *) ev_data;
         ctx_t *ctx = (ctx_t *)c->fn_data;
-        char buf[AR_SETTINGS_MAX + 16];
+        char buf[64];
         
-        int len = wm->data.len < sizeof(buf) - 1 ? (int)wm->data.len : (int)sizeof(buf) - 1;
+        int len = wm->data.len < sizeof(buf) - 1 ? wm->data.len : sizeof(buf) - 1;
         memcpy(buf, wm->data.buf, len); 
         
         buf[len] = '\0';
         
         if (strncmp(buf, "mirror:", 7) == 0) {
-            const char *arg = buf + 7;
-            if (strcmp(arg, "toggle") == 0)
-                ctx->mirror_display = !ctx->mirror_display;
-            else if (arg[0] == '0' || arg[0] == '1')
-                ctx->mirror_display = (arg[0] == '1');
-            else
-                ctx->mirror_display = !ctx->mirror_display;
-            printf("[Web] Mirror display: %d\n", ctx->mirror_display);
+            ctx->mirror_display = !ctx->mirror_display;
+            printf("[Web] Toggled mirror display: %d\n", ctx->mirror_display);
         } else if (strncmp(buf, "gain:", 5) == 0) {
             int val = atoi(buf + 5);
             struct csi_jtag_reg r;
@@ -1510,11 +1455,6 @@ static void web_ev_handler(struct mg_connection *c, int ev, void *ev_data) {
                 if (jtag_write_u16(ctx->fd, r.addr, r.value) == 0)
                     printf("[Web] Hardware RX Gain set to: %d\n", val & 0x7F);
             }
-        } else if (strncmp(buf, "settings:", 9) == 0) {
-            if (strcmp(buf + 9, "get") == 0)
-                ar_settings_send(c);
-            else
-                ar_settings_save_file(buf + 9, len - 9);
         } else if (strncmp(buf, "lock:", 5) == 0) {
             double target_freq = atof(buf + 5);
             ctx->target_freq = target_freq;
@@ -2617,13 +2557,10 @@ int main(int argc, char **argv)
     ctx.back  = back;
     pthread_mutex_init(&ctx.mtx, NULL);
 
-    ctx.mirror_display = 1;
+    ctx.mirror_display = 0;
     ctx.sweep_mode = MODE_SWEEP;
     ctx.output_fraction = 0.25f; // 1.0: output 100% of top bins
     ctx.headless = headless;
-
-    // Restore persisted browser-side AR calibration/settings before clients connect.
-    ar_settings_load_file();
 
     // main worker thread
     pthread_t th;
