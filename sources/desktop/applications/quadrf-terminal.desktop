@@ -4,6 +4,6 @@ Version=1.0
 Name=Terminal
 Exec=xfce4-terminal
 TryExec=xfce4-terminal
-Icon=quadrf-terminal
+Icon=org.xfce.terminal
 Terminal=false
 Categories=System;TerminalEmulator;

@@ -140,6 +140,6 @@ it shows up on the desktop and Applications list automatically. See [Application
 | PSD Plot | Live FFT spectrum from the CSI ring buffer, one or four channels | Remote desktop |
 | GNU Radio Companion | Flowgraph editor with QuadRF receive and transmit examples | Remote desktop |
 | QRadioLink | Digital-voice and analog transceiver | Remote desktop |
-| Terminal, Software Install | Shell, and DietPi's software installer | Remote desktop |
+| Terminal, Text Editor, Software Install | Shell, Mousepad, and DietPi's software installer | Remote desktop |
 
 `quadrf-headless` omits the desktop and the three radio applications.

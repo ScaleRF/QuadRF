@@ -259,6 +259,7 @@ install-demos: demos
 install-desktop:
 	$(INSTALL) -D -m 644 -t $(DESTDIR)$(appdir) \
 		$(SRC)/desktop/applications/quadrf-agent.desktop \
+		$(SRC)/desktop/applications/quadrf-editor.desktop \
 		$(SRC)/desktop/applications/quadrf-files.desktop \
 		$(SRC)/desktop/applications/quadrf-qradiolink.desktop \
 		$(SRC)/desktop/applications/quadrf-software.desktop \
@@ -271,6 +272,8 @@ install-desktop:
 	$(INSTALL) -D -m 644 $(SRC)/desktop/pcmanfm-LXDE.conf \
 		$(DESTDIR)$(datadir)/desktop/config/pcmanfm/LXDE/pcmanfm.conf
 	$(INSTALL) -D -m 644 $(SRC)/desktop/libfm.conf $(DESTDIR)$(datadir)/desktop/config/libfm/libfm.conf
+	$(INSTALL) -D -m 644 $(SRC)/desktop/mimeapps.list \
+		$(DESTDIR)$(datadir)/desktop/config/mimeapps.list
 	$(INSTALL) -D -m 644 $(SRC)/desktop/qradiolink.cfg \
 		$(DESTDIR)$(datadir)/desktop/config/qradiolink/qradiolink.cfg
 	cp -a $(SRC)/kasmvnc/www $(DESTDIR)$(datadir)/desktop/www
@@ -278,7 +281,6 @@ install-desktop:
 	$(INSTALL) -D -m 755 $(SRC)/desktop/sync-desktop-apps $(DESTDIR)$(libdir)/sync-desktop-apps
 	$(INSTALL) -D -m 644 $(SRC)/systemd/quadrf-desktop.service $(DESTDIR)$(unitdir)/quadrf-desktop.service
 	$(INSTALL) -D -m 644 $(SRC)/icons/qradiolink.svg $(DESTDIR)$(icondir)/quadrf-qradiolink.svg
-	$(INSTALL) -D -m 644 $(SRC)/icons/terminal.svg $(DESTDIR)$(icondir)/quadrf-terminal.svg
 	$(INSTALL) -D -m 644 $(SRC)/icons/dietpi_software.svg $(DESTDIR)$(icondir)/quadrf-software.svg
 	$(INSTALL) -D -m 644 $(SRC)/icons/agentic_radio.svg $(DESTDIR)$(icondir)/quadrf-agent.svg
 	$(INSTALL) -D -m 644 $(SRC)/icons/files.svg $(DESTDIR)$(icondir)/quadrf-files.svg

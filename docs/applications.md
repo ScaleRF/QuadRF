@@ -20,6 +20,7 @@ These come with the complete `quadrf` package.
 | GNU Radio Companion | Flowgraph editor with QuadRF examples | Remote desktop |
 | QRadioLink | Digital-voice and analog transceiver | Remote desktop |
 | Terminal | Shell on the appliance | Remote desktop |
+| Text Editor | Mousepad, for config and source files | Remote desktop |
 | Software Install | DietPi software installer | Remote desktop |
 
 The smaller `quadrf-headless` install omits the desktop and the three radio

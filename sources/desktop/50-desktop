@@ -43,7 +43,7 @@ chown "${QUADRF_USER}:${GROUP}" "${HOME_DIR}/.vnc/.de-was-selected"
 # install -d -o only owns the last component; intermediates stay root and
 # then qradiolink/GRC cannot create ~/.config/<app>.
 install -d -o "${QUADRF_USER}" -g "${GROUP}" -m 755 "${HOME_DIR}/.config"
-for entry in openbox/autostart tint2/tint2rc pcmanfm/LXDE/pcmanfm.conf libfm/libfm.conf; do
+for entry in openbox/autostart tint2/tint2rc pcmanfm/LXDE/pcmanfm.conf libfm/libfm.conf mimeapps.list; do
     src="${SHARE}/config/${entry}"
     dest="${HOME_DIR}/.config/${entry}"
     [ -f "${src}" ] || continue

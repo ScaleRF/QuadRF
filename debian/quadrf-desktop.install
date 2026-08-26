@@ -1,4 +1,5 @@
 usr/share/applications/quadrf-agent.desktop
+usr/share/applications/quadrf-editor.desktop
 usr/share/applications/quadrf-files.desktop
 usr/share/applications/quadrf-qradiolink.desktop
 usr/share/applications/quadrf-software.desktop
@@ -7,7 +8,6 @@ usr/share/icons/hicolor/scalable/apps/quadrf-agent.svg
 usr/share/icons/hicolor/scalable/apps/quadrf-files.svg
 usr/share/icons/hicolor/scalable/apps/quadrf-qradiolink.svg
 usr/share/icons/hicolor/scalable/apps/quadrf-software.svg
-usr/share/icons/hicolor/scalable/apps/quadrf-terminal.svg
 usr/share/quadrf/desktop/
 usr/share/quadrf/agent/
 usr/lib/quadrf/kasm-wrangle

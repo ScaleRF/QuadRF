@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Text Editor
+Comment=Edit text files
+Exec=mousepad %F
+TryExec=mousepad
+Icon=org.xfce.mousepad
+Terminal=false
+Categories=Utility;TextEditor;
+MimeType=text/plain;text/x-python;text/x-python3;text/x-c;text/x-chdr;text/x-c++src;text/x-c++hdr;text/x-makefile;text/x-markdown;text/x-patch;text/x-shellscript;text/csv;text/xml;application/json;application/x-shellscript;application/x-yaml;application/javascript;inode/x-empty;

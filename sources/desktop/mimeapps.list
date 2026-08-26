@@ -1,0 +1,19 @@
+[Default Applications]
+text/plain=quadrf-editor.desktop
+text/csv=quadrf-editor.desktop
+text/xml=quadrf-editor.desktop
+text/x-c=quadrf-editor.desktop
+text/x-chdr=quadrf-editor.desktop
+text/x-c++src=quadrf-editor.desktop
+text/x-c++hdr=quadrf-editor.desktop
+text/x-makefile=quadrf-editor.desktop
+text/x-markdown=quadrf-editor.desktop
+text/x-patch=quadrf-editor.desktop
+text/x-python=quadrf-editor.desktop
+text/x-python3=quadrf-editor.desktop
+text/x-shellscript=quadrf-editor.desktop
+application/json=quadrf-editor.desktop
+application/javascript=quadrf-editor.desktop
+application/x-shellscript=quadrf-editor.desktop
+application/x-yaml=quadrf-editor.desktop
+inode/x-empty=quadrf-editor.desktop

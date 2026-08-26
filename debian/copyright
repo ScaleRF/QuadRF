@@ -13,6 +13,15 @@ License: GPL-3
  On Debian systems the full text of the GNU General Public License version 3
  can be found in /usr/share/common-licenses/GPL-3.
 
+Files: sources/icons/files.svg
+Copyright: Papirus Development Team
+License: GPL-3
+ Papirus `system-file-manager` icon, used as the file-manager launcher.
+ https://github.com/PapirusDevelopmentTeam/papirus-icon-theme
+ .
+ On Debian systems the full text of the GNU General Public License version 3
+ can be found in /usr/share/common-licenses/GPL-3.
+
 Files: sources/fpga/quadrf.svf
 Copyright: 2025-2026 Scale RF
 License: proprietary
