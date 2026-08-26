@@ -26,8 +26,15 @@ AP_CLI = os.environ.get("QUADRF_APPLY_AP", "/usr/sbin/quadrf-apply-ap")
 HOSTNAME_CLI = os.environ.get("QUADRF_APPLY_HOSTNAME", "/usr/sbin/quadrf-apply-hostname")
 HOTSPOT_CLI = os.environ.get("QUADRF_HOTSPOT", "/usr/sbin/quadrf-hotspot")
 APP_CLI = os.environ.get("QUADRF_APP", "/usr/sbin/quadrf-app")
+UNLOCK_CLI = os.environ.get("QUADRF_TX_UNLOCK", "/usr/sbin/quadrf-tx-unlock")
 CONF_PATH = os.environ.get("QUADRF_CONF", "/etc/quadrf/quadrf.conf")
 WPA_CONF = os.environ.get("QUADRF_WPA_CONF", "/etc/wpa_supplicant/wpa_supplicant.conf")
+TX_FULL_POWER_PATH = os.environ.get("QUADRF_TX_FULL_POWER", "/var/lib/quadrf/tx_full_power")
+TX_GAIN_LOCKED_MAX = 40
+
+
+def tx_full_power_unlocked():
+    return os.path.exists(TX_FULL_POWER_PATH)
 
 
 def load_quadrf_conf(path=CONF_PATH):
@@ -336,9 +343,12 @@ def get_sdr_status():
                     state['tx_p3'] = float(parts[2].strip())
                     state['tx_p4'] = float(parts[3].strip())
                 except Exception: pass
+
+        state['tx_full_power'] = tx_full_power_unlocked()
                     
     except Exception as e:
         print(f"Status read error: {e}")
+        state['tx_full_power'] = tx_full_power_unlocked()
         
     return state
 
@@ -711,7 +721,15 @@ def control_sdr():
         elif control_type == 'tx_freq':
             cmd.extend(["--tx", f"freq={float(value)}"])            
         elif control_type == 'tx_gain':
-            cmd.extend(["--tx", f"gain={int(float(value))}"])
+            gain = int(float(value))
+            if not tx_full_power_unlocked() and gain > TX_GAIN_LOCKED_MAX:
+                return jsonify({
+                    "status": "tx_limited",
+                    "message": "TX gain limited until the lawful-use notice is accepted.",
+                    "tx_full_power": False,
+                    "max": TX_GAIN_LOCKED_MAX,
+                }), 403
+            cmd.extend(["--tx", f"gain={gain}"])
         elif control_type == 'tx_ant_enables':
             mask = 0
             if value.get('a1'): mask |= 1
@@ -747,6 +765,15 @@ def control_sdr():
         return jsonify({"status": "error", "message": e.stderr}), 500
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route('/api/tx_unlock', methods=['POST'])
+def tx_unlock():
+    proc = run_sudo([UNLOCK_CLI])
+    if proc.returncode != 0:
+        return jsonify({"status": "error", "message": _cli_error(proc, "failed to unlock TX")}), 500
+    return jsonify({"status": "ok", "tx_full_power": True})
+
 
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=8080, allow_unsafe_werkzeug=True)

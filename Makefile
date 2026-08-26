@@ -172,10 +172,12 @@ install-gui:
 	$(INSTALL) -D -m 644 -t $(DESTDIR)$(datadir)/gui/templates $(SRC)/flask/templates/*
 	$(INSTALL) -D -m 644 -t $(DESTDIR)$(datadir)/gui/static $(SRC)/flask/static/*
 	$(INSTALL) -D -m 755 $(SRC)/flask/quadrf-app $(DESTDIR)$(sbindir)/quadrf-app
+	$(INSTALL) -D -m 755 $(SRC)/flask/quadrf-tx-unlock $(DESTDIR)$(sbindir)/quadrf-tx-unlock
 	$(INSTALL) -D -m 644 $(SRC)/flask/apps.json $(DESTDIR)$(datadir)/apps.json
 	$(INSTALL) -D -m 644 $(SRC)/systemd/quadrf-gui.service $(DESTDIR)$(unitdir)/quadrf-gui.service
 	$(INSTALL) -D -m 755 $(SRC)/flask/30-gui $(DESTDIR)$(libdir)/apply.d/30-gui
 	$(INSTALL) -D -m 644 $(SRC)/man/quadrf-app.8 $(DESTDIR)$(mandir)/man8/quadrf-app.8
+	$(INSTALL) -D -m 644 $(SRC)/man/quadrf-tx-unlock.8 $(DESTDIR)$(mandir)/man8/quadrf-tx-unlock.8
 
 install-network:
 	$(INSTALL) -D -m 755 $(SRC)/network/bin/quadrf-hotspot $(DESTDIR)$(sbindir)/quadrf-hotspot

@@ -1,0 +1,8 @@
+#!/bin/sh
+# Record Controls-page acceptance of the lawful-use notice so MAX2850 TX
+# gain may exceed 40. Called by the web GUI through sudoers.
+set -eu
+
+install -d -m 755 /var/lib/quadrf
+printf 'yes\n' > /var/lib/quadrf/tx_full_power
+chmod 644 /var/lib/quadrf/tx_full_power

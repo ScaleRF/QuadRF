@@ -8,6 +8,28 @@
 #include <string.h>
 #include <unistd.h>
 
+#define TX_GAIN_LOCKED_MAX 40
+#define TX_FULL_POWER_PATH "/var/lib/quadrf/tx_full_power"
+
+static bool tx_full_power_unlocked(void)
+{
+    const char *path = getenv("QUADRF_TX_FULL_POWER");
+    if (path == NULL || path[0] == '\0') path = TX_FULL_POWER_PATH;
+    return access(path, F_OK) == 0;
+}
+
+static uint16_t cap_tx_gain(uint16_t tx_gain_setting)
+{
+    uint16_t gain = (uint16_t)(tx_gain_setting & 0x3Fu);
+    if (!tx_full_power_unlocked() && gain > TX_GAIN_LOCKED_MAX) {
+        fprintf(stderr,
+                "TX gain limited to %d until the lawful-use notice is accepted on the Controls page.\n",
+                TX_GAIN_LOCKED_MAX);
+        return (uint16_t)TX_GAIN_LOCKED_MAX;
+    }
+    return gain;
+}
+
 /*
  * This file forwards MAX2850/MAX2851 SPI "words" through FPGA JTAG registers:
  * MAX2850_REG_ADDR (0x42) for TX chip
@@ -24,7 +46,7 @@
 static const uint16_t max2851_base_regs[32] = {
     /* 0: */ 0x00A, // Main0: MODE[2:0] (D4:D2), RFBW (D1) (D1=0 => 40 MHz, D1=1 => 20 MHz)
     /* 1: */ 0x000, // Main1: LNA_GAIN[2:0] (D7:D5) + VGA_GAIN[4:0] (D4:D0) (Rx gain word)
-    /* 2: */ 0x1C0, // Main2: LNA_BAND[1:0] (D6:D5) selects RF band; 01=~5.2ñ5.5GHz (datasheet default)
+    /* 2: */ 0x1C0, // Main2: LNA_BAND[1:0] (D6:D5) selects RF band; 01=~5.2ù5.5GHz (datasheet default)
     /* 3: */ 0x000, // Main3: Temperature sensor control: TS_EN (D7), TS_TRIG (D6); TS_READ[4:0] readback
     /* 4: */ 0x31C, // Main4: RESERVED
     /* 5: */ 0x000, // Main5: RSSI_MUX_SEL[2:0] (D8:D6), RSSI_RX_SEL[2:0] (D5:D3), RXHP (D1)
@@ -94,10 +116,10 @@ static const uint16_t max2850_base_regs[32] = {
 static uint16_t max2851_lna_band_reg2_for_freq(double mhz)
 {
     /* Main2: LNA_BAND[1:0] at D[6:5]; keep reserved bits at default. */
-    if (mhz < 5200.0) return 0x180;  /* 00: 4.9ñ5.2 GHz */
-    if (mhz < 5500.0) return 0x1A0;  /* 01: 5.2ñ5.5 GHz (default) */
-    if (mhz < 5800.0) return 0x1C0;  /* 10: 5.5ñ5.8 GHz */
-    return 0x1E0;                    /* 11: 5.8ñ5.9 GHz */
+    if (mhz < 5200.0) return 0x180;  /* 00: 4.9ù5.2 GHz */
+    if (mhz < 5500.0) return 0x1A0;  /* 01: 5.2ù5.5 GHz (default) */
+    if (mhz < 5800.0) return 0x1C0;  /* 10: 5.5ù5.8 GHz */
+    return 0x1E0;                    /* 11: 5.8ù5.9 GHz */
 }
 
 static uint16_t main0_force_mode_bw(uint16_t reg0_template, uint16_t mode_bits, int bw_mhz)
@@ -387,6 +409,11 @@ int max2850_tx_on(int fd,
     uint16_t current_reg0 = 0;
     jtag_read_u16(fd, MAX2850_REG_ADDR, &current_reg0);
 
+    uint16_t read_cmd9 = 0x8000 | (9 << 10);
+    jtag_write_u16(fd, MAX2850_REG_ADDR, read_cmd9);
+    uint16_t current_reg9 = 0;
+    jtag_read_u16(fd, MAX2850_REG_ADDR, &current_reg9);
+
     // Restore DOUT routing
     max2850_word(fd, 14, orig_reg14);
 
@@ -417,6 +444,11 @@ int max2850_tx_on(int fd,
 
     if (set_gain) {
         if (max2850_set_tx_gain(fd, gain) != 0) return -1;
+    } else {
+        uint16_t live_gain = (uint16_t)((current_reg9 >> 4) & 0x3F);
+        if (!tx_full_power_unlocked() && live_gain > TX_GAIN_LOCKED_MAX) {
+            if (max2850_set_tx_gain(fd, live_gain) != 0) return -1;
+        }
     }
 
     /* FPGA global setting: enable delta-sigma / RF switch path for TX */
@@ -435,8 +467,8 @@ int max2850_tx_on(int fd,
 
 int max2850_set_tx_gain(int fd, uint16_t tx_gain_setting)
 {
-    /* Always program requested value (including 0) in this API. */
-    if (max2850_word(fd, 9, (uint16_t)(((tx_gain_setting & 0x3Fu) << 4) | 0x000Fu)) != 0) return -1;
+    uint16_t gain = cap_tx_gain(tx_gain_setting);
+    if (max2850_word(fd, 9, (uint16_t)((gain << 4) | 0x000Fu)) != 0) return -1;
     return 0;
 }
 

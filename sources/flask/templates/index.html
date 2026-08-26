@@ -342,6 +342,114 @@
         .panel-rx input[type="range"]::-webkit-slider-thumb { border: 2px solid var(--rx-color); }
         .panel-tx input[type="range"]::-webkit-slider-thumb { border: 2px solid var(--tx-color); }
 
+        /* Locked: gray the unused 41–63 region of the Tx Gain track. */
+        #txGain {
+            --tx-gain-cap: calc(7px + (40 / 63) * (100% - 14px));
+        }
+        #txGain::-webkit-slider-runnable-track {
+            background: linear-gradient(
+                to right,
+                #0f172a 0,
+                #0f172a var(--tx-gain-cap),
+                #64748b var(--tx-gain-cap),
+                #64748b 100%
+            );
+        }
+        #txGain::-moz-range-track {
+            height: 4px;
+            border: none;
+            border-radius: 2px;
+            background: linear-gradient(
+                to right,
+                #0f172a 0,
+                #0f172a var(--tx-gain-cap),
+                #64748b var(--tx-gain-cap),
+                #64748b 100%
+            );
+        }
+        #txGainGroup.tx-full-power #txGain::-webkit-slider-runnable-track { background: #0f172a; }
+        #txGainGroup.tx-full-power #txGain::-moz-range-track { background: #0f172a; }
+
+        .tx-notice {
+            background: none;
+            border: none;
+            padding: 0;
+            margin: 0;
+            color: #fb7185;
+            font-size: 0.75rem;
+            font-weight: 600;
+            cursor: pointer;
+            opacity: 0.7;
+        }
+        .tx-notice:hover { opacity: 1; text-decoration: underline; }
+        .tx-notice.pulse { animation: tx-notice-pulse 0.6s ease; }
+        @keyframes tx-notice-pulse {
+            0%, 100% { opacity: 0.7; color: #fb7185; }
+            40% { opacity: 1; color: #fecdd3; }
+            70% { opacity: 0.35; color: #f43f5e; }
+        }
+        .tx-gain-track { position: relative; }
+        #txGainGroup.tx-full-power .tx-notice { display: none; }
+
+        #txNoticeDlg:not([open]) { display: none !important; }
+        #txNoticeDlg[open] {
+            background: transparent;
+            border: none;
+            padding: 0;
+            max-width: none !important;
+            width: 100% !important;
+            height: 100% !important;
+            display: grid !important;
+            place-items: center;
+        }
+        #txNoticeDlg::backdrop { background: rgba(15, 23, 42, 0.72); }
+        #txNoticeDlg .tx-notice-card {
+            background: var(--panel-bg);
+            color: #f8fafc;
+            border: 1px solid rgba(255,255,255,0.12);
+            border-radius: var(--border-radius);
+            width: min(36rem, calc(100vw - 2rem));
+            max-height: min(90vh, 42rem);
+            overflow: auto;
+            padding: 1.25rem 1.35rem;
+            text-align: left;
+        }
+        #txNoticeDlg h2 { margin: 0 0 0.75rem 0; font-size: 1.05rem; }
+        #txNoticeDlg p, #txNoticeDlg li {
+            font-size: 0.85rem;
+            line-height: 1.45;
+            color: #cbd5e1;
+            margin: 0 0 0.6rem 0;
+        }
+        #txNoticeDlg ol { padding-left: 1.2rem; margin: 0.35rem 0 0.75rem; }
+        #txNoticeDlg a { color: #fda4af; }
+        #txNoticeDlg .agree-row {
+            display: flex;
+            align-items: flex-start;
+            gap: 0.5rem;
+            margin-top: 0.5rem;
+            font-size: 0.8rem;
+            color: #e2e8f0;
+            font-weight: 500;
+        }
+        #txNoticeDlg .agree-row input[type="checkbox"] {
+            appearance: auto;
+            width: 1rem !important;
+            height: 1rem !important;
+            margin-top: 0.15rem !important;
+            flex-shrink: 0;
+            border-radius: 3px;
+        }
+        #txNoticeDlg footer {
+            display: flex;
+            justify-content: flex-end;
+            gap: 0.5rem;
+            margin-top: 1rem;
+            background: none;
+            border: none;
+            padding: 0;
+        }
+
         /* Meters */
         .meter-wrapper {
             display: flex; align-items: center; gap: 0.5rem;
@@ -897,9 +1005,9 @@
                     <input type="range" id="txFreq" min="4900" max="6000" step="1" value="5500">
                 </div>
                 
-                <div class="control-group">
+                <div class="control-group" id="txGainGroup">
                     <div class="setting-row">
-                        <label>Tx Gain</label>
+                        <label>Tx Gain <button type="button" id="txGainNotice" class="tx-notice hidden">Notice</button></label>
                         <div class="value-group" style="gap: 0.5rem;">
                             <div class="value-group">
                                 <input type="number" id="txGainNum" value="30" class="readout-input">
@@ -908,7 +1016,9 @@
                             <label class="chip"><input type="checkbox" id="txAgc"> ALC</label>
                         </div>
                     </div>
-                    <input type="range" id="txGain" min="0" max="63" step="1" value="30">
+                    <div class="tx-gain-track">
+                        <input type="range" id="txGain" min="0" max="63" step="1" value="30">
+                    </div>
                 </div>
             </div>
 
@@ -1129,6 +1239,28 @@
             <pre id="consoleOutput">Hardware initialization sequence complete...\n</pre>
         </article>
     </main>
+
+    <dialog id="txNoticeDlg">
+        <div class="tx-notice-card">
+        <h2>Safety, Regulatory, and Lawful Use Agreement</h2>
+        <p>QuadRF is an experimental software-defined radio intended for education, research, prototyping, and amateur-radio experimentation. To unlock full transmit capabilities, please see the notice below.</p>
+        <ol>
+            <li>You are solely responsible for the lawful operation of this device. This includes operating only in authorized frequency bands, maintaining appropriate licenses (such as a valid Amateur Radio license where required), and observing applicable power and emissions limits for your jurisdiction.</li>
+            <li>The QuadRF hardware and software are provided "as is." The developers assume no responsibility for your operation.</li>
+            <li>You agree to avoid causing harmful interference. You will not operate this hardware in a way that interferes with life-safety systems, aviation, navigation, emergency services, medical devices, or licensed spectrum users.</li>
+            <li>RF systems can create hazardous exposure levels. You are responsible for evaluating exposure hazards and maintaining safe operation.</li>
+        </ol>
+        <p>For more information, please visit <a href="https://scalerf.com" target="_blank" rel="noopener">scalerf.com</a> and our GitHub repository <a href="https://github.com/ScaleRF/QuadRF" target="_blank" rel="noopener">https://github.com/ScaleRF/QuadRF</a></p>
+        <label class="agree-row">
+            <input type="checkbox" id="txNoticeAgree">
+            <span>I have read this notice and I am responsible for lawful operation of this device.</span>
+        </label>
+        <footer>
+            <button type="button" id="txNoticeCancel" class="outline">Cancel</button>
+            <button type="button" id="txNoticeUnlock" disabled>Agree</button>
+        </footer>
+        </div>
+    </dialog>
 
     <script>
         const consoleDiv = document.getElementById('consoleOutput');
@@ -1442,6 +1574,42 @@
             if (elInput) elInput.addEventListener('input', handleManualAngles);
         }
 
+        const TX_GAIN_CAP = 40;
+        let txFullPower = false;
+        let txNoticeClosedAtCap = false;
+
+        function setTxFullPower(unlocked) {
+            txFullPower = !!unlocked;
+            const group = document.getElementById('txGainGroup');
+            if (group) group.classList.toggle('tx-full-power', txFullPower);
+        }
+
+        function openTxNotice() {
+            if (txFullPower) return;
+            const dlg = document.getElementById('txNoticeDlg');
+            const agree = document.getElementById('txNoticeAgree');
+            const unlock = document.getElementById('txNoticeUnlock');
+            const notice = document.getElementById('txGainNotice');
+            if (!dlg || dlg.open) return;
+            if (notice) notice.classList.remove('hidden');
+            if (agree) agree.checked = false;
+            if (unlock) unlock.disabled = true;
+            dlg.showModal();
+        }
+
+        function capTxGainInput(raw) {
+            let v = parseInt(raw, 10);
+            if (Number.isNaN(v)) v = 0;
+            if (v < 0) v = 0;
+            if (v > 63) v = 63;
+            if (!txFullPower && v > TX_GAIN_CAP) {
+                if (!txNoticeClosedAtCap) openTxNotice();
+                return TX_GAIN_CAP;
+            }
+            if (v < TX_GAIN_CAP) txNoticeClosedAtCap = false;
+            return v;
+        }
+
         function applyState(state) {
             function updateIfUnfocused(id, val) {
                 const el = document.getElementById(id);
@@ -1510,6 +1678,7 @@
             }
 
             // Tx State
+            if (state.tx_full_power !== undefined) setTxFullPower(state.tx_full_power);
             if(state.tx_follow_rx !== undefined) { 
                 updateCheckbox('txLockRx', state.tx_follow_rx); 
                 
@@ -2143,8 +2312,43 @@
         bindFreqControls('txToneFreq', 'txToneNum', 'tx_tone');
 
         const txGainSlider = document.getElementById('txGain'); const txGainNum = document.getElementById('txGainNum');
-        txGainSlider.addEventListener('input', (e) => { txGainNum.value = e.target.value; throttledSend('tx_gain', e.target.value); });
-        txGainNum.addEventListener('input', (e) => { txGainSlider.value = e.target.value; throttledSend('tx_gain', e.target.value); });
+        txGainSlider.addEventListener('input', (e) => {
+            const v = capTxGainInput(e.target.value);
+            txGainSlider.value = v; txGainNum.value = v;
+            throttledSend('tx_gain', v);
+        });
+        txGainNum.addEventListener('input', (e) => {
+            const v = capTxGainInput(e.target.value);
+            txGainSlider.value = v; txGainNum.value = v;
+            throttledSend('tx_gain', v);
+        });
+
+        const txNoticeDlg = document.getElementById('txNoticeDlg');
+        const txNoticeAgree = document.getElementById('txNoticeAgree');
+        const txNoticeUnlock = document.getElementById('txNoticeUnlock');
+        document.getElementById('txGainNotice').addEventListener('click', () => {
+            txNoticeAgree.checked = false;
+            txNoticeUnlock.disabled = true;
+            txNoticeDlg.showModal();
+        });
+        txNoticeAgree.addEventListener('change', () => {
+            txNoticeUnlock.disabled = !txNoticeAgree.checked;
+        });
+        document.getElementById('txNoticeCancel').addEventListener('click', () => txNoticeDlg.close());
+        txNoticeDlg.addEventListener('close', () => { txNoticeClosedAtCap = true; });
+        txNoticeDlg.addEventListener('click', (e) => { if (e.target === txNoticeDlg) txNoticeDlg.close(); });
+        txNoticeUnlock.addEventListener('click', async () => {
+            if (!txNoticeAgree.checked) return;
+            try {
+                const res = await fetch('{{ url_for("tx_unlock") }}', { method: 'POST' });
+                const result = await res.json();
+                if (!res.ok) throw new Error(result.message || 'unlock failed');
+                setTxFullPower(true);
+                txNoticeDlg.close();
+            } catch (error) {
+                logToConsole('tx_unlock', error.message, true);
+            }
+        });
 
         document.getElementById('txAgc').addEventListener('change', (e) => {
             txGainSlider.disabled = e.target.checked; txGainNum.disabled = e.target.checked;

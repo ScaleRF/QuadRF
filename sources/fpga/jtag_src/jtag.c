@@ -46,7 +46,7 @@ static void usage(const char *argv0)
         "                           antennas=<mask>   0xF is all 4 antennas\n"
         "                           bw=<MHz>          tx: 20|40, rx: any > 0 (default: 40)\n"
         "                           freq=<MHz>        only if provided\n"
-        "                           gain=<0..63>      only if provided\n"
+        "                           gain=<0..63>      TX default-capped at 40 until unlocked\n"
         "                           agc=<dBFS>        rx only: automatic gain control setpoint\n"
         "                           pol=<rhcp|lhcp>   rx only: polarization (default: rhcp)\n"
         "                           interleave=<1|0>  rx only: 4-channel interleaved mode (default: 0)\n"

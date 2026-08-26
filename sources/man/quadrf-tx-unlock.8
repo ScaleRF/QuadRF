@@ -1,0 +1,23 @@
+.TH QUADRF-TX-UNLOCK 8 "August 2026" "QuadRF" "QuadRF"
+.SH NAME
+quadrf-tx-unlock \- record acceptance of the TX lawful-use notice
+.SH SYNOPSIS
+.B quadrf-tx-unlock
+.SH DESCRIPTION
+Creates
+.I /var/lib/quadrf/tx_full_power
+so
+.BR quadrf-jtag (1)
+will program MAX2850 TX gain above 40. Until that file exists, gain is
+capped at 40 on all four transmit channels.
+.PP
+The web control panel invokes this through the sudoers rule in
+.IR /etc/sudoers.d/quadrf
+after the operator agrees to the notice on the Controls page.
+.SH FILES
+.TP
+.I /var/lib/quadrf/tx_full_power
+Presence of this file unlocks full TX gain. Remove it to restore the cap.
+.SH SEE ALSO
+.BR quadrf-jtag (1),
+.BR quadrf (1)

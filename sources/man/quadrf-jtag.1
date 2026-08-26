@@ -49,7 +49,10 @@ a comma-separated list of key=value pairs:
 .BI bw= MHz
 (transmit: 20 or 40; receive: any positive value, default 40),
 .BI freq= MHz ,
-.BI gain= 0..63 ,
+.BI gain= 0..63
+(transmit gain is capped at 40 until the lawful-use notice is accepted on
+the Controls page; the marker file is
+.IR /var/lib/quadrf/tx_full_power ),
 .BI agc= dBFS
 (receive only),
 .BI pol= rhcp|lhcp
