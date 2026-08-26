@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=File Manager
+Comment=Browse the file system
+Exec=pcmanfm
+TryExec=pcmanfm
+Icon=quadrf-files
+Terminal=false
+Categories=System;FileTools;FileManager;

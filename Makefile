@@ -257,6 +257,7 @@ install-demos: demos
 install-desktop:
 	$(INSTALL) -D -m 644 -t $(DESTDIR)$(appdir) \
 		$(SRC)/desktop/applications/quadrf-agent.desktop \
+		$(SRC)/desktop/applications/quadrf-files.desktop \
 		$(SRC)/desktop/applications/quadrf-qradiolink.desktop \
 		$(SRC)/desktop/applications/quadrf-software.desktop \
 		$(SRC)/desktop/applications/quadrf-terminal.desktop
@@ -278,6 +279,7 @@ install-desktop:
 	$(INSTALL) -D -m 644 $(SRC)/icons/terminal.svg $(DESTDIR)$(icondir)/quadrf-terminal.svg
 	$(INSTALL) -D -m 644 $(SRC)/icons/dietpi_software.svg $(DESTDIR)$(icondir)/quadrf-software.svg
 	$(INSTALL) -D -m 644 $(SRC)/icons/agentic_radio.svg $(DESTDIR)$(icondir)/quadrf-agent.svg
+	$(INSTALL) -D -m 644 $(SRC)/icons/files.svg $(DESTDIR)$(icondir)/quadrf-files.svg
 	$(INSTALL) -D -m 644 $(SRC)/gptme/config/env.example $(DESTDIR)$(datadir)/agent/env.example
 
 install-gnuradio:
