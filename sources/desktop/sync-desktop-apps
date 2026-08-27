@@ -8,13 +8,11 @@ quadrf_load_conf
 
 APPLICATION_DIR="${QUADRF_APPLICATION_DIR:-/usr/share/applications}"
 
-# Pin these launchers at the top of the first column; others follow in glob order.
+# Flow order for unfixed icons (mtime ascending). Do not write per-icon
+# x/y: PCManFM then reflows on Kasm resize instead of clamping overflow
+# onto the last row.
 PREFERRED_DESKTOP_ENTRIES="quadrf-terminal.desktop quadrf-files.desktop quadrf-editor.desktop"
-
-# PCManFM 48px icon grid (SPACING=2, PADDING=6, MARGIN=2).
-DESKTOP_GRID_X=2
-DESKTOP_GRID_Y=2
-DESKTOP_CELL_H=90
+DESKTOP_MTIME_BASE=1000000000
 
 if ! getent passwd "${QUADRF_USER}" >/dev/null; then
     echo "quadrf: user ${QUADRF_USER} does not exist, skipping app launchers" >&2
@@ -83,16 +81,26 @@ for entry in "${APPLICATION_DIR}"/*.desktop; do
     sync_desktop_entry "${entry}"
 done
 
-write_desktop_layout() {
+stamp_desktop_order() {
     [ -s "${ORDER_TMP}" ] || return 0
+    n=0
+    while IFS= read -r name; do
+        [ -n "${name}" ] || continue
+        dest="${DESKTOP_DIR}/${name}"
+        [ -f "${dest}" ] || continue
+        touch -d "@$((DESKTOP_MTIME_BASE + n))" "${dest}"
+        n=$((n + 1))
+    done < "${ORDER_TMP}"
+}
 
+# Wallpaper and sort only. Omitting per-icon groups drops fixed_pos so
+# layout_items() wraps columns when the framebuffer changes.
+write_desktop_layout() {
     profile_dir="${HOME_DIR}/.config/pcmanfm/LXDE"
     layout_file="${profile_dir}/desktop-items-0.conf"
-    layout_tmp="$(mktemp)"
     install -d -o "${QUADRF_USER}" -g "${GROUP}" -m 755 "${profile_dir}"
-
-    {
-        cat <<'EOF'
+    layout_tmp="$(mktemp)"
+    cat > "${layout_tmp}" <<'EOF'
 [*]
 wallpaper_mode=color
 wallpaper_common=1
@@ -105,18 +113,7 @@ sort=mtime;ascending;
 show_documents=0
 show_trash=0
 show_mounts=0
-
 EOF
-        grid_y="${DESKTOP_GRID_Y}"
-        while IFS= read -r name; do
-            [ -n "${name}" ] || continue
-            printf '[%s]\n' "${name}"
-            printf 'x=%d\n' "${DESKTOP_GRID_X}"
-            printf 'y=%d\n\n' "${grid_y}"
-            grid_y=$((grid_y + DESKTOP_CELL_H))
-        done < "${ORDER_TMP}"
-    } > "${layout_tmp}"
-
     install -o "${QUADRF_USER}" -g "${GROUP}" -m 644 "${layout_tmp}" "${layout_file}"
     rm -f "${layout_tmp}"
 }
@@ -135,5 +132,6 @@ refresh_pcmanfm_desktop() {
         >/dev/null 2>&1 &
 }
 
+stamp_desktop_order
 write_desktop_layout
 refresh_pcmanfm_desktop
