@@ -271,6 +271,8 @@ install-desktop:
 	$(INSTALL) -D -m 644 $(SRC)/desktop/tint2rc $(DESTDIR)$(datadir)/desktop/config/tint2/tint2rc
 	$(INSTALL) -D -m 644 $(SRC)/desktop/pcmanfm-LXDE.conf \
 		$(DESTDIR)$(datadir)/desktop/config/pcmanfm/LXDE/pcmanfm.conf
+	$(INSTALL) -D -m 644 $(SRC)/desktop/wallpaper.png \
+		$(DESTDIR)$(datadir)/desktop/wallpaper.png
 	$(INSTALL) -D -m 644 $(SRC)/desktop/libfm.conf $(DESTDIR)$(datadir)/desktop/config/libfm/libfm.conf
 	$(INSTALL) -D -m 644 $(SRC)/desktop/mimeapps.list \
 		$(DESTDIR)$(datadir)/desktop/config/mimeapps.list

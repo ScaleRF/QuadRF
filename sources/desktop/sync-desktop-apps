@@ -102,7 +102,8 @@ write_desktop_layout() {
     layout_tmp="$(mktemp)"
     cat > "${layout_tmp}" <<'EOF'
 [*]
-wallpaper_mode=color
+wallpaper=/usr/share/quadrf/desktop/wallpaper.png
+wallpaper_mode=crop
 wallpaper_common=1
 desktop_bg=#2e3440
 desktop_fg=#ffffff
