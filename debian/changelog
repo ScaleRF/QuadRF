@@ -1,3 +1,11 @@
+quadrf (1.0.10) trixie; urgency=medium
+
+  * GRC QuadRF source/sink blocks; MIPI AGC, bandwidth, and per-channel jtag.
+  * Persist DietPi journal; default QRadioLink to 5.8 GHz duplex.
+  * Fix RX gain desync on filter bandwidth changes; ship starfield wallpaper.
+
+ -- QuadRF Engineering <contact@ScaleRF.com>  Thu, 27 Aug 2026 15:36:21 -0700
+
 quadrf (1.0.9) trixie; urgency=medium
 
   * Reflow desktop launchers when the VNC framebuffer resizes.
