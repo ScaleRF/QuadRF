@@ -61,7 +61,7 @@ flowchart TB
 | Home LAN | `quadrf.local` | mDNS, one A record per path (ethernet, USB, client, hotspot). A client on the LAN sees the LAN address, not the hotspot. Initial setup uses HTTP; controls use HTTPS. |
 | Ethernet direct-connect | `10.55.1.1` | No router on the cable: Pi is `10.55.1.1`, the PC gets a lease from dnsmasq. No gateway. |
 | USB gadget | `10.55.0.1` | `g_ether` on `usb0` when a host enumerates the gadget. Same names as Ethernet. Most laptops cannot provide 5V at 5A, causing possible brownouts. Please isolate the Pi's power from the usb connection to a device. |
-| Fallback access point | `192.168.44.1` | SSID `QuadRF`, open unless `QUADRF_AP_PASS` is set. Default boot tries a saved client network, then this AP. The control panel can switch client, hotspot, or off without a reboot. |
+| Fallback access point | `192.168.44.1` | SSID `QuadRF`, open unless `QUADRF_AP_PASS` is set. Fresh installs start the hotspot. If Client is selected, boot tries a saved network, then this AP. The control panel can switch client, hotspot, or off without a reboot. |
 
 Use `http://quadrf.local/setup/security/` once to install the per-install local
 root certificate, then use `https://quadrf.local/` as the canonical browser

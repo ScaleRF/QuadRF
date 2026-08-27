@@ -99,7 +99,7 @@ Site settings live in `/etc/quadrf/quadrf.conf`:
 | `QUADRF_AP_SSID`    | `QuadRF`         | Fallback access point SSID                     |
 | `QUADRF_AP_PASS`    | empty            | Fallback AP WPA2 passphrase; empty = open      |
 | `QUADRF_AP_ADDRESS` | `192.168.44.1`   | Pi address in access point mode                |
-| `QUADRF_WIFI_MODE`  | `sta`            | Last Wi-Fi choice: `sta`, `ap`, or `off`       |
+| `QUADRF_WIFI_MODE`  | `ap`             | Last Wi-Fi choice: `sta`, `ap`, or `off` (fresh installs are hotspot) |
 | `QUADRF_WIFI_FALLBACK` | `yes`         | If client join fails, start the hotspot        |
 | `QUADRF_OPENOCD`    | empty            | Override OpenOCD; used to program the FPGA with BYO bitstream     |
 

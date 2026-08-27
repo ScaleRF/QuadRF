@@ -79,12 +79,17 @@ def alternative_hostname(name):
     return f"{name}-2"
 
 
-def keep_addr(iface, addr, ap_addr):
-    # Link-local and loopback are not a path. A dhclient lease on our own
-    # AP subnet is also not the appliance — publishing it made .local → .12.
+def keep_addr(iface, addr, ap_addr, ap_up):
+    # Link-local and loopback are not a path. A dhclient lease from our
+    # own dhcpd (wlan0=.12 while the AP is up) is not a LAN path either.
     if addr.startswith("127.") or addr.startswith("169.254."):
         return False
-    if iface == "wlan0" and _slash24(addr) == _slash24(ap_addr) and addr != ap_addr:
+    if (
+        ap_up
+        and iface == "wlan0"
+        and addr != ap_addr
+        and _slash24(addr) == _slash24(ap_addr)
+    ):
         return False
     return True
 
@@ -98,14 +103,18 @@ def iface_addrs(ap_addr):
         )
     except (OSError, subprocess.CalledProcessError):
         return []
-    pairs = []
+    parsed = []
     for line in out.splitlines():
         parts = line.split()
         if len(parts) < 4 or parts[2] != "inet":
             continue
         iface = parts[1]
         addr = parts[3].split("/", 1)[0]
-        if not keep_addr(iface, addr, ap_addr):
+        parsed.append((iface, addr))
+    ap_up = any(iface == "wlan0" and addr == ap_addr for iface, addr in parsed)
+    pairs = []
+    for iface, addr in parsed:
+        if not keep_addr(iface, addr, ap_addr, ap_up):
             continue
         try:
             idx = socket.if_nametoindex(iface)

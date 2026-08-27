@@ -19,14 +19,16 @@ from
 .IR /etc/quadrf/quadrf.conf :
 .TP
 .B sta
-(the default when unset) Try a saved
+(used when unset) Try a saved
 .B wpa_supplicant
 network for twelve seconds. On success, stay in client mode. On failure,
 start the hotspot only if
 .B QUADRF_WIFI_FALLBACK
-is yes (the default). Fallback does not change
+is yes (the default). Fallback after a failed join does not change
 .BR QUADRF_WIFI_MODE ,
-so the next boot still retries client first.
+so the next boot still retries client first. No saved network persists
+.B ap
+instead, so the Client toggle is not left on.
 .TP
 .B ap
 Start the hotspot immediately (no client wait).

@@ -101,8 +101,10 @@ Last operator choice for wlan0:
 (wlan0 down). Empty means
 .BR sta .
 Written by the control panel toggles; a failed client join that starts the
-fallback AP does not change this. Default:
-.BR sta .
+fallback AP does not change this. No saved client network persists
+.BR ap .
+Shipped default:
+.BR ap .
 .TP
 .B QUADRF_WIFI_FALLBACK
 .BR yes
@@ -126,7 +128,7 @@ QUADRF_HOSTNAME_LOCK=no
 QUADRF_AP_SSID=QuadRF-14
 QUADRF_AP_PASS=
 QUADRF_AP_ADDRESS=192.168.44.1
-QUADRF_WIFI_MODE=sta
+QUADRF_WIFI_MODE=ap
 QUADRF_WIFI_FALLBACK=yes
 QUADRF_OPENOCD=
 .fi

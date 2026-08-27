@@ -2,6 +2,7 @@
 # wlan0 client, fallback AP, or off. Boot uses "start" (honours the last
 # user mode). The GUI calls sta/ap/off for a live switch; those persist
 # QUADRF_WIFI_MODE. Fallback AP after a failed client join does not.
+# sta with no saved network persists ap so the Client toggle is not left on.
 set -euo pipefail
 
 . /usr/share/quadrf/functions.sh
@@ -48,13 +49,74 @@ persist_mode() {
     QUADRF_WIFI_MODE="$1"
 }
 
+ap_slash24() {
+    printf '%s\n' "${QUADRF_AP_ADDRESS%.*}"
+}
+
+# Address from our own AP dhcpd, not from the saved client network.
+on_ap_subnet() {
+    local addr="$1"
+    [[ "${addr%.*}" == "$(ap_slash24)" ]]
+}
+
+wlan_sta_addr() {
+    ip -4 -o addr show dev wlan0 scope global 2>/dev/null | while read -r _ _ _ cidr _; do
+        addr="${cidr%%/*}"
+        on_ap_subnet "${addr}" && continue
+        printf '%s\n' "${addr}"
+        return 0
+    done
+}
+
+drop_ap_subnet_sta() {
+    local ap24 cidr addr
+    ap24="$(ap_slash24)"
+    ip -4 -o addr show dev wlan0 scope global 2>/dev/null | while read -r _ _ _ cidr _; do
+        addr="${cidr%%/*}"
+        [[ "${addr}" == "${QUADRF_AP_ADDRESS}" ]] && continue
+        [[ "${addr%.*}" == "${ap24}" ]] || continue
+        ip addr del "${cidr}" dev wlan0 2>/dev/null || true
+    done
+}
+
+# Cached 192.168.44.x from our dhcpd is renewed before DISCOVER on the LAN.
+purge_wlan_dhclient_leases() {
+    rm -f /var/lib/dhcp/dhclient.wlan0.leases
+    local f=/var/lib/dhcp/dhclient.leases
+    [[ -f "${f}" ]] || return 0
+    local tmp
+    tmp="$(mktemp)"
+    awk '
+        /^lease \{/ { buf = $0 ORS; inlease = 1; skip = 0; next }
+        inlease {
+            buf = buf $0 ORS
+            if ($0 ~ /interface "wlan0"/) skip = 1
+            if ($0 ~ /^}/) {
+                if (!skip) printf "%s", buf
+                inlease = 0
+            }
+            next
+        }
+        { print }
+    ' "${f}" > "${tmp}"
+    cat "${tmp}" > "${f}"
+    rm -f "${tmp}"
+}
+
 sta_ready() {
     iw dev wlan0 link 2>/dev/null | grep -q 'Connected to' &&
-        ip -4 -o addr show dev wlan0 scope global 2>/dev/null | grep -q .
+        [[ -n "$(wlan_sta_addr)" ]]
 }
 
 has_saved_network() {
     [[ -f "${WPA_CONF}" ]] && grep -qE '^[[:space:]]*network=' "${WPA_CONF}"
+}
+
+# GUI (QUADRF_USER) reads the SSID in Network Setup; DietPi ships this 600 root.
+readable_wpa() {
+    [[ -f "${WPA_CONF}" ]] || return 0
+    chown root:"${QUADRF_USER}" "${WPA_CONF}" 2>/dev/null || true
+    chmod 640 "${WPA_CONF}" 2>/dev/null || true
 }
 
 # ifup dhcp on wlan0 against our own AP rewrites resolv.conf to 192.168.44.1.
@@ -138,6 +200,9 @@ stop_ap() {
     stop_captive_dns
     systemctl stop hostapd.service 2>/dev/null || true
     systemctl stop isc-dhcp-server.service 2>/dev/null || true
+    # dhcpd can still ACK a wlan0 DISCOVER during stop; that lease is
+    # 192.168.44.x and looks like a successful client join.
+    pkill -x dhcpd 2>/dev/null || true
     rm -f /run/dhcp-server/dhcpd.pid /var/run/dhcpd.pid
     if [[ -f "${AP_CONF}" ]]; then
         rm -f "${AP_CONF}"
@@ -197,6 +262,8 @@ keep_sta() {
 try_station() {
     stop_ap
     radio_reset
+    drop_ap_subnet_sta
+    purge_wlan_dhclient_leases
     if ! has_saved_network; then
         log "no saved client network"
         return 1
@@ -205,13 +272,16 @@ try_station() {
     wpa_supplicant -B -i wlan0 -c "${WPA_CONF}" 9>&- >/dev/null 2>&1 || true
     local deadline=$((SECONDS + STA_TIMEOUT))
     while (( SECONDS < deadline )); do
+        drop_ap_subnet_sta
         if iw dev wlan0 link 2>/dev/null | grep -q 'Connected to' &&
-           ! ip -4 -o addr show dev wlan0 scope global 2>/dev/null | grep -q .; then
+           [[ -z "$(wlan_sta_addr)" ]]; then
             timeout 8 dhclient -1 wlan0 9>&- >/dev/null 2>&1 || true
+            drop_ap_subnet_sta
         fi
         sta_ready && return 0
         sleep 1
     done
+    drop_ap_subnet_sta
     sta_ready
 }
 
@@ -252,6 +322,17 @@ EOF
 }
 
 apply_sta() {
+    if ! has_saved_network; then
+        log "no saved client network"
+        if wifi_fallback; then
+            persist_mode ap
+            start_ap
+        else
+            log "AP fallback disabled, leaving wlan0 down"
+            radio_down
+        fi
+        return 0
+    fi
     if try_station; then
         keep_sta
         return 0
@@ -266,6 +347,7 @@ apply_sta() {
 }
 
 cmd_start() {
+    readable_wpa
     if wifi_disabled; then
         log "dtoverlay=disable-wifi is set in ${CONFIG_TXT}; wlan0 is unavailable"
         return 1
@@ -289,6 +371,7 @@ cmd_start() {
 }
 
 cmd_sta() {
+    readable_wpa
     ensure_wlan || return 1
     persist_mode sta
     apply_sta
