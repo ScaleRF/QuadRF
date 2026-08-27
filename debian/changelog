@@ -1,3 +1,11 @@
+quadrf (1.0.9) trixie; urgency=medium
+
+  * Reflow desktop launchers when the VNC framebuffer resizes.
+  * Keep Terminal, File Manager, and Text Editor first.
+  * Default fresh installs to hotspot and fix AP dhcp lease races.
+
+ -- QuadRF Engineering <contact@ScaleRF.com>  Wed, 26 Aug 2026 22:12:14 -0700
+
 quadrf (1.0.8) trixie; urgency=medium
 
   * PCManFM file manager launcher.
