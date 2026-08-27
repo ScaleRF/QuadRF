@@ -29,7 +29,7 @@ override_dh_missing:
 # Pass them explicitly so they are enabled; load-quadrf and soapy-server wait
 # for the post-install reboot rather than failing in the maintainer script.
 override_dh_installsystemd:
-	dh_installsystemd -pquadrf-common quadrf-journal.service
+	dh_installsystemd -pquadrf-common --no-enable --no-start quadrf-journal.service
 	dh_installsystemd -pquadrf-boot --no-start quadrf-reboot-clear.service
 	dh_installsystemd -pquadrf-fpga --no-start load-quadrf.service
 	dh_installsystemd -pquadrf-gui quadrf-gui.service

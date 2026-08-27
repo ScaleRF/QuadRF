@@ -1,3 +1,11 @@
+quadrf (1.0.11) trixie; urgency=medium
+
+  * Fix Flask logging GIL deadlock and add subprocess timeouts.
+  * Rate-limit status polling in web UI with in-flight request guards.
+  * Default journald to in-memory volatile storage.
+
+ -- QuadRF Engineering <contact@ScaleRF.com>  Thu, 27 Aug 2026 15:49:00 -0700
+
 quadrf (1.0.10) trixie; urgency=medium
 
   * GRC QuadRF source/sink blocks; MIPI AGC, bandwidth, and per-channel jtag.

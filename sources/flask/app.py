@@ -2,6 +2,7 @@ from flask import Flask, abort, jsonify, redirect, render_template, request, sen
 from werkzeug.middleware.proxy_fix import ProxyFix
 from flask_socketio import SocketIO
 import json
+import logging
 import os
 import signal
 import subprocess
@@ -10,6 +11,9 @@ import time
 import math
 import re
 from app_icons import find_app_icon
+
+# Suppress verbose per-request access logs from Werkzeug to prevent stdio stream saturation
+logging.getLogger('werkzeug').setLevel(logging.WARNING)
 
 app = Flask(__name__)
 app.config['TEMPLATES_AUTO_RELOAD'] = True # Force Flask to bypass template caching
@@ -243,113 +247,128 @@ def parse_cli_json(proc):
     except json.JSONDecodeError:
         return None
 
-def get_sdr_status():
+_SDR_STATUS_LOCK = threading.Lock()
+_SDR_STATUS_CACHE = {}
+_SDR_STATUS_CACHE_TIME = 0.0
+_SDR_STATUS_CACHE_TTL = 0.25
+
+
+def get_sdr_status(force=False):
     """Runs the CLI status commands and parses the output fault-tolerantly."""
-    state = {}
-    try:
-        rx_proc = subprocess.run([SDR_CLI, "--status", "rx"], capture_output=True, text=True)
-        if rx_proc.returncode != 0:
-            print(f"[Warning] jtag rx status error: {rx_proc.stderr}")
+    global _SDR_STATUS_CACHE, _SDR_STATUS_CACHE_TIME
+    now = time.monotonic()
+    if not force and _SDR_STATUS_CACHE and (now - _SDR_STATUS_CACHE_TIME < _SDR_STATUS_CACHE_TTL):
+        return dict(_SDR_STATUS_CACHE)
+
+    with _SDR_STATUS_LOCK:
+        now = time.monotonic()
+        if not force and _SDR_STATUS_CACHE and (now - _SDR_STATUS_CACHE_TIME < _SDR_STATUS_CACHE_TTL):
+            return dict(_SDR_STATUS_CACHE)
+
+        state = {}
+        try:
+            rx_proc = subprocess.run([SDR_CLI, "--status", "rx"], capture_output=True, text=True, timeout=2.0)
             
-        # Keep track of these independently so their print order doesn't matter
-        rx_interleave_on = False
-        rx_tone_on = False
+            # Keep track of these independently so their print order doesn't matter
+            rx_interleave_on = False
+            rx_tone_on = False
 
-        for line in rx_proc.stdout.split('\n'):
-            line = line.strip()
-            if line.startswith("- PLL Lock:"): 
-                state['rx_pll_locked'] = "LOCKED" in line
-            elif line.startswith("- LO Frequency:"): 
-                try: state['rx_freq'] = float(line.split(':', 1)[1].replace('MHz','').strip())
-                except ValueError: pass
-            elif line.startswith("- Gain:"): 
-                try: state['rx_gain'] = float(line.split(':', 1)[1].replace('dB','').strip())
-                except ValueError: pass
-            elif line.startswith("- Digital Bandwidth (k):"): 
-                parts = line.split(':', 1)
-                if len(parts) > 1 and "Disabled" not in parts[1]:
-                    try: state['rx_bw_k'] = int(parts[1].split('(')[0].strip())
-                    except ValueError: pass
-            elif line.startswith("- AGC:"): 
-                state['rx_agc'] = "Enabled" in line
-                if state['rx_agc'] and "Setpoint:" in line:
-                    match = re.search(r'Setpoint:\s*(\d+)', line)
-                    if match:
-                        thr = float(match.group(1))
-                        state['rx_gain_dbfs'] = round(20.0 * math.log10(thr / 180.0), 1) if thr > 0 else -40.0
-            elif line.startswith("- Interleaved Mode:"): 
-                rx_interleave_on = "ON" in line
-            elif line.startswith("- Auto Steer:"):
-                state['rx_auto_steer'] = "ON" in line
-            elif line.startswith("- Polarization:"):
-                state['rx_pol'] = "rhcp" if "RHCP" in line.upper() else "lhcp"
-            elif line.startswith("- Test Tone:"):
-                rx_tone_on = "ON" in line
-                state['rx_tone_en'] = rx_tone_on
-            elif line.startswith("- Tone Freq:"):
-                try: state['rx_tone_freq'] = float(line.split(':', 1)[1].replace('MHz','').strip())
-                except ValueError: pass
-            elif line.startswith("- Phases:"):
-                try:
-                    parts = line.split(':', 1)[1].split(',')
-                    state['rx_p1'] = float(parts[0].strip())
-                    state['rx_p2'] = float(parts[1].strip())
-                    state['rx_p3'] = float(parts[2].strip())
-                    state['rx_p4'] = float(parts[3].strip())
-                except Exception: pass
+            if rx_proc.returncode == 0:
+                for line in rx_proc.stdout.split('\n'):
+                    line = line.strip()
+                    if line.startswith("- PLL Lock:"): 
+                        state['rx_pll_locked'] = "LOCKED" in line
+                    elif line.startswith("- LO Frequency:"): 
+                        try: state['rx_freq'] = float(line.split(':', 1)[1].replace('MHz','').strip())
+                        except ValueError: pass
+                    elif line.startswith("- Gain:"): 
+                        try: state['rx_gain'] = float(line.split(':', 1)[1].replace('dB','').strip())
+                        except ValueError: pass
+                    elif line.startswith("- Digital Bandwidth (k):"): 
+                        parts = line.split(':', 1)
+                        if len(parts) > 1 and "Disabled" not in parts[1]:
+                            try: state['rx_bw_k'] = int(parts[1].split('(')[0].strip())
+                            except ValueError: pass
+                    elif line.startswith("- AGC:"): 
+                        state['rx_agc'] = "Enabled" in line
+                        if state['rx_agc'] and "Setpoint:" in line:
+                            match = re.search(r'Setpoint:\s*(\d+)', line)
+                            if match:
+                                thr = float(match.group(1))
+                                state['rx_gain_dbfs'] = round(20.0 * math.log10(thr / 180.0), 1) if thr > 0 else -40.0
+                    elif line.startswith("- Interleaved Mode:"): 
+                        rx_interleave_on = "ON" in line
+                    elif line.startswith("- Auto Steer:"):
+                        state['rx_auto_steer'] = "ON" in line
+                    elif line.startswith("- Polarization:"):
+                        state['rx_pol'] = "rhcp" if "RHCP" in line.upper() else "lhcp"
+                    elif line.startswith("- Test Tone:"):
+                        rx_tone_on = "ON" in line
+                        state['rx_tone_en'] = rx_tone_on
+                    elif line.startswith("- Tone Freq:"):
+                        try: state['rx_tone_freq'] = float(line.split(':', 1)[1].replace('MHz','').strip())
+                        except ValueError: pass
+                    elif line.startswith("- Phases:"):
+                        try:
+                            parts = line.split(':', 1)[1].split(',')
+                            state['rx_p1'] = float(parts[0].strip())
+                            state['rx_p2'] = float(parts[1].strip())
+                            state['rx_p3'] = float(parts[2].strip())
+                            state['rx_p4'] = float(parts[3].strip())
+                        except Exception: pass
 
-        # Resolve the Rx dropdown state definitively at the end
-        if rx_tone_on:
-            state['rx_antenna_mode'] = "test"
-        else:
-            state['rx_antenna_mode'] = "4" if rx_interleave_on else "1"
+            # Resolve the Rx dropdown state definitively at the end
+            if rx_tone_on:
+                state['rx_antenna_mode'] = "test"
+            else:
+                state['rx_antenna_mode'] = "4" if rx_interleave_on else "1"
 
-        tx_proc = subprocess.run([SDR_CLI, "--status", "tx"], capture_output=True, text=True)
-        if tx_proc.returncode != 0:
-            print(f"[Warning] jtag tx status error: {tx_proc.stderr}")
-            
-        for line in tx_proc.stdout.split('\n'):
-            line = line.strip()
-            if line.startswith("- PLL Lock:"): 
-                state['tx_pll_locked'] = "LOCKED" in line
-            elif line.startswith("- Tx is"): 
-                state['tx_on'] = "ON" in line
-            elif line.startswith("- LO Frequency:"): 
-                try: state['tx_freq'] = float(line.split(':', 1)[1].replace('MHz','').strip())
-                except ValueError: pass
-            elif line.startswith("- Gain:"): 
-                try: state['tx_gain'] = float(line.split(':', 1)[1].replace('dB','').strip())
-                except ValueError: pass
-            elif line.startswith("- Antennas enabled:"):
-                parts = line.split(':', 1)
-                if len(parts) > 1:
-                    ants = parts[1].strip()
-                    state['tx_ant1'] = '1' in ants
-                    state['tx_ant2'] = '2' in ants
-                    state['tx_ant3'] = '3' in ants
-                    state['tx_ant4'] = '4' in ants
-            elif line.startswith("- Tx follow Rx:"):
-                state['tx_follow_rx'] = "ON" in line
-            elif line.startswith("- Test Tone:"):
-                state['tx_tone_en'] = "ON" in line
-            elif line.startswith("- Tone Freq:"):
-                try: state['tx_tone_freq'] = float(line.split(':', 1)[1].replace('MHz','').strip())
-                except ValueError: pass
-            elif line.startswith("- Phases:"):
-                try:
-                    parts = line.split(':', 1)[1].split(',')
-                    state['tx_p1'] = float(parts[0].strip())
-                    state['tx_p2'] = float(parts[1].strip())
-                    state['tx_p3'] = float(parts[2].strip())
-                    state['tx_p4'] = float(parts[3].strip())
-                except Exception: pass
+            tx_proc = subprocess.run([SDR_CLI, "--status", "tx"], capture_output=True, text=True, timeout=2.0)
+            if tx_proc.returncode == 0:
+                for line in tx_proc.stdout.split('\n'):
+                    line = line.strip()
+                    if line.startswith("- PLL Lock:"): 
+                        state['tx_pll_locked'] = "LOCKED" in line
+                    elif line.startswith("- Tx is"): 
+                        state['tx_on'] = "ON" in line
+                    elif line.startswith("- LO Frequency:"): 
+                        try: state['tx_freq'] = float(line.split(':', 1)[1].replace('MHz','').strip())
+                        except ValueError: pass
+                    elif line.startswith("- Gain:"): 
+                        try: state['tx_gain'] = float(line.split(':', 1)[1].replace('dB','').strip())
+                        except ValueError: pass
+                    elif line.startswith("- Antennas enabled:"):
+                        parts = line.split(':', 1)
+                        if len(parts) > 1:
+                            ants = parts[1].strip()
+                            state['tx_ant1'] = '1' in ants
+                            state['tx_ant2'] = '2' in ants
+                            state['tx_ant3'] = '3' in ants
+                            state['tx_ant4'] = '4' in ants
+                    elif line.startswith("- Tx follow Rx:"):
+                        state['tx_follow_rx'] = "ON" in line
+                    elif line.startswith("- Test Tone:"):
+                        state['tx_tone_en'] = "ON" in line
+                    elif line.startswith("- Tone Freq:"):
+                        try: state['tx_tone_freq'] = float(line.split(':', 1)[1].replace('MHz','').strip())
+                        except ValueError: pass
+                    elif line.startswith("- Phases:"):
+                        try:
+                            parts = line.split(':', 1)[1].split(',')
+                            state['tx_p1'] = float(parts[0].strip())
+                            state['tx_p2'] = float(parts[1].strip())
+                            state['tx_p3'] = float(parts[2].strip())
+                            state['tx_p4'] = float(parts[3].strip())
+                        except Exception: pass
 
-        state['tx_full_power'] = tx_full_power_unlocked()
-                    
-    except Exception as e:
-        print(f"Status read error: {e}")
-        state['tx_full_power'] = tx_full_power_unlocked()
-        
+            state['tx_full_power'] = tx_full_power_unlocked()
+            _SDR_STATUS_CACHE = dict(state)
+            _SDR_STATUS_CACHE_TIME = time.monotonic()
+        except Exception:
+            state['tx_full_power'] = tx_full_power_unlocked()
+            if _SDR_STATUS_CACHE:
+                return dict(_SDR_STATUS_CACHE)
+
     return state
 
 @app.route('/', methods=['GET'])
@@ -493,9 +512,9 @@ def network_hostname():
         return jsonify({"status": "ok", **get_network_status(_via_header())})
     return jsonify({"status": "error", "message": "lock, name, or reset required"}), 400
 
-def broadcast_full_status():
+def broadcast_full_status(force=False):
     """Fetches the latest state and pushes it to all connected WebSocket clients."""
-    state = get_sdr_status()
+    state = get_sdr_status(force=force)
     socketio.emit('sdr_status', state)
 
 def broadcast_app_state():
@@ -751,13 +770,12 @@ def control_sdr():
         if control_type in ['rx_analog_bw']:
             return jsonify({"status": "success", "executed": f"{control_type} (Mocked)", "output": ""})
             
-        print("Executing:", " ".join(cmd))
-        result = subprocess.run(cmd, check=True, text=True, capture_output=True)
+        result = subprocess.run(cmd, check=True, text=True, capture_output=True, timeout=5.0)
         
         def delayed_broadcast():
-            time.sleep(0.1)
-            broadcast_full_status()
-        threading.Thread(target=delayed_broadcast).start()
+            time.sleep(0.05)
+            broadcast_full_status(force=True)
+        threading.Thread(target=delayed_broadcast, daemon=True).start()
         
         return jsonify({"status": "success", "executed": " ".join(cmd), "output": result.stdout})
 

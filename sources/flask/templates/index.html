@@ -1744,7 +1744,10 @@
             }
         }
 
+        let isFetchingState = false;
         async function fetchState() {
+            if (isFetchingState) return;
+            isFetchingState = true;
             try {
                 const res = await fetch('{{ url_for("get_status") }}');
                 if (!res.ok) throw new Error("Network response was not ok");
@@ -1752,11 +1755,13 @@
                 applyState(state);
             } catch(e) { 
                 console.error("Failed to fetch state", e); 
+            } finally {
+                isFetchingState = false;
             }
         }
 
         fetchState();
-        setInterval(fetchState, 200);
+        setInterval(fetchState, 1000);
 
         if (typeof io !== 'undefined') {
             const socket = io({ path: '{{ request.script_root }}/socket.io' });
@@ -1903,13 +1908,18 @@
             }
         }
 
+        let isFetchingApps = false;
         async function fetchApps() {
+            if (isFetchingApps) return;
+            isFetchingApps = true;
             try {
                 const res = await fetch(appsApi);
                 if (!res.ok) throw new Error('app status failed');
                 applyAppState(await res.json());
             } catch (e) {
                 console.error('Failed to fetch apps', e);
+            } finally {
+                isFetchingApps = false;
             }
         }
 
