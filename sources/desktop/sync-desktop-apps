@@ -8,6 +8,14 @@ quadrf_load_conf
 
 APPLICATION_DIR="${QUADRF_APPLICATION_DIR:-/usr/share/applications}"
 
+# Pin these launchers at the top of the first column; others follow in glob order.
+PREFERRED_DESKTOP_ENTRIES="quadrf-terminal.desktop quadrf-files.desktop quadrf-editor.desktop"
+
+# PCManFM 48px icon grid (SPACING=2, PADDING=6, MARGIN=2).
+DESKTOP_GRID_X=2
+DESKTOP_GRID_Y=2
+DESKTOP_CELL_H=90
+
 if ! getent passwd "${QUADRF_USER}" >/dev/null; then
     echo "quadrf: user ${QUADRF_USER} does not exist, skipping app launchers" >&2
     exit 0
@@ -40,17 +48,92 @@ done
 # packaged apps. Keep recognizing the old quadrf-* namespace for compatibility.
 # Skip (and drop stale copies of) entries whose TryExec is missing; otherwise a
 # double-click is "Invalid desktop entry file" rather than a hidden icon.
-for entry in "${APPLICATION_DIR}"/*.desktop; do
-    [ -f "${entry}" ] || continue
-    is_quadrf_entry "${entry}" || continue
+ORDER_TMP="$(mktemp)"
+trap 'rm -f "${ORDER_TMP}"' EXIT HUP INT TERM
+
+sync_desktop_entry() {
+    entry="$1"
     dest="${DESKTOP_DIR}/$(basename "${entry}")"
     tryexec="$(sed -n 's/^TryExec=//p' "${entry}" | head -n1)"
     if [ -n "${tryexec}" ] && [ ! -x "${tryexec}" ] && ! command -v "${tryexec}" >/dev/null 2>&1; then
         rm -f "${dest}"
-        continue
+        return 0
     fi
     install -o "${QUADRF_USER}" -g "${GROUP}" -m 755 "${entry}" "${dest}"
     if command -v gio >/dev/null 2>&1; then
         runuser -u "${QUADRF_USER}" -- gio set "${dest}" metadata::trusted true 2>/dev/null || true
     fi
+    printf '%s\n' "$(basename "${entry}")" >> "${ORDER_TMP}"
+}
+
+synced_entries=""
+for name in ${PREFERRED_DESKTOP_ENTRIES}; do
+    entry="${APPLICATION_DIR}/${name}"
+    [ -f "${entry}" ] || continue
+    is_quadrf_entry "${entry}" || continue
+    sync_desktop_entry "${entry}"
+    synced_entries="${synced_entries} ${name}"
 done
+
+for entry in "${APPLICATION_DIR}"/*.desktop; do
+    [ -f "${entry}" ] || continue
+    name="$(basename "${entry}")"
+    case "${synced_entries}" in *" ${name}"*) continue ;; esac
+    is_quadrf_entry "${entry}" || continue
+    sync_desktop_entry "${entry}"
+done
+
+write_desktop_layout() {
+    [ -s "${ORDER_TMP}" ] || return 0
+
+    profile_dir="${HOME_DIR}/.config/pcmanfm/LXDE"
+    layout_file="${profile_dir}/desktop-items-0.conf"
+    layout_tmp="$(mktemp)"
+    install -d -o "${QUADRF_USER}" -g "${GROUP}" -m 755 "${profile_dir}"
+
+    {
+        cat <<'EOF'
+[*]
+wallpaper_mode=color
+wallpaper_common=1
+desktop_bg=#2e3440
+desktop_fg=#ffffff
+desktop_shadow=#000000
+desktop_font=Sans 12
+show_wm_menu=0
+sort=mtime;ascending;
+show_documents=0
+show_trash=0
+show_mounts=0
+
+EOF
+        grid_y="${DESKTOP_GRID_Y}"
+        while IFS= read -r name; do
+            [ -n "${name}" ] || continue
+            printf '[%s]\n' "${name}"
+            printf 'x=%d\n' "${DESKTOP_GRID_X}"
+            printf 'y=%d\n\n' "${grid_y}"
+            grid_y=$((grid_y + DESKTOP_CELL_H))
+        done < "${ORDER_TMP}"
+    } > "${layout_tmp}"
+
+    install -o "${QUADRF_USER}" -g "${GROUP}" -m 644 "${layout_tmp}" "${layout_file}"
+    rm -f "${layout_tmp}"
+}
+
+refresh_pcmanfm_desktop() {
+    if ! pgrep -u "${QUADRF_USER}" -x pcmanfm >/dev/null 2>&1; then
+        return 0
+    fi
+    display="$(ps -u "${QUADRF_USER}" -o args= 2>/dev/null |
+        sed -n 's/.*Xvnc :\([0-9][0-9]*\).*/\1/p' | head -n1)"
+    display="${display:-1}"
+    runuser -u "${QUADRF_USER}" -- env \
+        DISPLAY=":${display}" \
+        XAUTHORITY="${HOME_DIR}/.Xauthority" \
+        bash -c 'killall pcmanfm 2>/dev/null; exec pcmanfm --desktop --profile LXDE' \
+        >/dev/null 2>&1 &
+}
+
+write_desktop_layout
+refresh_pcmanfm_desktop
