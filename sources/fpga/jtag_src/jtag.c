@@ -667,21 +667,34 @@ int main(int argc, char **argv)
                 goto out_release;
             }
         } else {
-            if (max2851_rx_on(fd, analog_bw, rxs.freq_specified, rxs.freq_mhz, rxs.gain_specified, (int16_t)rxs.gain, true, rx_mask) != 0) {
-                fprintf(stderr, "Error: --rx failed: %s\n", strerror(errno));
-                rc = 1;
-                goto out_release;
+            /* Digital filter, AGC, phases, etc. are FPGA registers. Re-entering
+             * max2851_rx_on for those rewrites MAX2851 Main0/Main6 and can
+             * leave analog LNA/VGA at a stale split (UI then shows e.g. 66 dB). */
+            bool need_chip = rxs.freq_specified || rxs.gain_specified || rxs.ant_specified;
+            if (need_chip) {
+                int chip_bw = rxs.bw_specified ? analog_bw : 0;
+                if (max2851_rx_on(fd, chip_bw, rxs.freq_specified, rxs.freq_mhz,
+                                  rxs.gain_specified, (int16_t)rxs.gain,
+                                  rxs.ant_specified, rx_mask) != 0) {
+                    fprintf(stderr, "Error: --rx failed: %s\n", strerror(errno));
+                    rc = 1;
+                    goto out_release;
+                }
             }
-            
-            if(rxs.bw_specified){
-                /* Program the calculated digital filter value to register 0x27 */
+
+            if (rxs.bw_specified) {
                 if (jtag_write_u16(fd, 0x27, (uint16_t)k) != 0) {
                     fprintf(stderr, "Error: failed to write digital filter bandwidth to 0x27\n");
                     rc = 1;
                     goto out_release;
                 }
+                if (max2851_set_analog_bw(fd, analog_bw) != 0) {
+                    fprintf(stderr, "Error: failed to set analog RX bandwidth to %d MHz\n", analog_bw);
+                    rc = 1;
+                    goto out_release;
+                }
 
-                printf("RX Digital Filter: k=%d, actual_bw=%.2f MHz (Analog BW set to %d MHz)\n", 
+                printf("RX Digital Filter: k=%d, actual_bw=%.2f MHz (Analog BW set to %d MHz)\n",
                     k, actual_bw, analog_bw);
             }
 

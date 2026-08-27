@@ -43,6 +43,7 @@ int max2851_rx_on(int fd,
                   bool set_gain, int16_t gain,
                   bool set_antennas, uint8_t rx_mask);
 int max2851_rx_off(int fd, int bw_mhz /* 20 or 40 (reg0 contains BW) */);
+int max2851_set_analog_bw(int fd, int bw_mhz);
 
 /* Status dump functions */
 int max2850_status(int fd);

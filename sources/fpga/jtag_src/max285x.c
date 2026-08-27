@@ -261,13 +261,44 @@ static int max2851_set_mode_bw(int fd, uint8_t mode, int bw_mhz)
     return max2851_write_main(fd, 0, reg0);
 }
 
-static uint16_t max2851_reg0_mode_bw(uint8_t mode, int bw_mhz)
+static int max2851_read_main(int fd, uint16_t main_addr, uint16_t *out)
 {
-    /* reg0: MODE[2:0] in D[4:2], RFBW in D1, D0=0 for main */
-    const uint16_t bw_bit = (bw_mhz == 20) ? 0u : 1u; /* default 40 */
-    return (uint16_t)(((mode & 0x7u) << 2) | (bw_bit << 1) | 0u);
+    uint16_t orig_reg14 = max2851_base_regs[14];
+    if (max2851_word(fd, 14, orig_reg14 | (1u << 1)) != 0) return -1;
+
+    uint16_t cmd = 0x8000 | (uint16_t)((main_addr & 0x1Fu) << 10);
+    if (jtag_write_u16(fd, MAX2851_REG_ADDR, cmd) != 0) return -1;
+
+    uint16_t val = 0;
+    if (jtag_read_u16(fd, MAX2851_REG_ADDR, &val) != 0) return -1;
+
+    if (max2851_word(fd, 14, orig_reg14) != 0) return -1;
+    *out = val & 0x3FFu;
+    return 0;
 }
 
+static int max2851_restrobe_fpga_gain(int fd)
+{
+    uint16_t g = 0;
+    if (jtag_read_u16(fd, 0x6A, &g) != 0) return -1;
+    return jtag_write_u16(fd, 0x6A, g);
+}
+
+int max2851_set_analog_bw(int fd, int bw_mhz)
+{
+    if (bw_mhz != 20) bw_mhz = 40;
+
+    uint16_t r0 = 0;
+    if (max2851_read_main(fd, 0, &r0) != 0) return -1;
+
+    uint16_t want = r0;
+    want &= (uint16_t)~(1u << 1);
+    if (bw_mhz == 40) want |= (uint16_t)(1u << 1);
+    if (want == r0) return 0;
+
+    if (max2851_write_main(fd, 0, want) != 0) return -1;
+    return max2851_restrobe_fpga_gain(fd);
+}
 
 int max2851_rx_on(int fd,
                   int bw_mhz,
@@ -275,25 +306,42 @@ int max2851_rx_on(int fd,
                   bool set_gain, int16_t gain,
                   bool set_antennas, uint8_t rx_mask)
 {
-    /* Default: Rx1..Rx4 enabled (mask=0x0F). rx_mask is 5-bit (Rx1..Rx5). */
-    uint8_t m = set_antennas ? (uint8_t)(rx_mask & 0x1Fu) : 0x0Fu;
-    if (m == 0) m = 0x0Fu;
+    bool analog_written = false;
 
-    /* Program reg6: RX_GAIN_PROG_SEL (D[9:5]) and E_RX (D[4:0]) */
-    const uint16_t reg6 = (uint16_t)(((uint16_t)m << 5) | (uint16_t)m);
-    if (max2851_write_main(fd, 6, reg6) != 0) return -1;
+    if (set_antennas) {
+        uint8_t m = (uint8_t)(rx_mask & 0x1Fu);
+        if (m == 0) m = 0x0Fu;
+        const uint16_t reg6 = (uint16_t)(((uint16_t)m << 5) | (uint16_t)m);
+        if (max2851_write_main(fd, 6, reg6) != 0) return -1;
+        analog_written = true;
+    }
 
-    /* Enter RX mode: MODE=010 */
-    if (max2851_write_main(fd, 0, max2851_reg0_mode_bw(0x2u, bw_mhz)) != 0) return -1;
+    uint16_t r0 = 0;
+    bool have_r0 = (max2851_read_main(fd, 0, &r0) == 0);
+    uint16_t want = have_r0 ? r0 : 0;
+    want &= (uint16_t)~(0x7u << 2);
+    want |= (uint16_t)(0x2u << 2); /* MODE=RX */
+    if (bw_mhz == 20 || bw_mhz == 40) {
+        want &= (uint16_t)~(1u << 1);
+        if (bw_mhz == 40) want |= (uint16_t)(1u << 1);
+    } else if (!have_r0) {
+        want |= (uint16_t)(1u << 1); /* default analog 40 MHz */
+    }
+    if (!have_r0 || want != r0) {
+        if (max2851_write_main(fd, 0, want) != 0) return -1;
+        analog_written = true;
+    }
 
-    /* Program PLL if requested */
     if (set_freq) {
         if (max2851_set_freq_mhz(fd, freq_mhz) != 0) return -1;
     }
 
-    /* Program gain if requested */
     if (set_gain) {
         if (max2851_set_rx_gain_db(fd, gain) != 0) return -1;
+    } else if (analog_written) {
+        /* FPGA owns Main1 (LNA/VGA). Re-apply 0x6A so a Main0/Main6 write
+         * cannot leave analog gain stuck at a stale split. */
+        if (max2851_restrobe_fpga_gain(fd) != 0) return -1;
     }
 
     return 0;
@@ -709,10 +757,14 @@ int max2851_status(int fd)
     int vga_db = vga_val * 2;
     int total_gain_db = lna_db + vga_db;
 
+    bool agc_on = (agc_en & 0x0080) != 0;
+    int fpga_gain_db = (int)(agc_en & 0x3Fu);
+    int report_gain_db = agc_on ? total_gain_db : fpga_gain_db;
+
     printf("Rx:\n");
     printf("- PLL Lock: %s\n", pll_locked ? "LOCKED" : "UNLOCKED");
     printf("- LO Frequency: %.2f MHz\n", freq_mhz);
-    printf("- Gain: %d dB\n", total_gain_db);
+    printf("- Gain: %d dB\n", report_gain_db);
     printf("- Analog Bandwidth: %d MHz\n", bw);
     
     if (digital_bw_k > 0) {

@@ -1640,7 +1640,13 @@
                 }
                 updateCheckbox('rxAgc', isAgc);
                 let targetGain = isAgc ? state.rx_gain_dbfs : state.rx_gain;
-                if (targetGain !== undefined) { updateIfUnfocused('rxGainNum', targetGain); updateIfUnfocused('rxGain', targetGain); }
+                if (targetGain !== undefined && document.activeElement !== document.getElementById('rxBwSlider')) {
+                    const gSlider = document.getElementById('rxGain');
+                    const lo = parseFloat(gSlider.min), hi = parseFloat(gSlider.max);
+                    if (targetGain < lo) targetGain = lo;
+                    if (targetGain > hi) targetGain = hi;
+                    updateIfUnfocused('rxGainNum', targetGain); updateIfUnfocused('rxGain', targetGain);
+                }
             }
             if(state.rx_bw_k !== undefined) {
                 updateToneBounds(state.rx_bw_k);
