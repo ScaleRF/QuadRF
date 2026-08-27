@@ -1,0 +1,261 @@
+id: soapy_quadrf_source
+label: Soapy QuadRF Source
+flags: [python, throttle]
+
+parameters:
+  - id: type
+    label: Output Type
+    dtype: enum
+    options: [fc32, sc8]
+    option_labels: [Complex Float32, Complex Byte]
+    option_attributes:
+      type: [fc32, sc8]
+    hide: part
+
+  - id: nchan
+    label: Num Channels
+    dtype: int
+    default: 1
+    options: [1, 2, 3, 4]
+    option_labels: ['1', '2', '3', '4']
+    hide: part
+
+  - id: dev_args
+    label: Device arguments
+    dtype: string
+    hide: ${'part' if not dev_args else 'none'}
+
+  - id: samp_rate
+    label: Sample Rate
+    dtype: float
+    default: 'samp_rate'
+
+  - id: center_freq
+    label: 'Center Freq (Hz)'
+    category: RF Options
+    dtype: real
+    default: '5.6e9'
+
+  - id: bandwidth
+    label: 'Bandwidth (Hz, 0=auto)'
+    category: RF Options
+    dtype: real
+    default: '0'
+    hide: part
+
+  - id: agc
+    label: 'Automatic Gain Control'
+    category: RF Options
+    dtype: bool
+    default: 'False'
+    hide: part
+
+  - id: gain
+    label: 'RF Gain (0dB - 63dB)'
+    category: RF Options
+    dtype: real
+    default: '20'
+    hide: ${'all' if agc else 'part'}
+
+  - id: agc_setpoint
+    label: 'AGC Setpoint (-40 to -6 dBFS)'
+    category: RF Options
+    dtype: real
+    default: '-15'
+    hide: ${'part' if agc else 'all'}
+
+  - id: pol
+    label: Polarization
+    category: Front-end
+    dtype: enum
+    options: [rhcp, lhcp]
+    option_labels: [RHCP, LHCP]
+    default: 'rhcp'
+    hide: part
+
+  - id: ant1
+    label: 'Rx1 Active'
+    category: Front-end
+    dtype: bool
+    default: 'True'
+    hide: part
+
+  - id: ant2
+    label: 'Rx2 Active'
+    category: Front-end
+    dtype: bool
+    default: 'True'
+    hide: part
+
+  - id: ant3
+    label: 'Rx3 Active'
+    category: Front-end
+    dtype: bool
+    default: 'True'
+    hide: part
+
+  - id: ant4
+    label: 'Rx4 Active'
+    category: Front-end
+    dtype: bool
+    default: 'True'
+    hide: part
+
+  - id: autosteer
+    label: 'Auto Steer'
+    category: Front-end
+    dtype: bool
+    default: 'False'
+    hide: part
+
+  - id: phase1
+    label: 'Rx1 Phase (deg)'
+    category: Front-end
+    dtype: real
+    default: '0'
+    hide: part
+
+  - id: phase2
+    label: 'Rx2 Phase (deg)'
+    category: Front-end
+    dtype: real
+    default: '0'
+    hide: part
+
+  - id: phase3
+    label: 'Rx3 Phase (deg)'
+    category: Front-end
+    dtype: real
+    default: '0'
+    hide: part
+
+  - id: phase4
+    label: 'Rx4 Phase (deg)'
+    category: Front-end
+    dtype: real
+    default: '0'
+    hide: part
+
+  - id: tone_en
+    label: 'Test Tone Enable'
+    category: Diagnostics
+    dtype: bool
+    default: 'False'
+    hide: part
+
+  - id: tone_freq
+    label: 'Test Tone Freq (Hz)'
+    category: Diagnostics
+    dtype: real
+    default: '1.0e6'
+    hide: part
+
+inputs:
+  - domain: message
+    id: cmd
+    optional: true
+
+outputs:
+  - domain: stream
+    dtype: ${ type.type }
+    multiplicity: ${ nchan }
+
+asserts:
+  - ${ nchan in (1, 2, 3, 4) }
+
+templates:
+  imports: from gnuradio import soapy
+  make: |
+      None
+      dev = 'driver=mipi'
+      stream_args = ''
+      tune_args = [''] * ${nchan}
+      settings = [''] * ${nchan}
+
+      def _set_${id}_gain_mode(channel, agc):
+          self.${id}.set_gain_mode(channel, agc)
+          if not agc:
+              self.${id}.set_gain(channel, min(max(float(self._${id}_gain_val), 0.0), 63.0))
+      self.set_${id}_gain_mode = _set_${id}_gain_mode
+      self._${id}_gain_val = ${gain}
+
+      def _set_${id}_gain(channel, gain):
+          self._${id}_gain_val = gain
+          if not self.${id}.get_gain_mode(channel):
+              self.${id}.set_gain(channel, min(max(float(gain), 0.0), 63.0))
+      self.set_${id}_gain = _set_${id}_gain
+
+      def _set_${id}_antennas(a1, a2, a3, a4):
+          mask = (1 if a1 else 0) | (2 if a2 else 0) | (4 if a3 else 0) | (8 if a4 else 0)
+          self.${id}.write_setting(0, 'antennas', str(mask))
+      self.set_${id}_antennas = _set_${id}_antennas
+
+      self.${id} = soapy.source(dev, "${type}", ${nchan}, ${dev_args},
+                                stream_args, tune_args, settings)
+      self.${id}.set_sample_rate(0, ${samp_rate})
+      self.${id}.set_bandwidth(0, ${bandwidth})
+      self.${id}.set_frequency(0, ${center_freq})
+      self.set_${id}_gain_mode(0, ${agc})
+      if not ${agc}:
+          self.set_${id}_gain(0, ${gain})
+      else:
+          self.${id}.write_setting(0, 'agc_setpoint', str(${agc_setpoint}))
+      self.${id}.write_setting(0, 'pol', str('${pol}'))
+      self.${id}.write_setting(0, 'autosteer', str('true' if ${autosteer} else 'false'))
+      self.set_${id}_antennas(${ant1}, ${ant2}, ${ant3}, ${ant4})
+      self.${id}.write_setting(0, 'p1', str(${phase1}))
+      self.${id}.write_setting(0, 'p2', str(${phase2}))
+      self.${id}.write_setting(0, 'p3', str(${phase3}))
+      self.${id}.write_setting(0, 'p4', str(${phase4}))
+      if ${tone_en}:
+          self.${id}.write_setting(0, 'tone_en', 'true')
+          self.${id}.write_setting(0, 'tone_freq', str(${tone_freq}))
+
+  callbacks:
+    - set_sample_rate(0, ${samp_rate})
+    - set_bandwidth(0, ${bandwidth})
+    - set_frequency(0, ${center_freq})
+    - self.set_${id}_gain_mode(0, ${agc})
+    - self.set_${id}_gain(0, ${gain})
+    - write_setting(0, 'agc_setpoint', str(${agc_setpoint}))
+    - write_setting(0, 'pol', str('${pol}'))
+    - write_setting(0, 'autosteer', str('true' if ${autosteer} else 'false'))
+    - self.set_${id}_antennas(${ant1}, ${ant2}, ${ant3}, ${ant4})
+    - write_setting(0, 'p1', str(${phase1}))
+    - write_setting(0, 'p2', str(${phase2}))
+    - write_setting(0, 'p3', str(${phase3}))
+    - write_setting(0, 'p4', str(${phase4}))
+    - write_setting(0, 'tone_en', str('true' if ${tone_en} else 'false'))
+    - write_setting(0, 'tone_freq', str(${tone_freq}))
+
+documentation: |-
+    Soapy QuadRF Source Block
+    -------------------------
+    4-channel RX SDR block for the QuadRF transceiver using MIPI CSI-2.
+
+    Channels & Sampling:
+      - Channels: Supports 1, 2, 3, or 4 synchronized RX channels.
+      - Formats:
+        * fc32 (Complex Float32): Standard 32-bit floating point I/Q.
+        * sc8 (Complex Signed 8-bit): raw 8-bit I/Q.
+      - Sample Rates:
+        * 4-Channel Native: ~20.101 Msps (bypasses DSP resampler).
+        * 1-Channel Native: ~80.405 Msps.
+        * Arbitrary Rates: Integrated NEON SIMD Farrow resampler supports 1.0 to 80.0 Msps.
+
+    RF & Gain Control:
+      - Frequency: 5.15 GHz to 5.95 GHz (5.6 GHz nominal).
+      - Gain: 0 dB to 63 dB manual step attenuator/gain control.
+      - AGC: Automatic Gain Control mode with configurable setpoint (-40 to -6 dBFS).
+      - Bandwidth: Digital filter bandwidth (0 = auto / full baseband).
+
+    Front-End & Phased Array:
+      - Polarization: Software switchable RHCP (Right-Hand Circular) or LHCP (Left-Hand Circular).
+      - Auto-Steer: Autonomous phase beam steering hardware mode.
+      - Antenna Masks (Rx1-Rx4): Independent element enable/disable toggles.
+      - Phase Offsets (p1-p4): Individual antenna element phase adjustments (0 to 360 deg, 7-bit resolution / 2.8125 deg step).
+
+    Diagnostics:
+      - Test Tone: Generates an internal FPGA calibration/test tone at specified frequency offset.
+
+file_format: 1

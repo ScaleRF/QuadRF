@@ -1,25 +1,29 @@
 options:
   parameters:
-    alias: ''
     author: ''
     catch_exceptions: 'True'
+    category: '[GRC Hier Blocks]'
+    cmake_opt: ''
     comment: ''
     copyright: ''
     description: ''
+    gen_cmake: 'On'
     gen_linking: dynamic
     generate_options: qt_gui
-    generator_class_name: PythonQtGuiGenerator
-    generator_module: gnuradio.grc.workflows.python_qt_gui
     hier_block_src_path: '.:'
-    id: test_complex
+    id: quadrf_block_source_test
     max_nouts: '0'
     output_language: python
+    placement: (0,0)
     qt_qss_theme: ''
     realtime_scheduling: ''
     run: 'True'
     run_command: '{python} -u {filename}'
+    run_options: prompt
+    sizing_mode: fixed
     thread_safe_setters: ''
-    title: open.space testing
+    title: QuadRF RX Spectrum
+    window_size: (1000,1000)
   states:
     bus_sink: false
     bus_source: false
@@ -29,6 +33,28 @@ options:
     state: enabled
 
 blocks:
+- name: rxgain
+  id: variable_qtgui_dial_control
+  parameters:
+    comment: ''
+    gui_hint: ''
+    label: rx gain
+    maximum: '63'
+    minimum: '0'
+    minsize: '100'
+    outputmsgname: value
+    relBackgroundColor: default
+    scaleFactor: '1'
+    showvalue: 'True'
+    type: int
+    value: '0'
+  states:
+    bus_sink: false
+    bus_source: false
+    bus_structure: null
+    coordinate: [112, 148.0]
+    rotation: 0
+    state: enabled
 - name: samp_rate
   id: variable
   parameters:
@@ -122,89 +148,45 @@ blocks:
     coordinate: [352, 300.0]
     rotation: 0
     state: enabled
-- name: soapy_custom_sink_0
-  id: soapy_custom_sink
+- name: soapy_quadrf_source_0
+  id: soapy_quadrf_source
   parameters:
     affinity: ''
+    agc: 'False'
+    agc_setpoint: '-15'
     alias: ''
-    antenna0: RX
-    antenna1: ''
-    bandwidth0: '0'
-    bandwidth1: '0'
-    center_freq0: 5.6e9
-    center_freq1: '0'
+    ant1: 'True'
+    ant2: 'True'
+    ant3: 'True'
+    ant4: 'True'
+    autosteer: 'False'
+    bandwidth: '0'
+    center_freq: 5.6e9
     comment: ''
-    dc_offset0: '0'
-    dc_offset1: '0'
     dev_args: ''
-    driver: mipi
-    freq_correction0: '0'
-    freq_correction1: '0'
-    gain0: '10'
-    gain1: '0'
-    iq_balance0: '0'
-    iq_balance1: '0'
-    nchan: '1'
-    samp_rate: samp_rate
-    settings0: ''
-    settings1: ''
-    stream_args: ''
-    tune_args0: ''
-    tune_args1: ''
-    type: fc32
-  states:
-    bus_sink: false
-    bus_source: false
-    bus_structure: null
-    coordinate: [368, 124.0]
-    rotation: 0
-    state: disabled
-- name: soapy_custom_source_0
-  id: soapy_custom_source
-  parameters:
-    affinity: ''
-    agc0: 'False'
-    agc1: 'False'
-    alias: ''
-    antenna0: RX
-    antenna1: ''
-    bandwidth0: '0'
-    bandwidth1: '0'
-    center_freq0: 5.6e9
-    center_freq1: '0'
-    comment: ''
-    dc_offset0: '0'
-    dc_offset1: '0'
-    dc_removal0: 'False'
-    dc_removal1: 'True'
-    dev_args: ''
-    driver: mipi
-    freq_correction0: '0'
-    freq_correction1: '0'
-    gain0: '10'
-    gain1: '0'
-    iq_balance0: '0'
-    iq_balance1: '0'
+    gain: rxgain
     maxoutbuf: '0'
     minoutbuf: '0'
     nchan: '1'
+    phase1: '0'
+    phase2: '0'
+    phase3: '0'
+    phase4: '0'
+    pol: rhcp
     samp_rate: samp_rate
-    settings0: ''
-    settings1: ''
-    stream_args: ''
-    tune_args0: ''
-    tune_args1: ''
+    tone_en: 'False'
+    tone_freq: 1.0e6
     type: fc32
   states:
     bus_sink: false
     bus_source: false
     bus_structure: null
-    coordinate: [48, 316.0]
+    coordinate: [96, 316.0]
     rotation: 0
     state: enabled
 
 connections:
-- [soapy_custom_source_0, '0', qtgui_freq_sink_x_0, '0']
+- [soapy_quadrf_source_0, '0', qtgui_freq_sink_x_0, '0']
 
 metadata:
   file_format: 1

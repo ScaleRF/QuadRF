@@ -1,5 +1,7 @@
 usr/bin/quadrf
 usr/share/quadrf/functions.sh
 etc/quadrf/quadrf.conf
+etc/systemd/journald.conf.d/50-quadrf.conf
+lib/systemd/system/quadrf-journal.service
 usr/share/man/man1/quadrf.1
 usr/share/man/man5/quadrf.conf.5

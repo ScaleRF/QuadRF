@@ -14,13 +14,13 @@
 #include <limits>
 #include <atomic>
 
-
 // ---------- RX NEON Helpers ----------
 
 // 1 Channel: Convert contiguous CS8 to CF32
 void MipiDevice::convert_CS8_to_CF32_NEON(const int8_t *input, float *output, size_t count)
 {
     size_t i = 0;
+#if defined(__ARM_NEON)
     float32x4_t vscale = vdupq_n_f32(1.0f / 127.0f);
 
     for (; i + 8 <= count; i += 8) {
@@ -44,6 +44,7 @@ void MipiDevice::convert_CS8_to_CF32_NEON(const int8_t *input, float *output, si
         vst1q_f32(output + 2 * i + 8,  f32_2);
         vst1q_f32(output + 2 * i + 12, f32_3);
     }
+#endif
     for (; i < count; ++i) {
         output[2*i+0] = float(input[2*i+0]) / 127.0f;
         output[2*i+1] = float(input[2*i+1]) / 127.0f;
@@ -54,18 +55,19 @@ void MipiDevice::convert_CS8_to_CF32_NEON(const int8_t *input, float *output, si
 // Input: I0 Q0 I1 Q1 I2 Q2 I3 Q3 ...
 void MipiDevice::deinterleave_CS8_NEON(const int8_t *input, void * const *buffs, size_t numElems)
 {
-    int8_t* d0 = (int8_t*)buffs[0];
-    int8_t* d1 = (int8_t*)buffs[1];
-    int8_t* d2 = (int8_t*)buffs[2];
-    int8_t* d3 = (int8_t*)buffs[3];
+    int8_t* d0 = buffs ? (int8_t*)buffs[0] : nullptr;
+    int8_t* d1 = buffs ? (int8_t*)buffs[1] : nullptr;
+    int8_t* d2 = buffs ? (int8_t*)buffs[2] : nullptr;
+    int8_t* d3 = buffs ? (int8_t*)buffs[3] : nullptr;
     
+    size_t i = 0;
+#if defined(__ARM_NEON)
     const int16_t* src16 = (const int16_t*)input; // Treat IQ pair as one int16 element
     int16_t* d0_16 = (int16_t*)d0;
     int16_t* d1_16 = (int16_t*)d1;
     int16_t* d2_16 = (int16_t*)d2;
     int16_t* d3_16 = (int16_t*)d3;
 
-    size_t i = 0;
     // Process 8 elements per channel per loop (32 elements total read)
     for (; i + 8 <= numElems; i += 8) {
         // Load 4 interleaved vectors of 8 x int16 (I+Q)
@@ -73,14 +75,17 @@ void MipiDevice::deinterleave_CS8_NEON(const int8_t *input, void * const *buffs,
         int16x8x4_t v = vld4q_s16(src16);
         src16 += 32; 
 
-        vst1q_s16(d0_16, v.val[0]); d0_16 += 8;
-        vst1q_s16(d1_16, v.val[1]); d1_16 += 8;
-        vst1q_s16(d2_16, v.val[2]); d2_16 += 8;
-        vst1q_s16(d3_16, v.val[3]); d3_16 += 8;
+        if (d0_16) { vst1q_s16(d0_16, v.val[0]); d0_16 += 8; }
+        if (d1_16) { vst1q_s16(d1_16, v.val[1]); d1_16 += 8; }
+        if (d2_16) { vst1q_s16(d2_16, v.val[2]); d2_16 += 8; }
+        if (d3_16) { vst1q_s16(d3_16, v.val[3]); d3_16 += 8; }
     }
+    const int8_t* rem_src = (const int8_t*)src16;
+#else
+    const int8_t* rem_src = input;
+#endif
     
     // Fallback for remaining samples
-    const int8_t* rem_src = (const int8_t*)src16;
     for (; i < numElems; ++i) {
         // each step reads 4 channels * 2 bytes = 8 bytes
         if (d0) { d0[2*i] = rem_src[0]; d0[2*i+1] = rem_src[1]; }
@@ -94,15 +99,16 @@ void MipiDevice::deinterleave_CS8_NEON(const int8_t *input, void * const *buffs,
 // 4 Channel: Deinterleave CS8 -> CF32
 void MipiDevice::deinterleave_CS8_to_CF32_NEON(const int8_t *input, void * const *buffs, size_t numElems)
 {
-    float* f0 = (float*)buffs[0];
-    float* f1 = (float*)buffs[1];
-    float* f2 = (float*)buffs[2];
-    float* f3 = (float*)buffs[3];
+    float* f0 = buffs ? (float*)buffs[0] : nullptr;
+    float* f1 = buffs ? (float*)buffs[1] : nullptr;
+    float* f2 = buffs ? (float*)buffs[2] : nullptr;
+    float* f3 = buffs ? (float*)buffs[3] : nullptr;
     
+    size_t i = 0;
+#if defined(__ARM_NEON)
     const int16_t* src16 = (const int16_t*)input;
     float32x4_t vscale = vdupq_n_f32(1.0f / 127.0f);
 
-    size_t i = 0;
     for (; i + 8 <= numElems; i += 8) {
         // 1. Load interleaved IQ pairs
         int16x8x4_t v = vld4q_s16(src16);
@@ -134,9 +140,12 @@ void MipiDevice::deinterleave_CS8_to_CF32_NEON(const int8_t *input, void * const
         if (f2) expand_and_store(v.val[2], f2 + 2*i);
         if (f3) expand_and_store(v.val[3], f3 + 2*i);
     }
+    const int8_t* rem_src = (const int8_t*)src16;
+#else
+    const int8_t* rem_src = input;
+#endif
     
     // Fallback
-    const int8_t* rem_src = (const int8_t*)src16;
     for (; i < numElems; ++i) {
         if (f0) { f0[2*i] = float(rem_src[0])/127.0f; f0[2*i+1] = float(rem_src[1])/127.0f; }
         if (f1) { f1[2*i] = float(rem_src[2])/127.0f; f1[2*i+1] = float(rem_src[3])/127.0f; }
@@ -146,12 +155,12 @@ void MipiDevice::deinterleave_CS8_to_CF32_NEON(const int8_t *input, void * const
     }
 }
 
-
 // ---------- Tx NEON Functions ----------
 void MipiDevice::convert_CF32_to_CS8_NEON(const float *input, int8_t *output, size_t count)
 {
     size_t i = 0;
     
+#if defined(__ARM_NEON)
     // Scale factor: 127.0 to utilize full range -127 to 127
     float32x4_t vscale = vdupq_n_f32(127.0f); 
 
@@ -180,10 +189,10 @@ void MipiDevice::convert_CF32_to_CS8_NEON(const float *input, int8_t *output, si
         vst1_s8(output + 2*i, result0);
         vst1_s8(output + 2*i + 8, result1);
     }
+#endif
 
     for (; i < count; ++i) {
         output[2*i]     = (int8_t)(std::max(-128.0f, std::min(127.0f, input[2*i] * 127.0f)));     
         output[2*i + 1] = (int8_t)(std::max(-128.0f, std::min(127.0f, input[2*i + 1] * 127.0f))); 
     }
 }
-

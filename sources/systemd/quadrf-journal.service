@@ -1,0 +1,23 @@
+[Unit]
+Description=Bind persistent journal onto /var/log/journal
+Documentation=man:journald.conf(5)
+After=dietpi-ramlog.service local-fs.target systemd-journald.service systemd-journal-flush.service
+Before=quadrf-gui.service load-quadrf.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStartPre=/bin/mkdir -p /var/lib/quadrf/journal /var/log/journal
+ExecStartPre=/bin/chown root:systemd-journal /var/lib/quadrf/journal
+ExecStartPre=/bin/chmod 2755 /var/lib/quadrf/journal
+ExecStart=/bin/mount --bind /var/lib/quadrf/journal /var/log/journal
+# journald only opens /var/log/journal once /run/systemd/journal/flushed exists.
+# systemd-journal-flush.service runs before this bind (dietpi-ramlog tmpfs), so
+# the flag is never created. Flush here instead of restarting journald (that
+# drops the /dev/log socket fds).
+ExecStart=/usr/bin/journalctl --flush
+ExecStop=/usr/bin/journalctl --smart-relinquish-var
+ExecStop=/bin/umount /var/log/journal
+
+[Install]
+WantedBy=multi-user.target

@@ -23,7 +23,7 @@ sudo perl -pi -e 's|</head>|<link rel="icon" type="image/png" href="./favicon.pn
 Control panel logo:
 
 ```bash
-sudo perl -pi -e 's|<h1 class="noVNC_logo">.*?</h1>|<h1 class="noVNC_logo"><a href="https://open.space" target="_blank"><img src="./assets/rf_quad_kit_logo.png"></a></h1>|g' index.html vnc.html
+sudo perl -pi -e 's|<h1 class="noVNC_logo">.*?</h1>|<h1 class="noVNC_logo"><a href="https://scalerf.com" target="_blank"><img src="./assets/rf_quad_kit_logo.png"></a></h1>|g' index.html vnc.html
 ```
 
 Desktop and tab names, in the bundled UI script:

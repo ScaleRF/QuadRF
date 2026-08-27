@@ -173,4 +173,4 @@ overlays; reboot afterward.
 | QuadRF services show `disabled`                 | Packages enable them on install. On a unit that predates this tree: `sudo systemctl enable --now load-quadrf quadrf-gui quadrf-hotspot quadrf-ethernet quadrf-usb quadrf-desktop quadrf-ups quadrf-soapy-server`. |
 
 
-Service logs: `journalctl -u load-quadrf -u quadrf-gui -b`.
+Service logs: `journalctl -u load-quadrf -u quadrf-gui -b`. After a hang/reboot, `journalctl -b -1` is the previous boot. The journal is on disk at `/var/lib/quadrf/journal`.

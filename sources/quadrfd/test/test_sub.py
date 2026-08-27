@@ -1,7 +1,7 @@
 import zmq
 import numpy as np
 
-print("Connecting to open.space Daemon...")
+print("Connecting to QuadRF Daemon...")
 context = zmq.Context()
 sub = context.socket(zmq.SUB)
 

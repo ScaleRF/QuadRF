@@ -10,7 +10,9 @@
 #include <cmath>
 #include <algorithm>
 #include <cstring>
+#if defined(__ARM_NEON)
 #include <arm_neon.h>
+#endif
 
 namespace DSP {
 
@@ -87,6 +89,7 @@ public:
 
         int outProduced = 0;
 
+#if defined(__ARM_NEON)
         const float32x2_t vHalf  = vdup_n_f32(0.5f);
         const float32x2_t vSixth = vdup_n_f32(1.0f/6.0f);
         const float32x2_t vThird = vdup_n_f32(1.0f/3.0f);
@@ -137,6 +140,46 @@ public:
                 break;
             }
         }
+#else
+        auto loadSample = [&](int idx, int c) -> float {
+            if (idx < 0) {
+                int h = 4 + idx;
+                if (h < 0) h = 0; if (h > 3) h = 3;
+                return history_[2*h + c];
+            }
+            return in[2*idx + c];
+        };
+
+        while (outProduced < outLimit) {
+            if (inIndex + 2 >= inCount) break;
+
+            const float mu = (float)mu_;
+            for (int c = 0; c < 2; ++c) {
+                float s0 = (inIndex >= 1) ? in[2*(inIndex-1) + c] : loadSample(inIndex-1, c);
+                float s1 = in[2*inIndex + c];
+                float s2 = in[2*(inIndex+1) + c];
+                float s3 = in[2*(inIndex+2) + c];
+
+                float c0 = s1;
+                float c2 = -s1 + 0.5f * (s0 + s2);
+                float c3 = (s3 - s0) * (1.0f/6.0f) + (s1 - s2) * 0.5f;
+                float c1 = s2 - s1 * 0.5f - s0 * (1.0f/3.0f) - s3 * (1.0f/6.0f);
+
+                out[2*outProduced + c] = c0 + mu * (c1 + mu * (c2 + mu * c3));
+            }
+            outProduced++;
+
+            mu_ += ratio;
+            int advance = (int)mu_;
+            mu_ -= advance;
+            inIndex += advance;
+            if (inIndex > inCount) {
+                skip_samples_ += inIndex - inCount;
+                inIndex = inCount;
+                break;
+            }
+        }
+#endif
 
         inConsumed = inIndex;
         updateHistory(in, inCount, inConsumed);
@@ -152,6 +195,7 @@ private:
                         double ratio, int &inConsumed, int inIndex) {
         int outProduced = 0;
 
+#if defined(__ARM_NEON)
         const float32x2_t vHalf  = vdup_n_f32(0.5f);
         const float32x2_t vSixth = vdup_n_f32(1.0f/6.0f);
         const float32x2_t vThird = vdup_n_f32(1.0f/3.0f);
@@ -224,6 +268,56 @@ private:
                 break;
             }
         }
+#else
+        auto loadSample = [&](int idx, int c) -> float {
+            if (idx < 0) {
+                int h = 4 + idx;
+                if (h < 0) h = 0; if (h > 3) h = 3;
+                return history_[2*h + c];
+            }
+            return in[2*idx + c];
+        };
+
+        while (outProduced < outLimit && inIndex + 2 < inCount) {
+            float c0[2], c1[2], c2[2], c3[2];
+            for (int c = 0; c < 2; ++c) {
+                float s0 = (inIndex >= 1) ? in[2*(inIndex-1) + c] : loadSample(inIndex-1, c);
+                float s1 = in[2*inIndex + c];
+                float s2 = in[2*(inIndex+1) + c];
+                float s3 = in[2*(inIndex+2) + c];
+
+                c0[c] = s1;
+                c2[c] = -s1 + 0.5f * (s0 + s2);
+                c3[c] = (s3 - s0) * (1.0f/6.0f) + (s1 - s2) * 0.5f;
+                c1[c] = s2 - s1 * 0.5f - s0 * (1.0f/3.0f) - s3 * (1.0f/6.0f);
+            }
+
+            int runLen = (int)std::floor((1.0 - mu_) / ratio - 1e-12) + 1;
+            if (runLen < 1) runLen = 1;
+            if (runLen > outLimit - outProduced) runLen = outLimit - outProduced;
+
+            const float rf = (float)ratio;
+            const float mu0f = (float)mu_;
+
+            for (int k = 0; k < runLen; ++k) {
+                const float mu = mu0f + k * rf;
+                for (int c = 0; c < 2; ++c) {
+                    out[2*(outProduced + k) + c] = c0[c] + mu * (c1[c] + mu * (c2[c] + mu * c3[c]));
+                }
+            }
+
+            outProduced += runLen;
+            mu_ += (double)runLen * ratio;
+            int advance = (int)mu_;
+            mu_ -= advance;
+            inIndex += advance;
+            if (inIndex > inCount) {
+                skip_samples_ += inIndex - inCount;
+                inIndex = inCount;
+                break;
+            }
+        }
+#endif
 
         inConsumed = inIndex;
         updateHistory(in, inCount, inConsumed);

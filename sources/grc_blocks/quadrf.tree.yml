@@ -1,0 +1,6 @@
+'[Core]':
+- Soapy:
+  - Source:
+    - soapy_quadrf_source
+  - Sink:
+    - soapy_quadrf_sink

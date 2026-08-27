@@ -53,12 +53,15 @@ done
 chown -R "${QUADRF_USER}:${GROUP}" "${HOME_DIR}/.config"
 chmod 755 "${HOME_DIR}/.config/openbox/autostart" 2>/dev/null || true
 
-# Compiled default is Pluto. The Soapy dropdown also offers the ZMQ thin
-# client (driver=quadrf), which has no quadrfd. Seed MIPI on first run;
-# rewrite those leftovers on apply.
-# 4e6 Hz / 8192-pt FFT: (the default 1 Msps and 65536-pt FFT is too much.
+# MIPI / 5.8 GHz / duplex on first run; rewrite those leftovers on apply.
+# 4e6 Hz / 8192-pt FFT: the default 1 Msps and 65536-pt FFT is too much.
 qrl_cfg="${HOME_DIR}/.config/qradiolink/qradiolink.cfg"
 qrl_src="${SHARE}/config/qradiolink/qradiolink.cfg"
+qrl_set_if_missing() {
+    if ! grep -q "^${1} =" "${qrl_cfg}"; then
+        printf '%s = %s;\n' "$1" "$2" >> "${qrl_cfg}"
+    fi
+}
 if [ -f "${qrl_src}" ]; then
     install -d -o "${QUADRF_USER}" -g "${GROUP}" -m 755 "$(dirname "${qrl_cfg}")"
     if [ ! -f "${qrl_cfg}" ]; then
@@ -71,7 +74,21 @@ if [ -f "${qrl_src}" ]; then
             -e 's|^tx_antenna = .*|tx_antenna = "TX";|' \
             -e 's|^rx_sample_rate = .*|rx_sample_rate = 4000000L;|' \
             -e 's|^fft_size = .*|fft_size = 8192;|' \
+            -e 's|^rx_frequency = .*|rx_frequency = 5800000000L;|' \
+            -e 's|^enable_duplex = .*|enable_duplex = 1;|' \
             "${qrl_cfg}"
+        chown "${QUADRF_USER}:${GROUP}" "${qrl_cfg}"
+    fi
+    if [ -f "${qrl_cfg}" ]; then
+        qrl_set_if_missing rx_frequency 5800000000L
+        qrl_set_if_missing enable_duplex 1
+        if grep -qE '^rx_frequency = 434000000L?;' "${qrl_cfg}"; then
+            sed -i \
+                -e 's|^rx_frequency = 434000000L;|rx_frequency = 5800000000L;|' \
+                -e 's|^rx_frequency = 434000000;|rx_frequency = 5800000000L;|' \
+                -e 's|^enable_duplex = 0;|enable_duplex = 1;|' \
+                "${qrl_cfg}"
+        fi
         chown "${QUADRF_USER}:${GROUP}" "${qrl_cfg}"
     fi
 fi

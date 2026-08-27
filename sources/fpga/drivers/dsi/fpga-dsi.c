@@ -922,4 +922,4 @@ module_mipi_dsi_driver(dsi_stream_driver);
 
 MODULE_DESCRIPTION("DSI byte-stream panel (/dev/dsi_stream0): staging-mmap, RGB888, zero-idle autostart");
 MODULE_LICENSE("GPL");
-MODULE_AUTHOR("open.space");
+MODULE_AUTHOR("ScaleRF / QuadRF");

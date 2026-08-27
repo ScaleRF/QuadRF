@@ -158,7 +158,7 @@ public:
     SoapySDR::Kwargs getHardwareInfo() const override
     {
         SoapySDR::Kwargs k;
-        k["label"] = "open.space RF Quad Kit (Thin Client)";
+        k["label"] = "QuadRF (Thin Client)";
         k["sub"] = sub_ep_;
         return k;
     }
@@ -464,7 +464,7 @@ static SoapySDR::KwargsList find(const SoapySDR::Kwargs&)
 {
     SoapySDR::Kwargs k;
     k["driver"] = "quadrf";
-    k["label"] = "open.space RF Quad Kit (Thin Client)";
+    k["label"] = "QuadRF (Thin Client)";
     return {k};
 }
 

@@ -125,6 +125,10 @@ install-common:
 	$(INSTALL) -D -m 644 $(SRC)/common/quadrf.conf $(DESTDIR)$(sysconfdir)/quadrf/quadrf.conf
 	$(INSTALL) -D -m 644 $(SRC)/man/quadrf.1 $(DESTDIR)$(mandir)/man1/quadrf.1
 	$(INSTALL) -D -m 644 $(SRC)/man/quadrf.conf.5 $(DESTDIR)$(mandir)/man5/quadrf.conf.5
+	$(INSTALL) -D -m 644 $(SRC)/systemd/journald.conf.d/50-quadrf.conf \
+		$(DESTDIR)$(sysconfdir)/systemd/journald.conf.d/50-quadrf.conf
+	$(INSTALL) -D -m 644 $(SRC)/systemd/quadrf-journal.service \
+		$(DESTDIR)$(unitdir)/quadrf-journal.service
 	$(INSTALL) -d -m 755 $(DESTDIR)$(libdir)/apply.d $(DESTDIR)$(statedir)
 
 install-boot: overlays
@@ -291,7 +295,9 @@ install-desktop:
 install-gnuradio:
 	$(INSTALL) -D -m 644 $(SRC)/desktop/applications/quadrf-gnuradio.desktop $(DESTDIR)$(appdir)/quadrf-gnuradio.desktop
 	$(INSTALL) -D -m 644 $(SRC)/icons/gnu_radio.svg $(DESTDIR)$(icondir)/quadrf-gnuradio.svg
-	$(INSTALL) -D -m 644 -t $(DESTDIR)$(datadir)/grc $(SRC)/grc_projects/*
+	$(INSTALL) -D -m 644 -t $(DESTDIR)$(datadir)/grc $(SRC)/grc_projects/*.grc
+	$(INSTALL) -d -m 755 $(DESTDIR)$(prefix)/share/gnuradio/grc/blocks
+	$(INSTALL) -D -m 644 -t $(DESTDIR)$(prefix)/share/gnuradio/grc/blocks $(SRC)/grc_blocks/*
 
 install-ups:
 	$(INSTALL) -D -m 755 $(SRC)/ups_hat/ups_daemon.py $(DESTDIR)$(libdir)/ups-daemon

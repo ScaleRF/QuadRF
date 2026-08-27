@@ -13,7 +13,9 @@
 #include <stdexcept>
 #include <sys/ioctl.h>
 #include <linux/types.h>
-#include <arm_neon.h> 
+#if defined(__ARM_NEON)
+#include <arm_neon.h>
+#endif 
 
 #include "Farrow.hpp" 
 
@@ -125,12 +127,28 @@ public:
     SoapySDR::Range getGainRange(const int dir, const size_t chan, const std::string &name) const override;
     void setGain(const int dir, const size_t chan, const std::string &name, const double value) override;
     double getGain(const int dir, const size_t chan, const std::string &name) const override;
+    bool hasGainMode(const int dir, const size_t chan) const override;
+    void setGainMode(const int dir, const size_t chan, const bool automatic) override;
+    bool getGainMode(const int dir, const size_t chan) const override;
 
-    // Frequency API (named)
+    // Frequency API (named). Component is "RF" (MAX285x LO). No BB NCO.
     std::vector<std::string> listFrequencies(const int dir, const size_t chan) const override;
     void setFrequency(const int dir, const size_t chan, const std::string &name, const double freq, const SoapySDR::Kwargs &args) override;
     double getFrequency(const int dir, const size_t chan, const std::string &name) const override;
     SoapySDR::RangeList getFrequencyRange(const int dir, const size_t chan, const std::string &name) const override;
+
+    // Bandwidth: RX digital FIR (Hz), TX analog 20/40 MHz. bw<=0 leaves hardware unchanged (GRC default).
+    void setBandwidth(const int dir, const size_t chan, const double bw) override;
+    double getBandwidth(const int dir, const size_t chan) const override;
+    std::vector<double> listBandwidths(const int dir, const size_t chan) const override;
+    SoapySDR::RangeList getBandwidthRange(const int dir, const size_t chan) const override;
+
+    // GRC always emits these; hardware has no DC/IQ/PPM path.
+    bool hasFrequencyCorrection(const int, const size_t) const override { return false; }
+    bool hasDCOffsetMode(const int, const size_t) const override { return false; }
+    bool hasIQBalance(const int, const size_t) const override { return false; }
+    bool hasIQBalanceMode(const int, const size_t) const override { return false; }
+    bool getFullDuplex(const int, const size_t) const override { return true; }
 
     // Sample-rate API
     std::vector<double> listSampleRates(const int dir, const size_t chan) const override;
@@ -149,15 +167,22 @@ public:
     std::string getDriverKey(void) const override { return "mipi"; }
     std::string getHardwareKey(void) const override { return "rpi5-mipi"; }
 
+    static constexpr size_t kRxHwChannels = 4;
+    static constexpr size_t kRxInterleaveFrameBytes = kRxHwChannels * 2; // CS8 IQ * 4
+
     // Channels
     size_t getNumChannels(const int dir) const override;
     std::vector<std::string> getStreamFormats(const int dir, const size_t) const override;
     std::string getNativeStreamFormat(const int dir, const size_t, double &fullScale) const override;
     double getSampleRate(const int dir, const size_t) const override;
 
-    // Settings (portable subset)
+    // Settings: device-wide and per-direction (quadrf-jtag specs)
+    SoapySDR::ArgInfoList getSettingInfo(void) const override;
     void writeSetting(const std::string &key, const std::string &value) override;
     std::string readSetting(const std::string &key) const override;
+    SoapySDR::ArgInfoList getSettingInfo(const int dir, const size_t chan) const override;
+    void writeSetting(const int dir, const size_t chan, const std::string &key, const std::string &value) override;
+    std::string readSetting(const int dir, const size_t chan, const std::string &key) const override;
     
     // Streams
     SoapySDR::Stream *setupStream(const int dir,
@@ -211,6 +236,15 @@ private:
     static void deinterleave_CS8_NEON(const int8_t *input, void * const *buffs, size_t numElems);
     static void deinterleave_CS8_to_CF32_NEON(const int8_t *input, void * const *buffs, size_t numElems);
 
+    double rxNativeRate_() const;
+    void rxInitRxBuffers_();
+    void applyRxInterleave_(bool enable);
+    void mapRxHwBuffs_(void * const *buffs, size_t produced, size_t bytesPerElem,
+                       void *hwBuffs[kRxHwChannels]) const;
+    ssize_t rxGatherInterleaved_(size_t wantFrames, long timeoutUs);
+    int readStreamInterleaved_(SoapySDR::Stream *stream, void * const *buffs,
+                               size_t numElems, long timeoutUs);
+
     // common state
     mutable std::recursive_mutex deviceMutex_;
     mutable std::recursive_mutex rxMutex_;
@@ -259,8 +293,10 @@ private:
     std::string rxRequestedFormat_ = SOAPY_SDR_CS8;
     std::string txRequestedFormat_ = SOAPY_SDR_CS8; 
     
-    std::vector<size_t> rxChannels_; 
-    
+    std::vector<size_t> rxChannels_;
+    bool rxInterleaveEnabled_{false};
+    std::vector<uint8_t> rxInterleaveRemainder_;
+
     mutable std::vector<uint8_t> rxScratch_;
     mutable std::vector<uint8_t> txScratch_;
     mutable std::vector<float> resampScratch_;
@@ -364,18 +400,17 @@ private:
     void txRingInit_();
     void txRingFlush_(long timeoutUs);
 
-    double gain_ = 0.0;
-    std::string rxAntennaSel_ = "RX";
-    std::string txAntennaSel_ = "TX";
     double lastRxRate_ = 0.0;
     double sampleRateRatio_ = 1.0; // F_in / F_out
 
     // ---------- Stereo Elliptic Filter & Resampler (RX) ----------
     static constexpr double kFsIn = RX_LINE_RATE;
     DSP::FarrowResampler resampler_;
+    DSP::FarrowResampler rxChResampler_[kRxHwChannels];
 
     // DSP RX State
-    mutable LinearDSPBuffer<float> rxFloatBuf_; 
+    mutable LinearDSPBuffer<float> rxFloatBuf_;
+    LinearDSPBuffer<float> rxChFloatBuf_[kRxHwChannels]; 
 
     // ---------- TX Resampler (Host -> DSI line rate) ----------
     double lastTxRate_ = 0.0;               // Host-selected TX sample rate (Soapy visible)
@@ -396,4 +431,42 @@ private:
     void txFlush_(long timeoutUs);
 
     void rxFilter_config_(double fsOut);
+
+    struct FrontendStatus {
+        bool valid = false;
+        double freqHz = 0.0;
+        double gainDb = 0.0;
+        bool agc = false;
+        double agcSetpointDbfs = -15.0;
+        double analogBwHz = 40e6;
+        double digitalBwHz = 40e6;
+        std::string pol = "rhcp";
+        bool interleave = false;
+        bool autosteer = false;
+        bool toneEn = false;
+        double toneFreqHz = 0.0;
+        double phases[4] = {0.0, 0.0, 0.0, 0.0};
+        unsigned antennas = 0;
+        bool txOn = false;
+        bool txFollowRx = false;
+        bool pllLocked = false;
+    };
+
+    std::string jtagPath_;
+    mutable std::mutex jtagMutex_;
+    mutable FrontendStatus rxHw_;
+    mutable FrontendStatus txHw_;
+    mutable uint64_t rxHwNs_{0};
+    mutable uint64_t txHwNs_{0};
+    double agcTargetDbfs_{-15.0};
+    double lastRxManualGain_{30.0};
+    double lastTxBwHz_{40e6};
+
+    std::string jtagRun(const std::vector<std::string> &args) const;
+    void jtagApply(int dir, const std::string &spec);
+    void refreshFrontend(int dir, bool force) const;
+    FrontendStatus &hw(int dir) const;
+    static void parseFrontendStatus(const std::string &text, bool isRx, FrontendStatus &st);
+    void writeChannelSetting(int dir, const std::string &key, const std::string &value);
+    std::string readChannelSetting(int dir, const std::string &key) const;
 };
