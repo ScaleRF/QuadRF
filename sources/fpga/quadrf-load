@@ -40,8 +40,14 @@ unload_csi() {
 
 unload_csi || true
 
+# -progress writes a CR-updated bar that stalls journald (and anything
+# logging through it) for the whole SVF. Keep it for interactive TTYs.
+SVF_PROGRESS=
+if [ -t 2 ]; then
+    SVF_PROGRESS="-progress"
+fi
 "${OPENOCD}" -s "${SEARCH_DIR}" -f "${BOARD}" \
-    -c "svf -tap lfe5u45f.tap -quiet -progress ${BITSTREAM}; exit"
+    -c "svf -tap lfe5u45f.tap -quiet ${SVF_PROGRESS} ${BITSTREAM}; exit"
 
 sleep 1
 # DKMS modules are absent until matching linux-headers are installed.
