@@ -766,18 +766,19 @@
         /* Beam Steering Visualizer */
         .beam-container {
             display: flex;
-            flex-direction: column;
+            flex-wrap: wrap;
             align-items: center;
-            gap: 1rem;
-            padding: 1rem;
+            justify-content: center;
+            gap: 1rem 1.5rem;
+            padding: 0.75rem 1rem;
             background: rgba(0,0,0,0.2);
             border-radius: var(--border-radius);
             border: 1px solid rgba(255,255,255,0.05);
         }
 
         .beam-pad {
-            width: 100%;
-            max-width: 260px;
+            width: 176px;
+            flex: 0 0 176px;
             aspect-ratio: 1;
             background: radial-gradient(circle at center, #1e293b 0%, #0f172a 100%);
             border: 2px solid var(--rx-color);
@@ -787,6 +788,23 @@
             cursor: crosshair;
             box-shadow: inset 0 0 20px rgba(0,0,0,0.5);
             overflow: hidden;
+        }
+
+        .beam-fields {
+            display: flex;
+            flex-direction: column;
+            align-items: stretch;
+            justify-content: center;
+            gap: 0.65rem;
+            flex: 1 1 200px;
+            min-width: 180px;
+            max-width: 260px;
+        }
+
+        .beam-angles {
+            display: flex;
+            justify-content: center;
+            gap: 1rem;
         }
         .panel-tx .beam-pad { border-color: var(--tx-color); }
         .panel-tx .beam-puck { box-shadow: 0 0 15px var(--tx-color), inset 0 0 5px rgba(0,0,0,0.5); }
@@ -804,7 +822,7 @@
             pointer-events: none; transition: transform 0.05s linear;
         }
 
-        .width-control { width: 100%; max-width: 260px; }
+        .width-control { width: 100%; margin-bottom: 0; }
 
         /* Mobile specific overrides */
         @media (max-width: 600px) {
@@ -812,7 +830,18 @@
             .header-row { flex-direction: column; align-items: stretch; gap: 0.75rem; }
             .header-row h2 { justify-content: flex-start; }
             .controls-row { justify-content: flex-start; width: 100%; }
-            .beam-pad { max-width: 220px; }
+            .beam-container {
+                flex-direction: column;
+                gap: 0.75rem;
+                padding: 0.75rem;
+            }
+            .beam-pad { width: 176px; flex: 0 0 auto; }
+            .beam-fields {
+                flex: 1 1 auto;
+                min-width: 0;
+                width: 100%;
+                max-width: none;
+            }
             .readout-input { width: 60px !important; font-size: 0.9rem !important; }
             .phase-card .readout-input { width: 45px !important; }
         }
@@ -913,33 +942,31 @@
     </div>
 
     <div id="rxBeamVisualizerGrp" class="beam-container">
-        <div style="text-align: center; width: 100%;">
-            <div id="rxBeamPad" class="beam-pad">
-                <div id="rxBeamPuck" class="beam-puck"></div>
-            </div>
+        <div id="rxBeamPad" class="beam-pad">
+            <div id="rxBeamPuck" class="beam-puck"></div>
         </div>
-        
-        <div style="display: flex; justify-content: center; gap: 1rem; width: 100%;">
-            <div class="value-group">
-                <label style="font-size: 0.75rem;">Az:</label>
-                <input type="number" id="rxAzNum" value="0" min="-45" max="45" class="readout-input" style="width: 50px !important;">
-                <span class="unit-text">&deg;</span>
-            </div>
-            <div class="value-group">
-                <label style="font-size: 0.75rem;">El:</label>
-                <input type="number" id="rxElNum" value="0" min="-45" max="45" class="readout-input" style="width: 50px !important;">
-                <span class="unit-text">&deg;</span>
-            </div>
-        </div>
-        
-        <div class="width-control control-group" style="width: 100%;">
-            <div class="setting-row">
-                <label>Beam Curvature</label>
+        <div class="beam-fields">
+            <div class="beam-angles">
                 <div class="value-group">
-                    <input type="number" id="rxBeamWidthNum" value="0" class="readout-input" min="-100" max="100">
+                    <label style="font-size: 0.75rem;">Az:</label>
+                    <input type="number" id="rxAzNum" value="0" min="-45" max="45" class="readout-input" style="width: 50px !important;">
+                    <span class="unit-text">&deg;</span>
+                </div>
+                <div class="value-group">
+                    <label style="font-size: 0.75rem;">El:</label>
+                    <input type="number" id="rxElNum" value="0" min="-45" max="45" class="readout-input" style="width: 50px !important;">
+                    <span class="unit-text">&deg;</span>
                 </div>
             </div>
-            <input type="range" id="rxBeamWidth" min="-100" max="100" step="1" value="0">
+            <div class="width-control control-group">
+                <div class="setting-row">
+                    <label>Beam Curvature</label>
+                    <div class="value-group">
+                        <input type="number" id="rxBeamWidthNum" value="0" class="readout-input" min="-100" max="100">
+                    </div>
+                </div>
+                <input type="range" id="rxBeamWidth" min="-100" max="100" step="1" value="0">
+            </div>
         </div>
     </div>
 
@@ -1058,33 +1085,31 @@
     </div>
 
     <div id="txBeamVisualizerGrp" class="beam-container">
-        <div style="text-align: center; width: 100%;">
-            <div id="txBeamPad" class="beam-pad">
-                <div id="txBeamPuck" class="beam-puck"></div>
-            </div>
+        <div id="txBeamPad" class="beam-pad">
+            <div id="txBeamPuck" class="beam-puck"></div>
         </div>
-        
-        <div style="display: flex; justify-content: center; gap: 1rem; width: 100%;">
-            <div class="value-group">
-                <label style="font-size: 0.75rem;">Az:</label>
-                <input type="number" id="txAzNum" value="0" min="-45" max="45" class="readout-input" style="width: 50px !important;">
-                <span class="unit-text">&deg;</span>
-            </div>
-            <div class="value-group">
-                <label style="font-size: 0.75rem;">El:</label>
-                <input type="number" id="txElNum" value="0" min="-45" max="45" class="readout-input" style="width: 50px !important;">
-                <span class="unit-text">&deg;</span>
-            </div>
-        </div>
-
-        <div class="width-control control-group" style="width: 100%;">
-            <div class="setting-row">
-                <label>Beam Curvature</label>
+        <div class="beam-fields">
+            <div class="beam-angles">
                 <div class="value-group">
-                    <input type="number" id="txBeamWidthNum" value="0" class="readout-input" min="-100" max="100">
+                    <label style="font-size: 0.75rem;">Az:</label>
+                    <input type="number" id="txAzNum" value="0" min="-45" max="45" class="readout-input" style="width: 50px !important;">
+                    <span class="unit-text">&deg;</span>
+                </div>
+                <div class="value-group">
+                    <label style="font-size: 0.75rem;">El:</label>
+                    <input type="number" id="txElNum" value="0" min="-45" max="45" class="readout-input" style="width: 50px !important;">
+                    <span class="unit-text">&deg;</span>
                 </div>
             </div>
-            <input type="range" id="txBeamWidth" min="-100" max="100" step="1" value="0">
+            <div class="width-control control-group">
+                <div class="setting-row">
+                    <label>Beam Curvature</label>
+                    <div class="value-group">
+                        <input type="number" id="txBeamWidthNum" value="0" class="readout-input" min="-100" max="100">
+                    </div>
+                </div>
+                <input type="range" id="txBeamWidth" min="-100" max="100" step="1" value="0">
+            </div>
         </div>
     </div>
 
