@@ -222,6 +222,7 @@ private:
     // rx helpers
     ssize_t rx_read_legacy(void *dst, size_t bytes, long timeoutUs);
     ssize_t rx_read_ring(void *dst, size_t bytes, long timeoutUs);
+    void rxFlushRing_();
 
     // tx helpers
     ssize_t tx_write_legacy(const void *src, size_t bytes, long timeoutUs);

@@ -893,6 +893,12 @@ int MipiDevice::activateStream(SoapySDR::Stream *stream, const int, const long l
             rxChResampler_[i].reset();
             rxChFloatBuf_[i].reset();
         }
+        // CSI runs continuously. The ring still holds zeros from bring-up
+        // and 1-ch frames from before setupStream flipped interleave.
+        ::usleep(2000);
+        rxFlushRing_();
+        ::usleep(2000);
+        rxFlushRing_();
         s->active = true;
         SoapySDR::logf(SOAPY_SDR_INFO,
                        "MipiDevice::activateStream RX stream=%llu fdRx_=%d rxRing_=%p rxRingSize_=%zu sampleRateRatio_=%.9f",
@@ -1491,6 +1497,33 @@ ssize_t MipiDevice::rx_read_legacy(void *dst, size_t bytes, long timeoutUs)
         return -EIO; 
     }
     return g;
+}
+
+void MipiDevice::rxFlushRing_()
+{
+    if (fdRx_ < 0) return;
+
+    size_t total = 0;
+    for (int pass = 0; pass < 8; ++pass) {
+        csi_ring_info ri{};
+        if (ioctl(fdRx_, CSI_IOC_GET_RING_INFO, &ri) != 0) break;
+        const size_t size = ri.ring_size;
+        if (!size) break;
+
+        size_t used;
+        if ((size & (size - 1)) == 0)
+            used = (size_t)(ri.head - ri.tail) & (size - 1);
+        else
+            used = (ri.head >= ri.tail) ? (ri.head - ri.tail)
+                                        : (size - (ri.tail - ri.head));
+        if (!used) break;
+
+        __u32 cons = (__u32)used;
+        if (ioctl(fdRx_, CSI_IOC_CONSUME_BYTES, &cons) != 0) break;
+        total += used;
+    }
+    if (total)
+        SoapySDR::logf(SOAPY_SDR_INFO, "RX ring flushed %zu bytes", total);
 }
 
 ssize_t MipiDevice::rx_read_ring(void *dst, size_t bytes, long timeoutUs)
