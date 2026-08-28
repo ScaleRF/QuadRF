@@ -1,6 +1,6 @@
 [Unit]
 Description=QuadRF fallback access point
-After=network.target
+After=network.target load-quadrf.service
 
 [Service]
 Type=oneshot
