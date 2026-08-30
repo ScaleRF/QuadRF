@@ -606,11 +606,11 @@ int main(int argc, char **argv)
 
         /* Tone frequency (0x2F) - Shared with Rx */
         if (txs.tone_freq_specified) {
-            uint16_t k_reg = 0;
-            jtag_read_u16(fd, 0x27, &k_reg);
-            double fs = (k_reg > 0) ? (352.0 / k_reg) : 88.0;
-            double n_f = txs.tone_freq_mhz * 65536.0 / fs;
-            jtag_write_u16(fd, 0x2F, (uint16_t)(int16_t)round(n_f));
+            if (max285x_write_tone_freq_mhz(fd, txs.tone_freq_mhz) != 0) {
+                fprintf(stderr, "Error: failed to write tone frequency to 0x2F\n");
+                rc = 1;
+                goto out_release;
+            }
         }        
         if (txs.tx_follow_rx_specified) {
             jtag_write_u16(fd, 0x6D, txs.tx_follow_rx_on ? 0x01 : 0x00);
@@ -683,6 +683,11 @@ int main(int argc, char **argv)
             }
 
             if (rxs.bw_specified) {
+                /* 0x2F is a phase increment vs 352/k, so rewrite it after k
+                 * changes or the MHz offset tracks the divider. */
+                double keep_tone_mhz = 0.0;
+                bool keep_tone = (max285x_read_tone_freq_mhz(fd, &keep_tone_mhz) == 0);
+
                 if (jtag_write_u16(fd, 0x27, (uint16_t)k) != 0) {
                     fprintf(stderr, "Error: failed to write digital filter bandwidth to 0x27\n");
                     rc = 1;
@@ -692,6 +697,14 @@ int main(int argc, char **argv)
                     fprintf(stderr, "Error: failed to set analog RX bandwidth to %d MHz\n", analog_bw);
                     rc = 1;
                     goto out_release;
+                }
+
+                if (keep_tone && !rxs.tone_freq_specified) {
+                    if (max285x_write_tone_freq_mhz(fd, keep_tone_mhz) != 0) {
+                        fprintf(stderr, "Error: failed to preserve tone frequency after bandwidth change\n");
+                        rc = 1;
+                        goto out_release;
+                    }
                 }
 
                 printf("RX Digital Filter: k=%d, actual_bw=%.2f MHz (Analog BW set to %d MHz)\n",
@@ -757,12 +770,13 @@ int main(int argc, char **argv)
 
             /* Tone frequency (0x2F) - Shared with Tx */
             if (rxs.tone_freq_specified) {
-                uint16_t k_reg = 0;
-                jtag_read_u16(fd, 0x27, &k_reg);
-                double fs = (k_reg > 0) ? (352.0 / k_reg) : 88.0;
-                double n_f = rxs.tone_freq_mhz * 65536.0 / fs;
-                jtag_write_u16(fd, 0x2F, (uint16_t)(int16_t)round(n_f));
-            }            /* Rx Phases (0x2A, 0x2B) */
+                if (max285x_write_tone_freq_mhz(fd, rxs.tone_freq_mhz) != 0) {
+                    fprintf(stderr, "Error: failed to write tone frequency to 0x2F\n");
+                    rc = 1;
+                    goto out_release;
+                }
+            }
+            /* Rx Phases (0x2A, 0x2B) */
             if (rxs.phase_specified[0] || rxs.phase_specified[1]) {
                 uint16_t val_2a = 0;
                 jtag_read_u16(fd, 0x2A, &val_2a);

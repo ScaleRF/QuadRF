@@ -49,6 +49,11 @@ int max2851_set_analog_bw(int fd, int bw_mhz);
 int max2850_status(int fd);
 int max2851_status(int fd);
 
+/* Shared RX/TX NCO at 0x2F. Phase increment is n_f = f_MHz * 65536 / (352/k),
+ * k = digital filter divider in 0x27. */
+int max285x_write_tone_freq_mhz(int fd, double mhz);
+int max285x_read_tone_freq_mhz(int fd, double *mhz_out);
+
 #ifdef __cplusplus
 }
 #endif

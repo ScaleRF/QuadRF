@@ -595,6 +595,31 @@ int max2850_set_freq_mhz(int fd, double mhz)
 // Status Readers
 // -----------------------------------------------------------------------------
 
+/* FPGA NCO clock is 352 MHz / k, k in 0x27. Default k=4 -> 88 MHz. */
+static double tone_nco_fs_mhz(uint16_t k)
+{
+    return (k > 0) ? (352.0 / (double)k) : 88.0;
+}
+
+int max285x_read_tone_freq_mhz(int fd, double *mhz_out)
+{
+    uint16_t k = 0, n = 0;
+    if (jtag_read_u16(fd, 0x27, &k) != 0) return -1;
+    if (jtag_read_u16(fd, 0x2F, &n) != 0) return -1;
+    *mhz_out = (double)(int16_t)n * tone_nco_fs_mhz(k) / 65536.0;
+    return 0;
+}
+
+int max285x_write_tone_freq_mhz(int fd, double mhz)
+{
+    uint16_t k = 0;
+    if (jtag_read_u16(fd, 0x27, &k) != 0) return -1;
+    double n_f = mhz * 65536.0 / tone_nco_fs_mhz(k);
+    if (n_f > 32767.0) n_f = 32767.0;
+    if (n_f < -32768.0) n_f = -32768.0;
+    return jtag_write_u16(fd, 0x2F, (uint16_t)(int16_t)round(n_f));
+}
+
 int max2850_status(int fd)
 {
     uint16_t orig_reg14 = max2850_base_regs[14]; // Contains DOUT_SEL = 0
@@ -663,15 +688,12 @@ int max2850_status(int fd)
         printf("\n");
     }
 
-    uint16_t reg_26=0, reg_2f=0, reg_2c=0, reg_2d=0, k_reg=0;
+    uint16_t reg_26=0, reg_2c=0, reg_2d=0;
+    double tone_freq = 0.0;
     jtag_read_u16(fd, 0x26, &reg_26);
-    jtag_read_u16(fd, 0x2F, &reg_2f);
     jtag_read_u16(fd, 0x2C, &reg_2c);
     jtag_read_u16(fd, 0x2D, &reg_2d);
-    jtag_read_u16(fd, 0x27, &k_reg);
-
-    double fs = (k_reg > 0) ? (352.0 / k_reg) : 88.0;
-    double tone_freq = (double)(int16_t)reg_2f * fs / 65536.0;
+    max285x_read_tone_freq_mhz(fd, &tone_freq);
     double p1 = ((reg_2c >> 8) & 0xFF) * 360.0 / 256.0;
     double p2 = (reg_2c & 0xFF) * 360.0 / 256.0;
     double p3 = ((reg_2d >> 8) & 0xFF) * 360.0 / 256.0;
@@ -777,15 +799,12 @@ int max2851_status(int fd)
     printf("- Polarization: %s\n", (pol_val == 0x01) ? "RHCP" : "LHCP");
     printf("- Interleaved Mode: %s\n", (int_val == 0x01) ? "ON" : "OFF");
 
-    uint16_t reg_2e=0, reg_2f=0, reg_2a=0, reg_2b=0;
+    uint16_t reg_2e=0, reg_2a=0, reg_2b=0;
+    double tone_freq = 0.0;
     jtag_read_u16(fd, 0x2E, &reg_2e);
-    jtag_read_u16(fd, 0x2F, &reg_2f);
     jtag_read_u16(fd, 0x2A, &reg_2a);
     jtag_read_u16(fd, 0x2B, &reg_2b);
-
-    /* digital_bw_k is already read earlier in max2851_status */
-    double fs = (digital_bw_k > 0) ? (352.0 / digital_bw_k) : 88.0;
-    double tone_freq = (double)(int16_t)reg_2f * fs / 65536.0;
+    max285x_read_tone_freq_mhz(fd, &tone_freq);
     double p1 = ((reg_2a >> 8) & 0xFF) * 360.0 / 256.0;
     double p2 = (reg_2a & 0xFF) * 360.0 / 256.0;
     double p3 = ((reg_2b >> 8) & 0xFF) * 360.0 / 256.0;

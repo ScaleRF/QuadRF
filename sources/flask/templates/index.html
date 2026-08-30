@@ -1321,13 +1321,11 @@
             
             ['rxToneNum', 'rxToneFreq', 'txToneNum', 'txToneFreq'].forEach(id => {
                 const el = document.getElementById(id);
-                if (el) { 
-                    el.min = -maxFreq; 
-                    el.max = maxFreq; 
-                    let currentVal = parseFloat(el.value);
-                    if (currentVal > maxFreq) el.value = maxFreq;
-                    if (currentVal < -maxFreq) el.value = -maxFreq;
-                }
+                if (!el) return;
+                const currentVal = parseFloat(el.value);
+                const lim = Math.max(maxFreq, Math.abs(currentVal) || 0);
+                el.min = -lim;
+                el.max = lim;
             });
         }
 
