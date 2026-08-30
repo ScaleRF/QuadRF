@@ -1,3 +1,13 @@
+quadrf (1.0.13) trixie; urgency=medium
+
+  * gui: Keep Internal Tone off interleave and hold offset across BW
+  * soapy: Switch CSI RX to 4 lanes
+  * gnuradio: Drop example flowgraphs FFT to 4096
+  * gnuradio: block docs
+  * gnuradio: point GRC xterm_executable at /usr/bin/x-terminal-emulator
+
+ -- QuadRF Engineering <contact@ScaleRF.com>  Sun, 30 Aug 2026 14:24:47 -0700
+
 quadrf (1.0.12) trixie; urgency=medium
 
   * gui: Compact antenna beam pad beside curvature on desktop
