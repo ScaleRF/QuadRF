@@ -186,7 +186,7 @@ constexpr double kLoMaxHz = 6.0e9;
 constexpr double kRxBwMinHz = 240.0e6 / 63.0;
 constexpr double kRxBwMaxHz = 240.0e6 / 5.0;
 constexpr double kRateMinHz = 1.0e6;
-constexpr double kRateMaxHz = 100.0e6;
+constexpr double kRateMaxHz = 200.0e6;
 constexpr uint64_t kStatusTtlNs = 150000000ull;
 
 double clampVal(double v, double lo, double hi)
@@ -523,7 +523,7 @@ SoapySDR::RangeList MipiDevice::getSampleRateRange(const int dir, const size_t) 
     if (dir == SOAPY_SDR_TX) {
         return { SoapySDR::Range(1.0e6, 90.0e6) };
     }
-    return { SoapySDR::Range(1.0e6, 85.0e6) };
+    return { SoapySDR::Range(1.0e6, 160.0e6) };
 }
 
 SoapySDR::RangeList MipiDevice::getFrequencyRange(const int, const size_t) const

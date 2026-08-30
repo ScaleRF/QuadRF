@@ -26,7 +26,7 @@
 			acme,raw-bits = <8>;    /* set to <8> for RAW8 */
 			acme,dt = <0x2a>;    /* set to <8> for RAW8 */
 			acme,mbps   = <640>;  /* 437 lane rate in Mbps */
-			acme,nlanes = <2>;    /*2 number of data lanes */
+			acme,nlanes = <4>;    /* number of data lanes */
 
 			acme,bytes-per-line = <1024>; /* 1024 pixels, RAW8 -> 1024 bytes */
 			acme,lines          = <128>; /* 128 lines per frame */

@@ -19,7 +19,8 @@
 
 #include "Farrow.hpp" 
 
-static constexpr const double RX_LINE_RATE = ((131072.0/142638.0)*87.5e6);
+// 4-lane CSI
+static constexpr const double RX_LINE_RATE = ((65536.0/76714.0)*175.0e6);
 
 // DSI TX default timing.  Userspace writes only active RGB payload bytes, but
 // the physical DSI frame also contains per-line and per-frame overhead.  When
