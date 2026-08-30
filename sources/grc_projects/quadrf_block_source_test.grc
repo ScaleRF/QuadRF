@@ -99,7 +99,7 @@ blocks:
     comment: ''
     ctrlpanel: 'False'
     fc: '0'
-    fftsize: '32768'
+    fftsize: '4096'
     freqhalf: 'True'
     grid: 'True'
     gui_hint: ''
