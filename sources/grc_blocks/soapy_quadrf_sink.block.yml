@@ -177,25 +177,27 @@ templates:
 documentation: |-
     Soapy QuadRF Sink Block
     -----------------------
-    TX SDR block for the QuadRF transceiver using MIPI DSI.
+    TX block for the QuadRF.
 
     Streaming & Sampling:
       - Formats:
-        * fc32 (Complex Float32): Standard 32-bit floating point I/Q.
-        * sc8 (Complex Signed 8-bit): raw 8-bit I/Q.
+        * fc32 (Complex Float32)
+        * sc8 (Complex Signed 8-bit)
       - Sample Rates:
-        * Resampled: 1.0 to 80.0 Msps host rates (polyphase Farrow resampler upsamples to MIPI payload rate).
-        * Native Line Rate: ~86.08 Msps direct streaming.
+        * Native Line Rate: ~86.08 Msps
+        * Arbitrary Rates: Integrated NEON SIMD Farrow resampler supports 1.0 to 80.0 Msps.
 
-    RF & Front-End Control:
-      - Frequency: 5.15 GHz to 5.95 GHz (5.6 GHz nominal).
-      - Gain: 0 dB to 63 dB manual TX gain control.
-      - Follow RX LO: Locks TX synthesizer to the RX local oscillator frequency to prevent inter-LO beating.
-      - Analog Bandwidth: Baseband analog low-pass filter selection (Auto, 20 MHz, or 40 MHz).
-      - Antenna Masks (Tx1-Tx4): Individual antenna element transmit enable toggles.
-      - Phase Offsets (p1-p4): Per-element TX phase adjustments (0 to 360 deg, 7-bit resolution / 2.8125 deg step).
+    RF & Gain Control:
+      - Frequency: 4.9 to 6 GHz (range extends with reduced performance).
+      - Gain: 0 to 63 dB
+      - Follow RX LO: locks TX synthesizer to the RX local oscillator
+      - Bandwidth: Analog filter (Auto, 20 MHz, or 40 MHz).
+
+    Front-End & Phased Array:
+      - Antenna Masks (Tx1-Tx4): Independent element enable/disable toggles.
+      - Phase Offsets (p1-p4): Individual antenna element phase adjustments (0 to 360 deg, 7-bit resolution / 2.8125 deg step).
 
     Diagnostics:
-      - Test Tone: Generates an internal FPGA calibration/test CW tone at specified frequency offset.
+      - Test Tone: Generates an internal FPGA calibration/test tone at specified frequency offset.
 
 file_format: 1
