@@ -1,3 +1,4 @@
+etc/gnuradio/conf.d/quadrf-grc.conf
 usr/share/quadrf/grc/
 usr/share/gnuradio/grc/blocks/
 usr/share/applications/quadrf-gnuradio.desktop

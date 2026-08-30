@@ -298,6 +298,8 @@ install-gnuradio:
 	$(INSTALL) -D -m 644 -t $(DESTDIR)$(datadir)/grc $(SRC)/grc_projects/*.grc
 	$(INSTALL) -d -m 755 $(DESTDIR)$(prefix)/share/gnuradio/grc/blocks
 	$(INSTALL) -D -m 644 -t $(DESTDIR)$(prefix)/share/gnuradio/grc/blocks $(SRC)/grc_blocks/*
+	$(INSTALL) -D -m 644 $(SRC)/gnuradio/quadrf-grc.conf \
+		$(DESTDIR)$(sysconfdir)/gnuradio/conf.d/quadrf-grc.conf
 
 install-ups:
 	$(INSTALL) -D -m 755 $(SRC)/ups_hat/ups_daemon.py $(DESTDIR)$(libdir)/ups-daemon
