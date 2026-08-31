@@ -717,7 +717,7 @@ def control_sdr():
             if str(value) == "4":
                 cmd.extend(["--rx", "antennas=15,interleave=1,tone_en=0"])
             elif str(value) == "1":
-                cmd.extend(["--rx", "antennas=1,interleave=0,tone_en=0"])
+                cmd.extend(["--rx", "antennas=15,interleave=0,tone_en=0"])
             elif str(value) == "test":
                 cmd.extend(["--rx", "interleave=0,tone_en=1"])
         elif control_type == 'rx_auto_steer':

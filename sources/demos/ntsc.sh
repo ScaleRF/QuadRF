@@ -16,7 +16,7 @@ if [ -z "${DISPLAY:-}" ]; then
   done
 fi
 
-quadrf-jtag --rx autosteer=1,antennas=1,interleave=0,tone_en=0,bw=12.0,agc=-14.0
+quadrf-jtag --rx autosteer=1,antennas=15,interleave=0,tone_en=0,bw=12.0,agc=-14.0
 
 quadrf-ntsc-demod --bypass_iir true --disc atan2 --no_deemph --read_samps 65536 --flush_frames 1 \
   --args "numBuffers=2,bufferLength=65536" \
