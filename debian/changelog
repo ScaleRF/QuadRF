@@ -1,3 +1,13 @@
+quadrf (1.0.14) trixie; urgency=medium
+
+  * gui: Keep network path IPs inside their boxes
+  * demos: Synchronize FPGA interleave mode on spacebar toggle in PSD plot
+  * demos: Retune CSI sweep for 4-lane 38 Msps and band-limited CFAR
+  * gui: Enable all four RX channels in analog beamforming
+  * soapy: Optimize Farrow resampler with on-the-fly CS8 taps and 4-ch SIMD
+
+ -- QuadRF Engineering <contact@ScaleRF.com>  Sun, 30 Aug 2026 22:34:21 -0700
+
 quadrf (1.0.13) trixie; urgency=medium
 
   * gui: Keep Internal Tone off interleave and hold offset across BW
