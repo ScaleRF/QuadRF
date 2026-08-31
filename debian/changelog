@@ -1,3 +1,9 @@
+quadrf (1.0.16) trixie; urgency=medium
+
+  * debian: Install DKMS sources at the package version
+
+ -- QuadRF Engineering <contact@ScaleRF.com>  Mon, 31 Aug 2026 03:47:24 -0700
+
 quadrf (1.0.15) trixie; urgency=medium
 
   * hw: Fix CSI driver teardown hang on module unload and shutdown
