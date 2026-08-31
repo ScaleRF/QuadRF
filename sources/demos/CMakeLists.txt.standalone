@@ -1,0 +1,28 @@
+cmake_minimum_required(VERSION 3.12)
+project(QuadRF_Examples C CXX)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# Find the installed QuadRF development package
+find_package(QuadRF REQUIRED)
+find_package(PkgConfig REQUIRED)
+
+# Need FFTW and SDL2 for some demos
+pkg_check_modules(FFTW3F REQUIRED fftw3f)
+pkg_check_modules(SDL2 REQUIRED sdl2)
+
+# quadrf-rf-vision
+add_executable(quadrf-rf-vision csi_sweep.c mongoose.c)
+target_link_libraries(quadrf-rf-vision PRIVATE QuadRF::quadrf ${FFTW3F_LIBRARIES} ${SDL2_LIBRARIES} m pthread)
+target_include_directories(quadrf-rf-vision PRIVATE ${FFTW3F_INCLUDE_DIRS} ${SDL2_INCLUDE_DIRS})
+
+# quadrf-psd
+add_executable(quadrf-psd psd_switchable.c)
+target_link_libraries(quadrf-psd PRIVATE QuadRF::quadrf ${FFTW3F_LIBRARIES} ${SDL2_LIBRARIES} m)
+target_include_directories(quadrf-psd PRIVATE ${FFTW3F_INCLUDE_DIRS} ${SDL2_INCLUDE_DIRS})
+
+# quadrf-ntsc-demod
+add_executable(quadrf-ntsc-demod ntsc_demod.cpp)
+target_compile_options(quadrf-ntsc-demod PRIVATE -ffast-math)
+target_link_libraries(quadrf-ntsc-demod PRIVATE QuadRF::quadrf)

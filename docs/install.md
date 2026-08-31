@@ -60,6 +60,7 @@ flowchart TB
   end
 
   subgraph full_only["Only via quadrf"]
+    DEV["quadrf-dev"]
     DEMOS["quadrf-demos"]
     DESK["quadrf-desktop"]
     UPS["quadrf-ups"]
@@ -67,13 +68,14 @@ flowchart TB
     QRL["qradiolink"]
   end
 
-  FULL --> COMMON & BOOT & FPGA & SOAPY & GUI & NET & DEMOS & DESK & UPS & GRC
+  FULL --> COMMON & BOOT & FPGA & SOAPY & GUI & NET & DEV & DEMOS & DESK & UPS & GRC
   HEAD --> COMMON & BOOT & FPGA & SOAPY & GUI & NET
 
   BOOT --> COMMON
   FPGA --> BOOT & DKMS
   SOAPY --> FPGA
   GUI --> FPGA
+  DEV --> FPGA & SOAPY
   DEMOS --> FPGA
   DESK --> QRL
   NET --> COMMON
@@ -81,10 +83,7 @@ flowchart TB
   GRC --> COMMON
 ```
 
-The complete `quadrf` package includes the remote desktop and the applications
-described in [Applications](applications.md). Extra `.deb` packages with a
-desktop entry and/or a control-page descriptor load automatically.
-`quadrf-headless` omits the desktop and the included radio apps.
+The `quadrf` package includes a remote desktop, applications described in [Applications](applications.md), and the headers and example sources used to compile on the quad ([Building software](develop.md)). Extra `.deb` packages with a desktop entry and/or a control-page descriptor load automatically. `quadrf-headless` omits the desktop, the included radio apps, and `quadrf-dev`.
 
 ## Configure
 

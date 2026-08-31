@@ -17,10 +17,14 @@ Homepage: https://quadrf.com
 Package: quadrf
 Section: metapackages
 Architecture: all
-Depends: quadrf-boot (= ${binary:Version}),
+Depends: build-essential,
+         cmake,
+         pkg-config,
+         quadrf-boot (= ${binary:Version}),
          quadrf-common (= ${binary:Version}),
          quadrf-demos (= ${binary:Version}),
          quadrf-desktop (= ${binary:Version}),
+         quadrf-dev (= ${binary:Version}),
          quadrf-fpga (= ${binary:Version}),
          quadrf-gui (= ${binary:Version}),
          quadrf-gnuradio (= ${binary:Version}),
@@ -28,19 +32,24 @@ Depends: quadrf-boot (= ${binary:Version}),
          quadrf-soapy (= ${binary:Version}),
          quadrf-ups (= ${binary:Version}),
          ${misc:Depends}
-Recommends: quadrf-phy, quadrf-meshtasticd
 Description: software-defined radio appliance for the Raspberry Pi 5
  QuadRF turns a Raspberry Pi 5 and a Lattice ECP5 radio front-end into a
  self-contained SDR appliance: FPGA bring-up at boot, SoapySDR drivers, a web
  control panel, a remote desktop and the demo applications.
  .
- This metapackage pulls in the complete appliance. Install the individual
- quadrf-* packages instead to build a smaller system.
+ This metapackage includes the compiler toolchain, headers, and demo
+ source code. Install individual quadrf-* packages instead to build a
+ smaller system.
+
+Package: quadrf-dev
+Architecture: arm64
+Depends: quadrf-fpga (= ${binary:Version}),
+         quadrf-soapy (= ${binary:Version}),
+         ${misc:Depends}
+Description: QuadRF development headers and CMake configuration
+ Contains the C++ headers and quadrfConfig.cmake required to build custom
+ applications or out-of-tree plugins against the pre-compiled QuadRF drivers.
  .
- Also recommends quadrf-phy and quadrf-meshtasticd, the LoRa PHY and
- Meshtastic mesh daemon, so a plain apt-get install carries mesh support
- on by default; drop them with --no-install-recommends if you don't want
- it.
 
 Package: quadrf-headless
 Section: metapackages
@@ -52,14 +61,10 @@ Depends: quadrf-boot (= ${binary:Version}),
          quadrf-network (= ${binary:Version}),
          quadrf-soapy (= ${binary:Version}),
          ${misc:Depends}
-Recommends: quadrf-phy, quadrf-meshtasticd
 Description: QuadRF appliance without the graphical desktop
  Radio, SoapySDR, networking and the web control panel, with no KasmVNC
  desktop, demo applications or GNU Radio. Suited to units that are only driven
  over the network.
- .
- Also recommends quadrf-phy and quadrf-meshtasticd (see quadrf's
- description); drop with --no-install-recommends if you don't want it.
 
 Package: quadrf-common
 Architecture: all

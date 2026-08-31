@@ -1,0 +1,20 @@
+# QuadRF CMake Configuration
+
+# Find dependencies
+include(CMakeFindDependencyMacro)
+find_dependency(PkgConfig)
+pkg_check_modules(SOAPY_SDR REQUIRED SoapySDR)
+
+# Apps link against SoapySDR, which dynamically loads the QuadRF modules.
+# Link QuadRF::quadrf if you need headers such as `fpga_csi.h` or `Farrow.hpp`.
+
+set(QUADRF_INCLUDE_DIR "/usr/include/quadrf")
+set(QuadRF_INCLUDE_DIRS ${QUADRF_INCLUDE_DIR})
+
+if(NOT TARGET QuadRF::quadrf)
+    add_library(QuadRF::quadrf INTERFACE IMPORTED)
+    set_target_properties(QuadRF::quadrf PROPERTIES
+        INTERFACE_INCLUDE_DIRECTORIES "${QUADRF_INCLUDE_DIR}"
+        INTERFACE_LINK_LIBRARIES "PkgConfig::SOAPY_SDR"
+    )
+endif()

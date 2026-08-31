@@ -31,7 +31,6 @@ The workflow:
 - pulls or builds a cached `debian:trixie` arm64 builder image
   (`packaging/Dockerfile.builder`)
 - runs `make -C packaging quadrf openocd qradiolink kasmvnc repo`
-- skips `quadrf-mesh` (that tree is a separate repository)
 - imports `QUADRF_GPG_PRIVATE_KEY` and lets reprepro sign `Release`
 
 ## Maintainer builds
@@ -50,9 +49,6 @@ sudo apt build-dep .
 make -C packaging quadrf        # packages from this tree, into packaging/out/
 make -C packaging openocd qradiolink kasmvnc
 ```
-
-`make -C packaging` also tries `quadrf-mesh`, which copies pre-built mesh
-packages from a sibling checkout when `QUADRF_MESH_DIR` is set.
 
 Artefacts land in `packaging/out/`. The builder image is tagged
 `quadrf-builder:trixie-<hash>` from `Dockerfile.builder` and `debian/control`.

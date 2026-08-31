@@ -81,8 +81,8 @@ Install metapackages `quadrf` or `quadrf-headless`, or pick components. [docs/in
 
 | Package            | Contents                                                                                                                                                  |
 | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `quadrf`           | **Metapackage**: boot, common, fpga, soapy, gui, network, demos, desktop, gnuradio, ups; recommends mesh (`quadrf-phy`, `quadrf-meshtasticd`) |
-| `quadrf-headless`  | **Metapackage**: boot, common, fpga, soapy, gui, network; recommends mesh (`quadrf-phy`, `quadrf-meshtasticd`)                                            |
+| `quadrf`           | **Metapackage**: boot, common, fpga, soapy, gui, network, dev, demos, desktop, gnuradio, ups |
+| `quadrf-headless`  | **Metapackage**: boot, common, fpga, soapy, gui, network                                            |
 | `quadrf-common`    | `/etc/quadrf/quadrf.conf`, shared helpers, the `quadrf` command                                                                                           |
 | `quadrf-boot`      | Device-tree overlays, firmware configuration                                                                                                              |
 | `quadrf-fpga`      | Bitstream, `quadrf-jtag`, `load-quadrf.service`                                                                                                           |
@@ -90,7 +90,8 @@ Install metapackages `quadrf` or `quadrf-headless`, or pick components. [docs/in
 | `quadrf-soapy`     | `mipi` and `quadrf` SoapySDR modules, SoapyRemote service                                                                                                 |
 | `quadrf-gui`       | Flask control panel on port 8080                                                                                                                          |
 | `quadrf-network`   | nginx, dnsmasq, mDNS, access point, OpenSSH (SFTP)                                                                                                        |
-| `quadrf-demos`     | Spatial RF Vision, PSD plot, NTSC decoder (`mpv`), AR                                                                                                     |
+| `quadrf-dev`       | C++ headers and CMake config to build against the installed drivers                                                                                       |
+| `quadrf-demos`     | Spatial RF Vision, PSD plot, NTSC decoder (`mpv`), AR, and example sources under `/usr/share/quadrf/examples`                                             |
 | `quadrf-desktop`   | KasmVNC session with QuadRF launchers                                                                                                                 |
 | `quadrf-gnuradio`  | Example flowgraphs                                                                                                                                        |
 | `quadrf-ups`       | UPS HAT battery monitor                                                                                                                                   |
@@ -104,12 +105,6 @@ repository with versions pinned in `packaging/pins.env`:
 - `quadrf-openocd`, the Raspberry Pi OpenOCD fork with RP1 GPIO support
 - `kasmvncserver`, the upstream KasmVNC release
 - `qradiolink`, the SDR transceiver used by the KasmVNC desktop launcher
-- `quadrf-phy` / `quadrf-meshtasticd`, built from the separate
-[quadrf-mesh](https://github.com/radioroy/quadrf-mesh) repo — the LoRa
-PHY and a patched `meshtasticd` that runs the Meshtastic protocol over
-it. `Recommends:` on `quadrf` / `quadrf-headless`, so a plain
-`apt install quadrf` carries mesh support when those packages are in the
-apt repository; drop them with `--no-install-recommends`.
 
 ## Additional Setup Documentation
 
@@ -117,6 +112,8 @@ apt repository; drop them with `--no-install-recommends`.
 | ------------------------------------------------ | ----------------------------------- |
 | [docs/overview.md](../docs/overview.md)          | Overview                            |
 | [docs/install.md](../docs/install.md)            | Install, configure, upgrade, remove |
+| [docs/applications.md](../docs/applications.md)  | Desktop icons, control pages, packaging an app |
+| [docs/develop.md](../docs/develop.md)            | Compile custom apps and rebuild drivers on the board |
 | [docs/tls.md](../docs/tls.md)                    | HTTPS setup                         |
 | [packaging/README.md](../packaging/README.md)    | Building and publishing packages    |
 | [GitHub Releases](https://github.com/ScaleRF/QuadRF/releases) | Package release notes |

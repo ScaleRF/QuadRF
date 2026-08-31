@@ -1,7 +1,7 @@
 # Build the QuadRF packages and fill the apt repository.
 #
 #   make quadrf        packages from this source tree
-#   make thirdparty    quadrf-openocd, qradiolink, mirrored KasmVNC, mirrored quadrf-mesh
+#   make thirdparty    quadrf-openocd, qradiolink, mirrored KasmVNC
 #   make repo          publish everything in out/ into repo/
 #   make serve         HTTP-serve the signed tree (maintainer testing)
 #
@@ -27,7 +27,7 @@ quadrf: | $(OUT)
 	mv $(TOP)/../quadrf_$(shell dpkg-parsechangelog -l$(TOP)/debian/changelog -SVersion)_*.buildinfo $(OUT)/ 2>/dev/null || true
 	mv $(TOP)/../quadrf_$(shell dpkg-parsechangelog -l$(TOP)/debian/changelog -SVersion)_*.changes $(OUT)/ 2>/dev/null || true
 
-thirdparty: openocd qradiolink kasmvnc quadrf-mesh
+thirdparty: openocd qradiolink kasmvnc
 
 openocd: | $(OUT)
 	OUT=$(OUT) ./thirdparty/openocd/build.sh
@@ -37,9 +37,6 @@ qradiolink: | $(OUT)
 
 kasmvnc: | $(OUT)
 	OUT=$(OUT) ./thirdparty/fetch-kasmvnc.sh
-
-quadrf-mesh: | $(OUT)
-	OUT=$(OUT) ./thirdparty/quadrf-mesh/mirror.sh
 
 key:
 	./repo/gen-key.sh
@@ -54,4 +51,4 @@ serve: repo
 clean:
 	rm -rf $(OUT) thirdparty/openocd/work thirdparty/qradiolink/work
 
-.PHONY: all quadrf thirdparty openocd qradiolink kasmvnc quadrf-mesh key repo serve clean
+.PHONY: all quadrf thirdparty openocd qradiolink kasmvnc key repo serve clean

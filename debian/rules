@@ -6,19 +6,8 @@ export DEB_BUILD_MAINT_OPTIONS = hardening=+all
 export QUADRF_VERSION = $(DEB_VERSION_UPSTREAM)
 
 %:
-	dh $@
-
-override_dh_auto_build-indep:
-	$(MAKE) build-indep VERSION=$(QUADRF_VERSION)
-
-override_dh_auto_build-arch:
-	$(MAKE) build-arch VERSION=$(QUADRF_VERSION)
-
-override_dh_auto_install-indep:
-	$(MAKE) install-indep DESTDIR=$(CURDIR)/debian/tmp VERSION=$(QUADRF_VERSION)
-
-override_dh_auto_install-arch:
-	$(MAKE) install-arch DESTDIR=$(CURDIR)/debian/tmp VERSION=$(QUADRF_VERSION)
+	dh $@ --buildsystem=cmake
+# custom dh_installsystemd overrides
 
 override_dh_missing:
 	dh_missing --fail-missing
