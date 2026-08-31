@@ -4,6 +4,7 @@ usr/bin/quadrf-ntsc-demod
 usr/bin/quadrf-ntsc
 usr/bin/quadrf-nearfield
 usr/share/quadrf/ar/
+usr/share/quadrf/ntsc_ch.lua
 usr/share/quadrf/phasegaze/
 usr/share/quadrf/examples/
 usr/share/quadrf/apps.d/quadrf-demos.json
