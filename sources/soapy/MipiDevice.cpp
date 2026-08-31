@@ -840,13 +840,11 @@ void MipiDevice::closeStream(SoapySDR::Stream *stream)
         std::lock_guard<std::recursive_mutex> lock(rxMutex_);
         if (s->active) s->active = false;
         rxChannels_.clear();
-        resampler_.reset();
-        rxFloatBuf_.reset();
+        rxResamplerCS8_.reset();
+        rxResampler4Ch_.reset();
+        rxCs8Buf_.reset();
+        rx4ChCs8Buf_.reset();
         rxInterleaveRemainder_.clear();
-        for (size_t i = 0; i < kRxHwChannels; ++i) {
-            rxChResampler_[i].reset();
-            rxChFloatBuf_[i].reset();
-        }
         if (rxInterleaveEnabled_) {
             try { applyRxInterleave_(false); }
             catch (const std::exception &e) {
@@ -887,12 +885,9 @@ int MipiDevice::activateStream(SoapySDR::Stream *stream, const int, const long l
     if (s->dir == SOAPY_SDR_RX) {
         std::lock_guard<std::recursive_mutex> lock(rxMutex_);
         if (s->active) return 0;
-        rxFloatBuf_.reset();
+        rxCs8Buf_.reset();
+        rx4ChCs8Buf_.reset();
         rxInterleaveRemainder_.clear();
-        for (size_t i = 0; i < kRxHwChannels; ++i) {
-            rxChResampler_[i].reset();
-            rxChFloatBuf_[i].reset();
-        }
         // CSI runs continuously. The ring still holds zeros from bring-up
         // and 1-ch frames from before setupStream flipped interleave.
         ::usleep(2000);
@@ -1198,18 +1193,60 @@ int MipiDevice::readStream(SoapySDR::Stream *stream, void * const *buffs,
 
     if (buffs[0] == nullptr) return SOAPY_SDR_STREAM_ERROR;
 
-    const bool wantCF32 = (rxRequestedFormat_ == SOAPY_SDR_CF32); 
+    const bool wantCF32 = (rxRequestedFormat_ == SOAPY_SDR_CF32);
 
-    float* fBufOut = nullptr;
-    if (wantCF32) {
-        fBufOut = static_cast<float*>(buffs[0]);
-    } else {
-        if (resampScratch_.size() < numElems * 2) resampScratch_.resize(numElems * 2);
-        fBufOut = resampScratch_.data();
+    // PATH 1: Bypass (Native Line Rate)
+    if (!rxResamplerCS8_.isEnabled()) {
+        size_t totalProduced = 0;
+        long loopTimeoutUs = timeoutUs;
+
+        while (totalProduced < numElems) {
+            size_t remainingOutput = numElems - totalProduced;
+            size_t mtu = this->getStreamMTU(stream);
+            size_t reqSamples = std::min(remainingOutput, mtu);
+            size_t reqBytes = reqSamples * 2;
+
+            if (rxScratch_.size() < reqBytes) rxScratch_.resize(reqBytes);
+
+            const ssize_t gotBytes = (rxRing_ ? rx_read_ring(rxScratch_.data(), reqBytes, loopTimeoutUs)
+                                              : rx_read_legacy(rxScratch_.data(), reqBytes, loopTimeoutUs));
+
+            if (gotBytes == -EAGAIN) {
+                if (totalProduced > 0) break;
+                return SOAPY_SDR_TIMEOUT;
+            }
+            if (gotBytes < 0) {
+                if (totalProduced > 0) break;
+                return SOAPY_SDR_STREAM_ERROR;
+            }
+
+            size_t gotSamples = size_t(gotBytes / 2);
+            if (gotSamples == 0) {
+                if (totalProduced > 0) break;
+                return SOAPY_SDR_TIMEOUT;
+            }
+
+            if (wantCF32) {
+                float *dst = static_cast<float*>(buffs[0]) + (totalProduced * 2);
+                convert_CS8_to_CF32_NEON(
+                    reinterpret_cast<const int8_t*>(rxScratch_.data()),
+                    dst,
+                    gotSamples
+                );
+            } else {
+                int8_t *dst = static_cast<int8_t*>(buffs[0]) + (totalProduced * 2);
+                std::memcpy(dst, rxScratch_.data(), gotSamples * 2);
+            }
+
+            totalProduced += gotSamples;
+            loopTimeoutUs = 2000;
+        }
+        return int(totalProduced);
     }
 
-    if (rxFloatBuf_.capacity() == 0) {
-        rxFloatBuf_.init(32768 * 2); 
+    // PATH 2: Resampled 1-Channel CS8 on-the-fly
+    if (rxCs8Buf_.capacity() == 0) {
+        rxCs8Buf_.init(65536 * 2);
     }
 
     size_t totalProduced = 0;
@@ -1217,14 +1254,14 @@ int MipiDevice::readStream(SoapySDR::Stream *stream, void * const *buffs,
 
     while (totalProduced < numElems) {
         size_t remainingOutput = numElems - totalProduced;
-        
+
         size_t inputNeeded = (size_t)ceil(remainingOutput * sampleRateRatio_) + 16;
-        inputNeeded = (inputNeeded + 7) & ~7; 
+        inputNeeded = (inputNeeded + 7) & ~7;
 
         size_t mtu = this->getStreamMTU(stream);
         if (inputNeeded > mtu) inputNeeded = mtu;
 
-        const size_t bytesReq = inputNeeded * 2; 
+        const size_t bytesReq = inputNeeded * 2;
         if (rxScratch_.size() < bytesReq) rxScratch_.resize(bytesReq);
 
         const ssize_t gotBytes = (rxRing_ ? rx_read_ring(rxScratch_.data(), bytesReq, loopTimeoutUs)
@@ -1239,42 +1276,45 @@ int MipiDevice::readStream(SoapySDR::Stream *stream, void * const *buffs,
             return SOAPY_SDR_STREAM_ERROR;
         }
 
-        const size_t gotSamples = size_t(gotBytes / 2); 
-        
+        const size_t gotSamples = size_t(gotBytes / 2);
         if (gotSamples > 0) {
-            float* writePtr = rxFloatBuf_.prepareWrite(gotSamples * 2);
-            convert_CS8_to_CF32_NEON(
-                reinterpret_cast<const int8_t*>(rxScratch_.data()), 
-                writePtr, 
-                gotSamples
-            ); 
-            rxFloatBuf_.commitWrite(gotSamples * 2);
+            int8_t* writePtr = rxCs8Buf_.prepareWrite(gotSamples * 2);
+            std::memcpy(writePtr, rxScratch_.data(), gotSamples * 2);
+            rxCs8Buf_.commitWrite(gotSamples * 2);
         }
 
-        while (totalProduced < numElems && rxFloatBuf_.readAvail() >= 8) {
-            size_t inAvailPairs = rxFloatBuf_.readAvail() / 2;
+        while (totalProduced < numElems && rxCs8Buf_.readAvail() >= 8) {
+            size_t inAvailPairs = rxCs8Buf_.readAvail() / 2;
             int inConsumedPairs = 0;
-            int produced = resampler_.process(
-                rxFloatBuf_.readPtr(), inAvailPairs, 
-                fBufOut + (totalProduced * 2), remainingOutput, 
-                sampleRateRatio_, inConsumedPairs
-            );
+            int produced = 0;
 
-            rxFloatBuf_.consume(inConsumedPairs * 2);
-            totalProduced += produced;
-            remainingOutput -= produced;
-            
+            if (wantCF32) {
+                float *dst = static_cast<float*>(buffs[0]) + (totalProduced * 2);
+                produced = rxResamplerCS8_.processToCF32(
+                    rxCs8Buf_.readPtr(), int(inAvailPairs),
+                    dst, int(remainingOutput),
+                    sampleRateRatio_, inConsumedPairs
+                );
+            } else {
+                int8_t *dst = static_cast<int8_t*>(buffs[0]) + (totalProduced * 2);
+                produced = rxResamplerCS8_.processToCS8(
+                    rxCs8Buf_.readPtr(), int(inAvailPairs),
+                    dst, int(remainingOutput),
+                    sampleRateRatio_, inConsumedPairs
+                );
+            }
+
+            rxCs8Buf_.consume(size_t(inConsumedPairs) * 2);
+            totalProduced += size_t(produced);
+            remainingOutput -= size_t(produced);
+
             if (produced == 0 && inConsumedPairs == 0) break;
         }
 
-        loopTimeoutUs = 2000; 
+        loopTimeoutUs = 2000;
     }
 
-    if (!wantCF32 && totalProduced > 0) {
-        convert_CF32_to_CS8_NEON(fBufOut, static_cast<int8_t*>(buffs[0]), totalProduced);
-    }
-
-    return totalProduced;
+    return int(totalProduced);
 }
 
 void MipiDevice::txRingInit_()
@@ -1296,7 +1336,6 @@ void MipiDevice::txRingInit_()
     size_t txInMaxPairs = size_t(double(outPairsCap) * r) + 256; 
     
     txFloatBuf_.init(txInMaxPairs * 2);
-    txOutFloatScratch_.reserve((outPairsCap + 256) * 2);
     txScratch_.reserve(txRingMaxBytes_);
 }
 
@@ -1714,12 +1753,13 @@ void MipiDevice::txProduceToRing_(long timeoutUs)
         size_t maxOutPairs = std::min<size_t>(freeBytes / 2, 8192); 
         if (maxOutPairs < 64) break;
 
-        if (txOutFloatScratch_.size() < maxOutPairs * 2) txOutFloatScratch_.resize(maxOutPairs * 2);
+        const size_t maxOutBytes = maxOutPairs * 2;
+        if (txScratch_.size() < maxOutBytes) txScratch_.resize(maxOutBytes);
 
         int inConsumedPairs = 0;
-        int produced = txResampler_.process(
+        int produced = txResampler_.processToCS8(
             txFloatBuf_.readPtr(), (int)inPairsAvail,
-            txOutFloatScratch_.data(), (int)maxOutPairs,
+            reinterpret_cast<int8_t*>(txScratch_.data()), (int)maxOutPairs,
             txSampleRateRatio_, inConsumedPairs
         );
 
@@ -1729,14 +1769,6 @@ void MipiDevice::txProduceToRing_(long timeoutUs)
 
         if (produced > 0) {
             const size_t producedBytes = (size_t)produced * 2;
-            if (txScratch_.size() < producedBytes) txScratch_.resize(producedBytes);
-
-            convert_CF32_to_CS8_NEON(
-                txOutFloatScratch_.data(),
-                reinterpret_cast<int8_t*>(txScratch_.data()),
-                (size_t)produced
-            );
-
             txRing_.write(txScratch_.data(), producedBytes);
         } else if (inConsumedPairs == 0) {
             break;
@@ -1802,10 +1834,9 @@ void MipiDevice::rxInitRxBuffers_()
     const double blockPairs = 32768.0 * ratio + 1024.0;
     size_t rxMaxPairs = size_t(std::max(4096.0, blockPairs * 8.0));
     if (rxChannels_.size() > 1) {
-        for (size_t i = 0; i < kRxHwChannels; ++i)
-            rxChFloatBuf_[i].init(rxMaxPairs * 2);
+        rx4ChCs8Buf_.init(rxMaxPairs * kRxInterleaveFrameBytes);
     } else {
-        rxFloatBuf_.init(rxMaxPairs * 2);
+        rxCs8Buf_.init(rxMaxPairs * 2);
     }
 }
 
@@ -1881,13 +1912,60 @@ int MipiDevice::readStreamInterleaved_(SoapySDR::Stream *stream, void * const *b
 
     const bool wantCF32 = (rxRequestedFormat_ == SOAPY_SDR_CF32);
     const size_t outBytesPerElem = wantCF32 ? (2 * sizeof(float)) : 2;
-    const bool resample = rxChResampler_[0].isEnabled();
+    const bool resample = rxResampler4Ch_.isEnabled();
 
-    if (resample) {
-        for (size_t ch : rxChannels_) {
-            if (rxChFloatBuf_[ch].capacity() == 0)
-                rxChFloatBuf_[ch].init(32768 * 2);
+    if (!resample) {
+        size_t totalProduced = 0;
+        long loopTimeoutUs = timeoutUs;
+
+        while (totalProduced < numElems) {
+            const size_t remainingOutput = numElems - totalProduced;
+            size_t inputNeeded = remainingOutput;
+            size_t mtu = this->getStreamMTU(stream);
+            if (inputNeeded > mtu) inputNeeded = mtu;
+            if (inputNeeded == 0) inputNeeded = remainingOutput;
+
+            const ssize_t gotFrames = rxGatherInterleaved_(inputNeeded, loopTimeoutUs);
+            if (gotFrames == -EAGAIN) {
+                if (totalProduced > 0) break;
+                return SOAPY_SDR_TIMEOUT;
+            }
+            if (gotFrames < 0) {
+                if (totalProduced > 0) break;
+                return SOAPY_SDR_STREAM_ERROR;
+            }
+            if (gotFrames == 0) {
+                if (totalProduced > 0) break;
+                return SOAPY_SDR_TIMEOUT;
+            }
+
+            const size_t frames = size_t(gotFrames);
+            const int8_t *src = reinterpret_cast<const int8_t *>(rxScratch_.data());
+            const size_t use = std::min(frames, remainingOutput);
+
+            void *hwBuffs[kRxHwChannels];
+            mapRxHwBuffs_(buffs, totalProduced, outBytesPerElem, hwBuffs);
+
+            if (wantCF32) deinterleave_CS8_to_CF32_NEON(src, hwBuffs, use);
+            else          deinterleave_CS8_NEON(src, hwBuffs, use);
+
+            if (use < frames) {
+                const uint8_t *extra = rxScratch_.data() + use * kRxInterleaveFrameBytes;
+                rxInterleaveRemainder_.insert(rxInterleaveRemainder_.begin(), extra,
+                                              extra + (frames - use) * kRxInterleaveFrameBytes);
+            }
+
+            totalProduced += use;
+            if (totalProduced >= numElems) break;
+            loopTimeoutUs = 2000;
+            continue;
         }
+        return int(totalProduced);
+    }
+
+    // Unified 4-Channel CS8 Resampler
+    if (rx4ChCs8Buf_.capacity() == 0) {
+        rx4ChCs8Buf_.init(65536 * kRxInterleaveFrameBytes);
     }
 
     size_t totalProduced = 0;
@@ -1896,13 +1974,12 @@ int MipiDevice::readStreamInterleaved_(SoapySDR::Stream *stream, void * const *b
     while (totalProduced < numElems) {
         const size_t remainingOutput = numElems - totalProduced;
 
-        size_t inputNeeded = (size_t)ceil(remainingOutput * sampleRateRatio_) + (resample ? 16 : 0);
-        if (resample) inputNeeded = (inputNeeded + 7) & ~7;
-        if (inputNeeded > remainingOutput && !resample) inputNeeded = remainingOutput;
+        size_t inputNeeded = (size_t)ceil(remainingOutput * sampleRateRatio_) + 16;
+        inputNeeded = (inputNeeded + 7) & ~7;
 
         size_t mtu = this->getStreamMTU(stream);
         if (inputNeeded > mtu) inputNeeded = mtu;
-        if (inputNeeded == 0) inputNeeded = resample ? 8 : remainingOutput;
+        if (inputNeeded == 0) inputNeeded = 8;
 
         const ssize_t gotFrames = rxGatherInterleaved_(inputNeeded, loopTimeoutUs);
         if (gotFrames == -EAGAIN) {
@@ -1919,70 +1996,38 @@ int MipiDevice::readStreamInterleaved_(SoapySDR::Stream *stream, void * const *b
         }
 
         const size_t frames = size_t(gotFrames);
-        const int8_t *src = reinterpret_cast<const int8_t *>(rxScratch_.data());
+        if (frames > 0) {
+            int8_t* writePtr = rx4ChCs8Buf_.prepareWrite(frames * kRxInterleaveFrameBytes);
+            std::memcpy(writePtr, rxScratch_.data(), frames * kRxInterleaveFrameBytes);
+            rx4ChCs8Buf_.commitWrite(frames * kRxInterleaveFrameBytes);
+        }
 
-        if (!resample) {
-            const size_t use = std::min(frames, remainingOutput);
+        while (totalProduced < numElems && rx4ChCs8Buf_.readAvail() >= 4 * kRxInterleaveFrameBytes) {
+            size_t inAvailFrames = rx4ChCs8Buf_.readAvail() / kRxInterleaveFrameBytes;
+            int inConsumedFrames = 0;
+            int produced = 0;
+
             void *hwBuffs[kRxHwChannels];
             mapRxHwBuffs_(buffs, totalProduced, outBytesPerElem, hwBuffs);
-            if (wantCF32) deinterleave_CS8_to_CF32_NEON(src, hwBuffs, use);
-            else          deinterleave_CS8_NEON(src, hwBuffs, use);
-            if (use < frames) {
-                const uint8_t *extra = rxScratch_.data() + use * kRxInterleaveFrameBytes;
-                rxInterleaveRemainder_.insert(rxInterleaveRemainder_.begin(), extra,
-                                              extra + (frames - use) * kRxInterleaveFrameBytes);
-            }
-            totalProduced += use;
-            if (totalProduced >= numElems) break;
-            loopTimeoutUs = 2000;
-            continue;
-        }
 
-        void *hwBuffs[kRxHwChannels];
-        for (size_t i = 0; i < kRxHwChannels; ++i) hwBuffs[i] = nullptr;
-        for (size_t ch : rxChannels_) {
-            hwBuffs[ch] = rxChFloatBuf_[ch].prepareWrite(frames * 2);
-        }
-        deinterleave_CS8_to_CF32_NEON(src, hwBuffs, frames);
-        for (size_t ch : rxChannels_) {
-            rxChFloatBuf_[ch].commitWrite(frames * 2);
-        }
-
-        int producedCommon = -1;
-        for (size_t i = 0; i < rxChannels_.size(); ++i) {
-            const size_t ch = rxChannels_[i];
-            float *dst = nullptr;
             if (wantCF32) {
-                dst = static_cast<float *>(buffs[i]) + (totalProduced * 2);
+                produced = rxResampler4Ch_.processToCF32(
+                    rx4ChCs8Buf_.readPtr(), int(inAvailFrames),
+                    hwBuffs, rxChannels_, int(remainingOutput),
+                    sampleRateRatio_, inConsumedFrames
+                );
             } else {
-                if (resampScratch_.size() < remainingOutput * 2)
-                    resampScratch_.resize(remainingOutput * 2);
-                dst = resampScratch_.data();
+                produced = rxResampler4Ch_.processToCS8(
+                    rx4ChCs8Buf_.readPtr(), int(inAvailFrames),
+                    hwBuffs, rxChannels_, int(remainingOutput),
+                    sampleRateRatio_, inConsumedFrames
+                );
             }
 
-            int inConsumedPairs = 0;
-            int produced = rxChResampler_[ch].process(
-                rxChFloatBuf_[ch].readPtr(), int(rxChFloatBuf_[ch].readAvail() / 2),
-                dst, int(remainingOutput),
-                sampleRateRatio_, inConsumedPairs);
-
-            rxChFloatBuf_[ch].consume(size_t(inConsumedPairs) * 2);
-
-            if (!wantCF32 && produced > 0) {
-                convert_CF32_to_CS8_NEON(
-                    dst,
-                    static_cast<int8_t *>(buffs[i]) + (totalProduced * 2),
-                    size_t(produced));
-            }
-
-            if (producedCommon < 0) producedCommon = produced;
-            else if (produced != producedCommon) {
-                producedCommon = std::min(producedCommon, produced);
-            }
+            rx4ChCs8Buf_.consume(size_t(inConsumedFrames) * kRxInterleaveFrameBytes);
+            totalProduced += size_t(produced);
+            if (produced == 0 && inConsumedFrames == 0) break;
         }
-
-        if (producedCommon > 0) totalProduced += size_t(producedCommon);
-        else if (frames == 0) break;
 
         loopTimeoutUs = 2000;
     }
@@ -1996,14 +2041,13 @@ void MipiDevice::rxFilter_config_(double fsOut)
     const bool enable = !(std::abs(fsOut - fsIn) < 1.0e3 || fsOut <= 0.0 || fsOut >= fsIn);
     sampleRateRatio_ = enable ? (fsIn / fsOut) : 1.0;
 
-    resampler_.setEnabled(enable);
-    resampler_.reset();
-    rxFloatBuf_.reset();
-    for (size_t i = 0; i < kRxHwChannels; ++i) {
-        rxChResampler_[i].setEnabled(enable);
-        rxChResampler_[i].reset();
-        rxChFloatBuf_[i].reset();
-    }
+    rxResamplerCS8_.setEnabled(enable);
+    rxResamplerCS8_.reset();
+    rxCs8Buf_.reset();
+
+    rxResampler4Ch_.setEnabled(enable);
+    rxResampler4Ch_.reset();
+    rx4ChCs8Buf_.reset();
 
     if (!enable) {
         SoapySDR::logf(SOAPY_SDR_INFO, "RX DSP bypassed (native %.3f Msps, requested %.3f Msps, channels=%zu)",

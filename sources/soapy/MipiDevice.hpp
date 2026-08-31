@@ -407,12 +407,12 @@ private:
 
     // ---------- Stereo Elliptic Filter & Resampler (RX) ----------
     static constexpr double kFsIn = RX_LINE_RATE;
-    DSP::FarrowResampler resampler_;
-    DSP::FarrowResampler rxChResampler_[kRxHwChannels];
+    DSP::FarrowResamplerCS8 rxResamplerCS8_;
+    DSP::FarrowResampler4Ch rxResampler4Ch_;
 
     // DSP RX State
-    mutable LinearDSPBuffer<float> rxFloatBuf_;
-    LinearDSPBuffer<float> rxChFloatBuf_[kRxHwChannels]; 
+    mutable LinearDSPBuffer<int8_t> rxCs8Buf_;
+    LinearDSPBuffer<int8_t> rx4ChCs8Buf_;
 
     // ---------- TX Resampler (Host -> DSI line rate) ----------
     double lastTxRate_ = 0.0;               // Host-selected TX sample rate (Soapy visible)
@@ -424,7 +424,6 @@ private:
     // DSP TX State
     LinearDSPBuffer<float> txFloatBuf_;
     std::vector<uint8_t> txOutBytes_;
-    std::vector<float> txOutFloatScratch_;
     size_t txOutOff_ = 0;
 
     void txResampler_config_(double hostRate);
