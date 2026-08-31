@@ -49,7 +49,7 @@ blocks:
   id: variable
   parameters:
     comment: ''
-    value: 40e6
+    value: 30e6
   states:
     bus_sink: false
     bus_source: false
