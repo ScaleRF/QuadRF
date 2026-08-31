@@ -20,10 +20,14 @@ set(includedir include/quadrf)
 set(srcdir /usr/src)
 set(sysconfdir /etc)
 set(statedir /var/lib/quadrf)
-set(VERSION "${CPACK_PACKAGE_VERSION}")
 
+# debian/rules: -DVERSION=$(DEB_VERSION_UPSTREAM). Bare cmake falls back to 1.0.0.
 if(NOT VERSION)
-    set(VERSION "1.0.0")
+    if(DEFINED ENV{QUADRF_VERSION} AND NOT "$ENV{QUADRF_VERSION}" STREQUAL "")
+        set(VERSION "$ENV{QUADRF_VERSION}")
+    else()
+        set(VERSION "1.0.0")
+    endif()
 endif()
 
 add_subdirectory(sources/soapy)
@@ -59,8 +63,13 @@ install(FILES sources/fpga/drivers/csi/fpga_csi.h DESTINATION ${includedir})
 install(FILES sources/systemd/load-quadrf.service DESTINATION ${unitdir})
 install(FILES sources/man/quadrf-jtag.1 DESTINATION ${mandir}/man1)
 install(FILES sources/man/quadrf-load.8 DESTINATION ${mandir}/man8)
-install(DIRECTORY DESTINATION ${srcdir}/quadrf-fpga-${VERSION}/csi)
-install(DIRECTORY DESTINATION ${srcdir}/quadrf-fpga-${VERSION}/dsi)
+install(FILES sources/fpga/drivers/csi/fpga-csi.c
+              sources/fpga/drivers/csi/fpga_csi.h
+              sources/fpga/drivers/csi/Makefile
+        DESTINATION ${srcdir}/quadrf-fpga-${VERSION}/csi)
+install(FILES sources/fpga/drivers/dsi/fpga-dsi.c
+              sources/fpga/drivers/dsi/Makefile
+        DESTINATION ${srcdir}/quadrf-fpga-${VERSION}/dsi)
 configure_file(sources/fpga/drivers/dkms.conf.in ${CMAKE_CURRENT_BINARY_DIR}/dkms.conf @ONLY)
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/dkms.conf DESTINATION ${srcdir}/quadrf-fpga-${VERSION})
 install(FILES sources/soapy/sysctl/60-quadrf-soapy-server.conf DESTINATION lib/sysctl.d)
@@ -109,6 +118,7 @@ install(FILES sources/systemd/quadrf-ethernet.service DESTINATION ${unitdir})
 install(FILES sources/systemd/quadrf-usb.service DESTINATION ${unitdir})
 install(FILES sources/systemd/quadrf-mdns.service DESTINATION ${unitdir})
 install(FILES sources/network/systemd/hostapd.service.d/quadrf.conf DESTINATION ${unitdir}/hostapd.service.d)
+install(FILES sources/network/systemd/nginx.service.d/quadrf.conf DESTINATION ${unitdir}/nginx.service.d)
 install(PROGRAMS sources/network/40-network DESTINATION ${libdir}/apply.d)
 install(FILES sources/man/quadrf-hotspot.8 DESTINATION ${mandir}/man8)
 install(FILES sources/man/quadrf-ethernet.8 DESTINATION ${mandir}/man8)

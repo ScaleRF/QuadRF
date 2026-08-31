@@ -9,6 +9,9 @@ export QUADRF_VERSION = $(DEB_VERSION_UPSTREAM)
 	dh $@ --buildsystem=cmake
 # custom dh_installsystemd overrides
 
+override_dh_auto_configure:
+	dh_auto_configure -- -DVERSION=$(DEB_VERSION_UPSTREAM)
+
 override_dh_missing:
 	dh_missing --fail-missing
 

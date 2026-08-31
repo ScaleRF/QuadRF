@@ -14,6 +14,7 @@ lib/systemd/system/quadrf-ethernet.service
 lib/systemd/system/quadrf-usb.service
 lib/systemd/system/quadrf-mdns.service
 lib/systemd/system/hostapd.service.d/quadrf.conf
+lib/systemd/system/nginx.service.d/quadrf.conf
 etc/network/if-up.d/quadrf-dns
 etc/dnsmasq.d/quadrf.conf
 etc/modprobe.d/quadrf-g-ether.conf

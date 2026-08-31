@@ -182,6 +182,8 @@ prune_dns_names() {
 }
 
 reload_nginx() {
+    # DietPi dietpi-ramlog mounts tmpfs on /var/log; nginx's log dir is gone after reboot.
+    install -d -m 755 /var/log/nginx
     if nginx -t >/dev/null 2>&1; then
         systemctl reload nginx.service 2>/dev/null || true
     fi
