@@ -248,6 +248,7 @@ struct fpga_csi_dev {
 
     struct byte_ring     ring;
     struct mutex         read_lock;
+    atomic_t             stopping;
 
     struct dma_buf       dbuf[DMA_BUF_COUNT];
     u32                  cur_idx;
@@ -637,14 +638,27 @@ static void push_dma_to_ring(struct fpga_csi_dev *cd, u32 buf_idx, size_t nbytes
 {
     const u8 *src = cd->dbuf[buf_idx].cpu;
 
+    if (atomic_read(&cd->stopping))
+        return;
+
     spin_lock(&cd->ring.lock);
     if (!drop_oldest) {
         while (r_space(&cd->ring) < nbytes) {
             spin_unlock(&cd->ring.lock);
-            if (wait_event_interruptible(cd->ring.wq_space, r_space(&cd->ring) >= nbytes))
-                return; /* interrupted */
+            if (atomic_read(&cd->stopping))
+                return;
+            if (wait_event_interruptible(cd->ring.wq_space,
+                                         atomic_read(&cd->stopping) ||
+                                         r_space(&cd->ring) >= nbytes))
+                return; /* interrupted or stopping */
+            if (atomic_read(&cd->stopping))
+                return;
             spin_lock(&cd->ring.lock);
         }
+    }
+    if (atomic_read(&cd->stopping)) {
+        spin_unlock(&cd->ring.lock);
+        return;
     }
     /* Track ring drops (if enabled) separately from CSI overflows. */
     r_write(&cd->ring, src, nbytes, drop_oldest,
@@ -804,8 +818,12 @@ static ssize_t csi_read(struct file *f, char __user *ubuf, size_t len, loff_t *p
             spin_unlock_irq(&cd->ring.lock);
             if (ret) break; /* return partial */
             if (f->f_flags & O_NONBLOCK) { ret = -EAGAIN; break; }
-            if (wait_event_interruptible(cd->ring.wq_read, r_used(&cd->ring) > 0))
+            if (wait_event_interruptible(cd->ring.wq_read,
+                                         atomic_read(&cd->stopping) ||
+                                         r_used(&cd->ring) > 0))
             { ret = -ERESTARTSYS; break; }
+            if (atomic_read(&cd->stopping))
+                break;
             continue;
         }
 
@@ -938,6 +956,8 @@ static void csi_stop(struct fpga_csi_dev *cd)
 {
     void __iomem *ch;
 
+    atomic_set(&cd->stopping, 1);
+
     if (!cd->regs.csi2)
         return;
 
@@ -954,6 +974,10 @@ static void csi_stop(struct fpga_csi_dev *cd)
             writel(ctrl & ~CH_CTRL_DMA_EN, ch + CH_CTRL);
     }
     wmb();
+
+    /* Unblock any IRQ thread waiting on space or userspace reader */
+    wake_up_all(&cd->ring.wq_space);
+    wake_up_all(&cd->ring.wq_read);
 }
 
 /* ---- JTAG bit-bang helpers (25-bit DR, ECP5 USER1/ER1) ---- */
@@ -1915,6 +1939,7 @@ static int fpga_csi_probe(struct platform_device *pdev)
     mutex_init(&cd->read_lock);
     mutex_init(&cd->jtag_lock);
     atomic_set(&cd->jtag_users, 0);
+    atomic_set(&cd->stopping, 0);
 
     /* Defaults */
     cd->filter.enable_vc_filter = 0;
@@ -1987,7 +2012,7 @@ static int fpga_csi_probe(struct platform_device *pdev)
         dev_err(&pdev->dev,
                 "failed to apply default geometry (bytes_per_line=%u, lines=%u): %d\n",
                 cd->geom.bytes_per_line, cd->geom.lines, ret);
-        goto err_irq;
+        goto err_geom;
     }
 
     platform_set_drvdata(pdev, cd);
@@ -1997,6 +2022,9 @@ static int fpga_csi_probe(struct platform_device *pdev)
              cd->geom.bytes_per_line, cd->geom.lines, cd->dma_span);
     return 0;
 
+err_geom:
+    csi_stop(cd);
+    devm_free_irq(&pdev->dev, cd->irq, cd);
 err_irq:
     misc_deregister(&cd->miscdev);
 err_misc:
@@ -2010,8 +2038,11 @@ static void fpga_csi_remove(struct platform_device *pdev)
 {
     struct fpga_csi_dev *cd = platform_get_drvdata(pdev);
 
-    /* Quiesce the hardware before freeing DMA resources. */
+    /* Quiesce the hardware and wake any blocked IRQ thread before teardown. */
     csi_stop(cd);
+
+    /* Explicitly synchronize and release the IRQ before freeing DMA/ring memory. */
+    devm_free_irq(&pdev->dev, cd->irq, cd);
 
     misc_deregister(&cd->miscdev);
     vfree(cd->ring.data);
