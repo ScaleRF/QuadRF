@@ -542,6 +542,7 @@
             border: 1px solid rgba(255,255,255,0.05);
             border-radius: var(--border-radius);
             padding: 0.45rem 0.55rem 0.5rem;
+            min-width: 0;
         }
         .path-group-head {
             display: flex;
@@ -556,20 +557,24 @@
         .path-slots { display: flex; flex-direction: column; gap: 0.3rem; }
         .path-slot {
             display: flex;
+            flex-wrap: wrap;
             align-items: center;
             gap: 0.35rem;
             font-size: 0.75rem;
             color: #94a3b8;
             min-height: 1.35rem;
+            min-width: 0;
         }
         .path-slot.up { color: #e2e8f0; }
         .path-slot.you { color: #fde68a; }
-        .path-name { font-weight: 600; }
+        .path-name { font-weight: 600; flex: 0 0 auto; }
         .path-addr {
             font-family: var(--font-mono);
             font-size: 0.6rem;
             color: #64748b;
             margin-left: auto;
+            flex: 0 0 auto;
+            white-space: nowrap;
         }
         .path-slot.up .path-addr { color: #94a3b8; }
         .path-you-tag {
