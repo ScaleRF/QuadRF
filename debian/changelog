@@ -1,3 +1,15 @@
+quadrf (1.0.15) trixie; urgency=medium
+
+  * hw: Fix CSI driver teardown hang on module unload and shutdown
+  * demos: Package nearfield as a desktop and control-page app
+  * demos: Use 4-lane CSI native rate in nearfield DDS
+  * debian: Make find_package(QuadRF) work and fix on-board build docs
+  * hw: Rename Hardware directory to hardware
+  * cmake: Install missing demo systemd units
+  * debian: Switch packaging to CMake and ship quadrf-dev
+
+ -- QuadRF Engineering <contact@ScaleRF.com>  Mon, 31 Aug 2026 03:04:10 -0700
+
 quadrf (1.0.14) trixie; urgency=medium
 
   * gui: Keep network path IPs inside their boxes
