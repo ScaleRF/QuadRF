@@ -1,6 +1,6 @@
-# Developing and Building Applications on QuadRF
+# Developing on the QuadRF
 
-Develop custom SDR applications on the appliance against installed libraries, or modify and rebuild the packaged demos and SoapySDR modules from source.
+Modify demos, write custom apps, and rebuild modules from source.
 
 ## Prerequisites
 
@@ -10,7 +10,7 @@ The standard `quadrf` install provides the build toolchain and header files:
 - **Development headers**: `quadrf-dev` provides `fpga_csi.h`, `Farrow.hpp`, `NEON.hpp`, and CMake package configuration (`find_package(QuadRF)`)
 - **Example sources**: `quadrf-demos` provides reference sources under `/usr/share/quadrf/examples`
 
-For applications requiring FFTW or SDL2 (such as `quadrf-rf-vision`, `quadrf-psd`, and `quadrf-nearfield`), install the development libraries:
+For applications requiring FFTW or SDL2 (such as `quadrf-rf-vision`, `quadrf-psd`, and `quadrf-nearfield`), install the libraries:
 
 ```bash
 sudo apt install -y libfftw3-dev libsdl2-dev
@@ -18,7 +18,7 @@ sudo apt install -y libfftw3-dev libsdl2-dev
 
 ---
 
-## 1. Quick Start: Build and Run from Source
+## 1. Build and Run from Source
 
 To quickly compile and run a single C++ source file using `pkg-config` and `g++`:
 
@@ -51,176 +51,137 @@ quadrf-jtag --rx autosteer=1,antennas=15,interleave=0,tone_en=0,bw=12.0,agc=-14.
 
 ---
 
-## 2. Modifying and Building Packaged Examples
+## 2. Modify Demos
 
-To create a project based on the packaged demo sources:
+The `quadrf-demos` package installs example sources and a CMake project under
+`/usr/share/quadrf/examples`. Copy that tree into a workspace you can edit:
 
-1. Copy the examples tree to your workspace:
+```bash
+mkdir -p ~/my-sdr-project
+cp -r /usr/share/quadrf/examples/* ~/my-sdr-project/
+cd ~/my-sdr-project
+```
 
-   ```bash
-   mkdir -p ~/my-sdr-project
-   cp -r /usr/share/quadrf/examples/* ~/my-sdr-project/
-   cd ~/my-sdr-project
-   ```
+The copy includes a `CMakeLists.txt` that builds each example
+(`quadrf-hello`, `quadrf-ntsc-demod`, `quadrf-rf-vision`, `quadrf-psd`,
+`quadrf-nearfield`) against the installed `quadrf-dev` package. Edit the
+`.c` / `.cpp` files, then build:
 
-2. Inspect or edit `CMakeLists.txt`:
+```bash
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j4
+```
 
-   ```cmake
-   cmake_minimum_required(VERSION 3.12)
-   project(my_sdr_project C CXX)
+Binaries land in `build/`. Edit `CMakeLists.txt` if you add a source
+file, or change compiler flags. For a new program:
 
-   if(NOT CMAKE_BUILD_TYPE)
-       set(CMAKE_BUILD_TYPE Release)
-   endif()
-
-   set(CMAKE_CXX_STANDARD 17)
-   set(CMAKE_CXX_STANDARD_REQUIRED ON)
-
-   add_compile_options(-O3)
-   if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64")
-       add_compile_options(-mcpu=cortex-a76 -mtune=cortex-a76)
-   endif()
-
-   find_package(QuadRF REQUIRED)
-   find_package(PkgConfig REQUIRED)
-
-   pkg_check_modules(FFTW3F REQUIRED fftw3f)
-   pkg_check_modules(SDL2 REQUIRED sdl2)
-
-   add_executable(my-ntsc-demod ntsc_demod.cpp)
-   target_compile_options(my-ntsc-demod PRIVATE -ffast-math)
-   target_link_libraries(my-ntsc-demod PRIVATE QuadRF::quadrf)
-   ```
-
-3. Build the executables:
-
-   ```bash
-   cmake -B build -DCMAKE_BUILD_TYPE=Release
-   cmake --build build -j4
-   ```
-
-The compiled binaries will be placed in `build/`.
+```cmake
+add_executable(my-app my_app.cpp)
+target_link_libraries(my-app PRIVATE QuadRF::quadrf)
+```
 
 ---
 
-## 3. Creating an Application with Desktop and Web UI Launchers
+## 3. Create an App with Desktop and Web UI Launchers
 
-To integrate a custom binary into the QuadRF environment (appearing on the remote desktop and the web control panel at `https://quadrf.local/`):
+Four files put a binary on the remote desktop and on the Applications list at
+`https://quadrf.local/`: the binary, a `.desktop` entry, a systemd unit, and a
+JSON descriptor. This example registers a copy of the packaged PSD plot as
+`my-psd`. If you built your own binary in the previous section, copy that
+instead of `/usr/bin/quadrf-psd`.
 
-### Step 1: Install Binary and Launcher Script
-
-Install your binary and create an executable startup script:
+### 1. Install the binary
 
 ```bash
-sudo cp build/my-ntsc-demod /usr/local/bin/my-ntsc-demod
-
-sudo tee /usr/local/bin/my-camera << 'EOF' > /dev/null
-#!/bin/bash
-quadrf-jtag --rx autosteer=1,antennas=15,interleave=0,tone_en=0,bw=12.0,agc=-14.0,freq=5806
-/usr/local/bin/my-ntsc-demod --bypass_iir true --disc atan2 --no_deemph --read_samps 65536 --flush_frames 1 \
-  --args "numBuffers=2,bufferLength=65536" \
-  --diag_hz 2 --hsync_min 25 --hsync_max 160 --sat 3.0 --hue -3.0 \
-| mpv --profile=low-latency --no-cache \
-  --demuxer-thread=no --vd-lavc-threads=1 \
-  --demuxer=rawvideo --demuxer-rawvideo-w=640 --demuxer-rawvideo-h=480 \
-  --demuxer-rawvideo-mp-format=yuyv422 --demuxer-rawvideo-fps=60 \
-  --script=/usr/share/quadrf/ntsc_ch.lua --osd-font-size=40 --osd-duration=1500 \
-  --input-ipc-server=/tmp/my-camera-mpv \
-  --vo=x11 -
-EOF
-
-sudo chmod +x /usr/local/bin/my-camera
+sudo cp /usr/bin/quadrf-psd /usr/local/bin/my-psd
 ```
 
-### Step 2: Register Desktop Entry
+### 2. Desktop entry
 
-Create `/usr/share/applications/com.example.MyCamera.desktop`:
-
-```ini
+```bash
+sudo tee /usr/share/applications/com.example.MyPsd.desktop > /dev/null << 'EOF'
 [Desktop Entry]
 Type=Application
 Version=1.0
-Name=My Camera
-Comment=Custom FPV Camera Receiver
-Exec=/usr/local/bin/my-camera
-TryExec=/usr/local/bin/my-camera
-Icon=quadrf-video-decoder
+Name=My PSD
+Comment=Live spectrum from the CSI ring buffer
+Exec=/usr/local/bin/my-psd
+TryExec=/usr/local/bin/my-psd
+Icon=quadrf-psd
 Terminal=false
 Categories=HamRadio;Science;
 X-QuadRF-Desktop=true
-```
+EOF
 
-Sync the desktop to publish the icon on the operator desktop:
-
-```bash
 sudo /usr/lib/quadrf/sync-desktop-apps
 ```
 
-### Step 3: Register Systemd Service
+`X-QuadRF-Desktop=true` opts the icon onto the operator desktop. `Icon=` is an
+icon *name* (here the packaged PSD icon), not a file path.
 
-Create `/etc/systemd/system/my-camera.service`:
+### 3. systemd unit
 
-```ini
+The unit runs as `dietpi` on the remote desktop display. Do not enable it at
+boot; the control page starts and stops it.
+
+```bash
+sudo tee /etc/systemd/system/my-psd.service > /dev/null << 'EOF'
 [Unit]
-Description=My Camera Receiver
+Description=My PSD Plot
 Wants=load-quadrf.service quadrf-desktop.service
 After=load-quadrf.service quadrf-desktop.service
 
 [Service]
 Type=simple
 User=dietpi
+Group=dietpi
+Environment=HOME=/home/dietpi
 Environment=DISPLAY=:1
+Environment=XAUTHORITY=/home/dietpi/.Xauthority
 Environment=SDL_VIDEODRIVER=x11
-Environment=QT_QPA_PLATFORM=xcb
-Environment=GDK_BACKEND=x11
-ExecStart=/usr/local/bin/my-camera
+ExecStart=/usr/local/bin/my-psd
 TimeoutStopSec=8
 Restart=no
+EOF
 
-[Install]
-WantedBy=multi-user.target
-```
-
-Reload systemd daemon:
-
-```bash
 sudo systemctl daemon-reload
 ```
 
-### Step 4: Register Web Control Launcher
+### 4. Control-page descriptor
 
-Create `/usr/share/quadrf/apps.d/my-camera.json`:
-
-```json
+```bash
+sudo tee /usr/share/quadrf/apps.d/my-psd.json > /dev/null << 'EOF'
 {
   "apps": [
     {
-      "id": "mycamera",
-      "desktop_entry": "com.example.MyCamera.desktop",
-      "service": "my-camera.service",
-      "binaries": ["my-camera", "my-ntsc-demod"],
+      "id": "my-psd",
+      "desktop_entry": "com.example.MyPsd.desktop",
+      "service": "my-psd.service",
+      "binaries": ["my-psd"],
       "exclusive": true,
       "open": "desktop"
     }
   ]
 }
-```
+EOF
 
-Verify the app registration from the command line:
-
-```bash
 sudo quadrf-app status
-sudo quadrf-app start mycamera
-sudo quadrf-app stop mycamera
+sudo quadrf-app start my-psd
+sudo quadrf-app stop my-psd
 ```
 
-To package this application as a `.deb` for distribution, see [Applications](applications.md).
+`status` should list `"id": "my-psd"` with the name and icon from the desktop
+entry. Reload `https://quadrf.local/` and My PSD appears in Applications;
+start and stop work from there as well. `exclusive` is `true` for anything
+that uses the radio, so starting this app stops the other radio apps.
+
+To package as a `.deb`, and for details, see [Applications](applications.md).
 
 ---
 
 ## 4. Rebuilding SoapySDR Modules and Core Tree from Git
 
-To modify the Farrow resampler, CSI interface, or SoapySDR modules (`mipi`, `quadrf`), build the repository directly on the appliance.
+To modify the Farrow resampler, CSI interface, or SoapySDR modules (`mipi`, `quadrf`), build the repo directly on the quad.
 
 ### Step 1: Clone Repository and Install Build Dependencies
 
@@ -251,7 +212,7 @@ sudo cp build/sources/quadrfd/soapy/quadrf.so /usr/lib/aarch64-linux-gnu/SoapySD
 SoapySDRUtil --probe="driver=mipi"
 ```
 
-### Step 4: Revert to Packaged Modules
+### Revert to Packaged Modules
 
 To revert all modules to the official packaged release:
 

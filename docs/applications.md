@@ -1,10 +1,10 @@
-# Desktop Icons & Controls Launchers for Applications
+# Applications
 
 If a `.deb` installed on the QuadRF includes a desktop entry and control-page descriptor, an icon appears on the remote desktop and a launcher appears on the Applications list at
-[https://quadrf.local/](https://quadrf.local/). QuadRF picks them up on `apt install` and drops them on `apt remove`.
+[https://quadrf.local/](https://quadrf.local/). QuadRF picks them up on `apt install` and drops them on `apt remove`. To register the same files by hand without packaging, see [Developing](develop.md#3-create-an-app-with-desktop-and-web-ui-launchers).
 
-| Adition to the `.deb`  |  Function         |
-|------------------------|-------------------|
+| File in the `.deb` | Function |
+|--------------------|----------|
 | A `.desktop` file with `X-QuadRF-Desktop=true`, plus an icon | Remote desktop |
 | `/usr/share/quadrf/apps.d/*.json` and a systemd unit | Control page |
 
@@ -21,11 +21,13 @@ These come with the complete `quadrf` package.
 | GNU Radio Companion | Flowgraph editor with QuadRF examples | Remote desktop |
 | QRadioLink | Digital-voice and analog transceiver | Remote desktop |
 | Terminal | Shell on the appliance | Remote desktop |
+| File Manager | PCManFM file browser | Remote desktop |
 | Text Editor | Mousepad, for config and source files | Remote desktop |
 | Software Install | DietPi software installer | Remote desktop |
 
-The smaller `quadrf-headless` install omits the desktop and the four radio
-applications above. To remove just those four from a full install:
+The `quadrf-headless` metapackage omits the remote desktop and every
+application in the table. To drop only the four radio apps from a full
+install:
 
 ```sh
 sudo apt remove quadrf-demos
@@ -109,6 +111,28 @@ systemd unit (not enabled at boot) and a short JSON file:
 ```text
 /lib/systemd/system/quadrf-example-spectrum.service
 /usr/share/quadrf/apps.d/example-spectrum.json
+```
+
+The unit must run as `dietpi` on display `:1`. QuadRF does not inject that
+for third-party services.
+
+```ini
+[Unit]
+Description=Example Spectrum
+Wants=load-quadrf.service quadrf-desktop.service
+After=load-quadrf.service quadrf-desktop.service
+
+[Service]
+Type=simple
+User=dietpi
+Group=dietpi
+Environment=HOME=/home/dietpi
+Environment=DISPLAY=:1
+Environment=XAUTHORITY=/home/dietpi/.Xauthority
+Environment=SDL_VIDEODRIVER=x11
+ExecStart=/usr/bin/example-spectrum
+TimeoutStopSec=8
+Restart=no
 ```
 
 ```json
