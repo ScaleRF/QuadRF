@@ -118,7 +118,7 @@ access point.
 | `/etc/quadrf/quadrf.conf` | Site settings |
 | `/usr/bin/quadrf` | Status and configuration command |
 | `/usr/bin/quadrf-jtag` | Front-end control |
-| `/usr/bin/quadrf-rf-vision`, `-psd`, `-ntsc` | Included radio applications |
+| `/usr/bin/quadrf-rf-vision`, `-psd`, `-ntsc`, `-nearfield` | Included radio applications |
 | `/usr/share/quadrf/` | Bitstream, OpenOCD configuration, GUI, AR page, flowgraphs, desktop assets |
 | `/usr/lib/quadrf/apply.d/` | Configuration hooks run by `quadrf apply` |
 | `/var/lib/quadrf/` | Runtime state, including the pending-reboot record |
@@ -126,9 +126,10 @@ access point.
 ## Applications
 
 The remote desktop is a Linux session in the browser (KasmVNC). A full install
-includes the applications below. Start Spatial RF Vision, Camera Decoder, and
-PSD Plot from the Applications list on the control page or from the desktop
-icons. Only one of those three can use the radio at a time.
+includes the applications below. Start Spatial RF Vision, Camera Decoder,
+PSD Plot, and Near-Field Phasors from the Applications list on the control
+page or from the desktop icons. Only one of those four can use the radio at a
+time.
 
 Install a `.deb` with a desktop entry and/or a control-page descriptor, and
 it shows up on the desktop and Applications list automatically. See [Applications](applications.md).
@@ -138,8 +139,9 @@ it shows up on the desktop and Applications list automatically. See [Application
 | Spatial RF Vision | Swept-LO phase scatter of the RF scene; WebSocket feed on port 8000 for `/AR/` | Browser AR page |
 | Camera Decoder | NTSC demodulation of analog 5 GHz FPV video, played with mpv | Remote desktop |
 | PSD Plot | Live FFT spectrum from the CSI ring buffer, one or four channels | Remote desktop |
+| Near-Field Phasors | Coherent 4x4 MIMO near-field phasors with TDM TX cycling | Remote desktop |
 | GNU Radio Companion | Flowgraph editor with QuadRF receive and transmit examples | Remote desktop |
 | QRadioLink | Digital-voice and analog transceiver | Remote desktop |
 | Terminal, Text Editor, Software Install | Shell, Mousepad, and DietPi's software installer | Remote desktop |
 
-`quadrf-headless` omits the desktop and the three radio applications.
+`quadrf-headless` omits the desktop and the four radio applications.

@@ -12,13 +12,13 @@ if getent passwd "${QUADRF_USER}" >/dev/null; then
 fi
 
 home="$(quadrf_home)"
-for unit in quadrf-rf-vision.service quadrf-ntsc.service quadrf-psd.service; do
+for unit in quadrf-rf-vision.service quadrf-ntsc.service quadrf-psd.service quadrf-nearfield.service; do
     [ -f "/lib/systemd/system/${unit}" ] || [ -f "/usr/lib/systemd/system/${unit}" ] || continue
     quadrf_user_dropin "${unit}"
 done
 
 if [ -n "${home}" ]; then
-    for unit in quadrf-ntsc.service quadrf-psd.service; do
+    for unit in quadrf-ntsc.service quadrf-psd.service quadrf-nearfield.service; do
         dir="/etc/systemd/system/${unit}.d"
         [ -d "${dir}" ] || continue
         cat > "${dir}/20-display.conf" <<EOF

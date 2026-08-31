@@ -52,7 +52,7 @@ make
 ./my-sdr
 ```
 
-To rebuild the shipped demos (Spatial RF Vision, PSD, NTSC) from the example
+To rebuild the shipped demos (Spatial RF Vision, PSD, NTSC, Near-Field Phasors) from the example
 sources, install the FFTW and SDL2 headers if they are not already present
 (`quadrf-dev` Recommends them):
 

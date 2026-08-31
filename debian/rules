@@ -27,4 +27,5 @@ override_dh_installsystemd:
 	dh_installsystemd -pquadrf-desktop quadrf-desktop.service
 	dh_installsystemd -pquadrf-ups quadrf-ups.service
 	dh_installsystemd -pquadrf-demos --no-enable --no-start \
-		quadrf-rf-vision.service quadrf-ntsc.service quadrf-psd.service
+		quadrf-rf-vision.service quadrf-ntsc.service quadrf-psd.service \
+		quadrf-nearfield.service

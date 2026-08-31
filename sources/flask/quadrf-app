@@ -22,7 +22,7 @@ DESKTOP_ENTRY_DIRS = tuple(filter(None, os.environ.get(
 ).split(":")))
 APP_ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
 # Bundled radio apps stay left of drop-ins, whose files sort by name.
-PREFERRED_APP_IDS = ("ar", "ntsc", "psd")
+PREFERRED_APP_IDS = ("ar", "ntsc", "psd", "nearfield")
 CSI_RELEASE_S = 0.5
 STOP_WAIT_S = 4.0
 START_WAIT_S = 8.0

@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.scalerf.QuadRF.NearField</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <name>Near-Field Phasors</name>
+  <summary>Display coherent 4x4 MIMO near-field phasors from the QuadRF array</summary>
+  <description>
+    <p>Near-Field Phasors cycles the four transmit antennas in time-division multiplex, digitally down-converts each receive channel, and draws the bistatic phasors on the appliance desktop.</p>
+  </description>
+  <launchable type="desktop-id">com.scalerf.QuadRF.NearField.desktop</launchable>
+  <provides>
+    <binary>quadrf-nearfield</binary>
+  </provides>
+  <url type="homepage">https://quadrf.com/</url>
+  <developer id="com.scalerf">
+    <name>Scale RF</name>
+  </developer>
+  <content_rating type="oars-1.1"/>
+</component>

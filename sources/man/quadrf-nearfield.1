@@ -1,0 +1,32 @@
+.TH QUADRF-NEARFIELD 1 "August 2026" "QuadRF" "QuadRF"
+.SH NAME
+quadrf-nearfield \- coherent 4x4 MIMO near-field phasor display
+.SH SYNOPSIS
+.B quadrf-nearfield
+.SH DESCRIPTION
+Cycles the four transmit antennas in time-division multiplex, digitally
+down-converts the CSI ring buffer against a 1 MHz DDS tone, and draws one
+phasor pane per receive channel. Each pane shows the three bistatic paths
+from the other transmitters; the monostatic path (same TX and RX index) is
+blanked. On start the app enables 4-channel RX interleave, analog TX, and a
+5800 MHz LO. Display scale is fixed (pixels per unit I/Q); Up/Down zoom the
+plot only.
+.SH KEYS
+The SDL window must have keyboard focus (click it).
+.TP
+.B Space
+Latch the current bistatic phasors as a calibration offset (direct-path
+zero).
+.TP
+.BR Up ", " +
+Increase the display scale by 1.2.
+.TP
+.BR Down ", " \-
+Decrease the display scale by 1.2.
+.TP
+.B Escape
+Quit.
+.SH SEE ALSO
+.BR quadrf-psd (1),
+.BR quadrf-rf-vision (1),
+.BR quadrf-jtag (1)

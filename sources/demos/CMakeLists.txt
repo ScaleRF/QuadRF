@@ -28,5 +28,10 @@ target_compile_options(quadrf-ntsc-demod PRIVATE -ffast-math)
 target_include_directories(quadrf-ntsc-demod PRIVATE ${SOAPY_SDR_INCLUDE_DIRS})
 target_link_libraries(quadrf-ntsc-demod PRIVATE ${SOAPY_SDR_LIBRARIES})
 
+# quadrf-nearfield
+add_executable(quadrf-nearfield nearfield.c)
+target_include_directories(quadrf-nearfield PRIVATE ${CMAKE_SOURCE_DIR}/sources/fpga/drivers/csi)
+target_link_libraries(quadrf-nearfield PRIVATE SDL2 m pthread)
+
 # Install rules (standard binaries)
-install(TARGETS quadrf-rf-vision quadrf-psd quadrf-ntsc-demod DESTINATION bin)
+install(TARGETS quadrf-rf-vision quadrf-psd quadrf-ntsc-demod quadrf-nearfield DESTINATION bin)

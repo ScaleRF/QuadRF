@@ -10,7 +10,7 @@
 | `quadrfd/` | QuadRF Soapy module and thin client |
 | `flask/` | Web control panel |
 | `network/` | nginx, dnsmasq, hostapd, DHCP, interface drop-ins, hotspot and Wi-Fi scripts |
-| `demos/` | Spatial RF Vision, PSD plot, NTSC decoder and the AR page |
+| `demos/` | Spatial RF Vision, PSD plot, NTSC decoder, near-field phasors and the AR page |
 | `demos/apps/` | Control-page runtime descriptors owned by the demo package |
 | `phasegaze-demo/` | Larger spatial application, shipped as source |
 | `desktop/` | KasmVNC session, openbox and tint2 configuration, launchers |

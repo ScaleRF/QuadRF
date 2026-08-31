@@ -181,10 +181,11 @@ Replaces: quadrf-desktop (<< ${binary:Version})
 Suggests: quadrf-soapy
 Description: QuadRF demonstration applications
  Spatial RF Vision (swept-LO phase scatter with a WebSocket feed for the
- browser AR page), the PSD plot and the NTSC decoder, plus the phasegaze
- sources under /usr/share/quadrf/phasegaze. The package owns their desktop
- entries, icons, AppStream metadata and control-page runtime descriptor. The
- systemd units start on demand from the control panel; they are not enabled.
+ browser AR page), the PSD plot, the NTSC decoder and the near-field phasor
+ display, plus the phasegaze sources under /usr/share/quadrf/phasegaze. The
+ package owns their desktop entries, icons, AppStream metadata and control-page
+ runtime descriptor. The systemd units start on demand from the control panel;
+ they are not enabled.
 
 Package: quadrf-desktop
 Architecture: all

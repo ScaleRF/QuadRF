@@ -24,6 +24,14 @@
       "binaries": ["quadrf-psd"],
       "exclusive": true,
       "open": "desktop"
+    },
+    {
+      "id": "nearfield",
+      "desktop_entry": "com.scalerf.QuadRF.NearField.desktop",
+      "service": "quadrf-nearfield.service",
+      "binaries": ["quadrf-nearfield"],
+      "exclusive": true,
+      "open": "desktop"
     }
   ]
 }

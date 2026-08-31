@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Near-Field Phasors
+Comment=Coherent 4x4 MIMO near-field phasor view with TDM TX cycling
+Exec=quadrf-nearfield
+TryExec=quadrf-nearfield
+Icon=quadrf-nearfield
+Terminal=false
+Categories=HamRadio;Science;
+X-QuadRF-Desktop=true

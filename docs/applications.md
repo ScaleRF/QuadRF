@@ -17,14 +17,15 @@ These come with the complete `quadrf` package.
 | Spatial RF Vision | Swept-LO phase scatter of the RF scene, 30 fps | Browser AR page at `/AR/` |
 | Camera Decoder | NTSC demodulation of analog FPV video | Remote desktop |
 | PSD Plot | Live FFT spectrum, one or four channels | Remote desktop |
+| Near-Field Phasors | Coherent 4x4 MIMO near-field phasors with TDM TX | Remote desktop |
 | GNU Radio Companion | Flowgraph editor with QuadRF examples | Remote desktop |
 | QRadioLink | Digital-voice and analog transceiver | Remote desktop |
 | Terminal | Shell on the appliance | Remote desktop |
 | Text Editor | Mousepad, for config and source files | Remote desktop |
 | Software Install | DietPi software installer | Remote desktop |
 
-The smaller `quadrf-headless` install omits the desktop and the three radio
-applications above. To remove just those three from a full install:
+The smaller `quadrf-headless` install omits the desktop and the four radio
+applications above. To remove just those four from a full install:
 
 ```sh
 sudo apt remove quadrf-demos
@@ -170,4 +171,5 @@ sudo quadrf-app stop psd
 ```
 
 The included radio apps use the ids `ar` (Spatial RF Vision), `ntsc` (Camera
-Decoder), and `psd` (PSD Plot). See `man quadrf-app`.
+Decoder), `psd` (PSD Plot), and `nearfield` (Near-Field Phasors). See
+`man quadrf-app`.
