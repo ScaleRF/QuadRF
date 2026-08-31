@@ -80,6 +80,67 @@ static void consume_bytes(int fd, uint32_t nbytes)
         die("CSI_IOC_CONSUME_BYTES");
 }
 
+static int jtag_write_u16(int fd, uint8_t addr, uint16_t value)
+{
+    struct csi_jtag_reg r;
+    memset(&r, 0, sizeof(r));
+    r.addr  = addr;
+    r.value = value;
+    for (int i = 0; i < 100; ++i) {
+        if (ioctl(fd, CSI_IOC_JTAG_REG_WRITE, &r) == 0) return 0;
+        if (errno == EINTR) continue;
+        if (errno != EBUSY) break;
+        usleep(1000);
+    }
+    return -1;
+}
+
+static int jtag_read_u16(int fd, uint8_t addr, uint16_t *out_value)
+{
+    if (!out_value) return -1;
+    struct csi_jtag_reg r;
+    memset(&r, 0, sizeof(r));
+    r.addr = addr;
+    for (int i = 0; i < 100; ++i) {
+        if (ioctl(fd, CSI_IOC_JTAG_REG_READ, &r) == 0) {
+            *out_value = r.value;
+            return 0;
+        }
+        if (errno == EINTR) continue;
+        if (errno != EBUSY) break;
+        usleep(1000);
+    }
+    return -1;
+}
+
+static void set_rx_mode(int fd, bool single_chan)
+{
+    /* FPGA register 0x25: 0 = packed 1-channel (beamformed sum), 1 = 4-channel interleaved */
+    jtag_write_u16(fd, 0x25, single_chan ? 0x0000 : 0x0001);
+
+    /* Clear digital test tone in 0x2E bit 1 */
+    uint16_t val_2e = 0;
+    if (jtag_read_u16(fd, 0x2E, &val_2e) == 0) {
+        val_2e &= ~0x0002;
+        jtag_write_u16(fd, 0x2E, val_2e);
+    }
+
+    /* Ensure all 4 analog RX channels (Rx1..4) are enabled in MAX2851 Main6 */
+    jtag_write_u16(fd, 0x43, (uint16_t)((6u << 10) | 0x3FFu));
+
+    /* Flush DMA ring to drop stale frames from prior interleave format */
+    struct csi_ring_info ri;
+    if (ioctl(fd, CSI_IOC_GET_RING_INFO, &ri) == 0) {
+        uint32_t head = ri.head;
+        uint32_t tail = ri.tail;
+        uint32_t ring_size = ri.ring_size;
+        uint32_t used = (head >= tail) ? (head - tail) : (ring_size - (tail - head));
+        if (used > 0) {
+            consume_bytes(fd, used);
+        }
+    }
+}
+
 // Convert raw CS8 buffer to FFTW input.
 // stride_bytes: distance in bytes between samples for this specific channel.
 //               (2 for single-channel packed, 8 for 4-channel interleaved)
@@ -239,7 +300,7 @@ static void draw_histogram(SDL_Renderer *ren, const uint32_t *hist_i, const uint
 
 int main(void)
 {
-    int fd = open(DEVICE_PATH, O_RDONLY | O_NONBLOCK);
+    int fd = open(DEVICE_PATH, O_RDWR | O_NONBLOCK);
     if (fd < 0) die("open /dev/csi_stream0");
 
     struct csi_ring_info ri;
@@ -269,9 +330,15 @@ int main(void)
     memset(hist_i, 0, sizeof(hist_i));
     memset(hist_q, 0, sizeof(hist_q));
 
+    // State toggles
+    bool single_chan_mode = true; // Start in 1-channel mode
+    set_rx_mode(fd, single_chan_mode);
+
     // SDL
     if (SDL_Init(SDL_INIT_VIDEO) != 0) die("SDL_Init");
-    SDL_Window *win = SDL_CreateWindow("CSI SDR PSD", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, WIN_DEFAULT_W, WIN_DEFAULT_H, SDL_WINDOW_RESIZABLE);
+    SDL_Window *win = SDL_CreateWindow("CSI SDR PSD - 1-Channel (Beamforming)",
+                                       SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
+                                       WIN_DEFAULT_W, WIN_DEFAULT_H, SDL_WINDOW_RESIZABLE);
     // Prefer a GPU renderer, but fall back to software so we still draw under
     // KasmVNC/Xvnc (no GLX there) instead of silently leaving a blank window.
     SDL_Renderer *ren = SDL_CreateRenderer(win, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
@@ -282,9 +349,6 @@ int main(void)
     bool quit = false;
     float db_min = DB_MIN_DEFAULT;
     float db_max = DB_MAX_DEFAULT;
-
-    // State toggles
-    bool single_chan_mode = true; // Start in 1-channel mode
 
     while (!quit)
     {
@@ -299,10 +363,14 @@ int main(void)
                 // Toggle between 1-channel and 4-channel
                 if (ev.key.keysym.sym == SDLK_SPACE) {
                     single_chan_mode = !single_chan_mode;
-                    printf("Switched to %s mode\n", single_chan_mode ? "1-Channel (Packed)" : "4-Channel (Interleaved)");
+                    set_rx_mode(fd, single_chan_mode);
+                    printf("Switched to %s mode\n", single_chan_mode ? "1-Channel (Beamforming)" : "4-Channel (Interleaved)");
+                    SDL_SetWindowTitle(win, single_chan_mode ? "CSI SDR PSD - 1-Channel (Beamforming)" : "CSI SDR PSD - 4-Channel (Interleaved)");
 
-                    // Reset PSD history to avoid ghosting
+                    // Reset PSD history and histograms to avoid ghosting
                     for (int i = 0; i < MAX_CHANNELS * FFT_SIZE; ++i) psd_db[i] = DB_MIN_DEFAULT;
+                    memset(hist_i, 0, sizeof(hist_i));
+                    memset(hist_q, 0, sizeof(hist_q));
                 }
 
                 if (ev.key.keysym.sym == SDLK_UP)    { db_min += 5.0f; db_max += 5.0f; }
