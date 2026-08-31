@@ -16,7 +16,12 @@ if [ -z "${DISPLAY:-}" ]; then
   done
 fi
 
-quadrf-jtag --rx autosteer=1,antennas=15,interleave=0,tone_en=0,bw=12.0,agc=-14.0
+CH_LUA=/usr/share/quadrf/ntsc_ch.lua
+if [ ! -f "$CH_LUA" ]; then
+  CH_LUA="$(dirname "$0")/ntsc_ch.lua"
+fi
+
+quadrf-jtag --rx autosteer=1,antennas=15,interleave=0,tone_en=0,bw=12.0,agc=-14.0,freq=5806
 
 quadrf-ntsc-demod --bypass_iir true --disc atan2 --no_deemph --read_samps 65536 --flush_frames 1 \
   --args "numBuffers=2,bufferLength=65536" \
@@ -24,7 +29,10 @@ quadrf-ntsc-demod --bypass_iir true --disc atan2 --no_deemph --read_samps 65536 
 | mpv --profile=low-latency --no-cache \
   --demuxer-thread=no --vd-lavc-threads=1 \
   --demuxer=rawvideo --demuxer-rawvideo-w=640 --demuxer-rawvideo-h=480 \
-  --demuxer-rawvideo-mp-format=yuyv422 --demuxer-rawvideo-fps=60 $MPV_VO_FLAG -
+  --demuxer-rawvideo-mp-format=yuyv422 --demuxer-rawvideo-fps=60 \
+  --script="$CH_LUA" --osd-font-size=40 --osd-duration=1500 \
+  --input-ipc-server=/tmp/quadrf-ntsc-mpv \
+  $MPV_VO_FLAG -
 
 # quadrf-ntsc-demod writes raw yuyv422 640x480 on stdout, so it can just as
 # easily be redirected to a file or piped into ffmpeg for streaming.

@@ -21,6 +21,23 @@ reads IQ from the SoapySDR device, demodulates NTSC and writes raw yuyv422
 frames at 640x480 on standard output. It is usually driven by
 .BR quadrf-ntsc ,
 but the raw stream can equally be redirected to a file or piped into ffmpeg.
+.PP
+The launcher starts on Raceband 5 (5806 MHz) and shows a short on-screen
+reminder of the keys. The mpv window must have keyboard focus (click it).
+.SH KEYS
+.TP
+.BR Up ", " Down
+Step Raceband channel R1–R8 and retune the RX LO. The channel name and
+frequency flash on screen for about 1.5 s. Mouse wheel does the same.
+.TP
+.BR q ", " Escape
+Quit mpv (stops the decoder).
+.SH FILES
+.TP
+.I /usr/share/quadrf/ntsc_ch.lua
+mpv script that maps Up/Down onto
+.BR quadrf-jtag (1)
+.IR freq= .
 .SH BUGS
 The decoder currently misbehaves when an HDMI display is attached to the Pi.
 .SH SEE ALSO
