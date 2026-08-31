@@ -57,14 +57,16 @@
 #define NUM_CHANNELS 4
 #define BYTES_PER_FRAME 8 
 
-// Exact Hardware Native Rates 
+// Exact hardware native rates (DDS phase-step only; devices run at line rate).
+// TX: 2-lane DSI, 175 MHz byte clock, 3072x1080 payload / (payload + 42 B/line + 9342).
+// RX: 4-lane CSI, 175 MHz byte clock; /4 for 4-channel interleaved CS8.
 #define EXACT_TX_RATE (0.5 * 175000000.0 * (3317760.0 / 3372462.0))
-#define EXACT_RX_RATE (((131072.0 / 142638.0) * 87500000.0) / 4.0)
-#define TX_PAYLOAD_BYTES 3317760 
+#define EXACT_RX_RATE (((65536.0 / 76714.0) * 175000000.0) / 4.0)
+#define TX_PAYLOAD_BYTES 3317760
 
 // DSP State Machine Settings
-#define FLUSH_SAMPLES       8192        // ~1.6ms mandatory analog settling
-#define INTEGRATION_SAMPLES (65536 * 4)  // ~13ms integration (yielding ~17Hz matrix refresh)
+#define FLUSH_SAMPLES       8192         // ~0.22 ms analog settling at 37.4 Msps
+#define INTEGRATION_SAMPLES (65536 * 4)  // ~7.0 ms integration (~35 Hz 4-TX cycle)
 #define EMA_ALPHA           0.2f  
 
 #define WIN_W 800
