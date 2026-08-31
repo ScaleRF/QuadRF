@@ -66,8 +66,9 @@ static void handle_sig(int sig) {
 
 #define DEVICE_PATH      "/dev/csi_stream0"
 
-// FFT size per channel
-#define FFT_SIZE         4096
+// FFT size per channel. 8192 at 38 Msps keeps bin width ~4.6 kHz,
+// matching the old 4096 / 18 Msps two-lane setup.
+#define FFT_SIZE         8192
 #define CHANNELS         4
 #define BYTES_PER_IQ     2
 #define BYTES_PER_FRAME  (CHANNELS * BYTES_PER_IQ)
@@ -81,11 +82,12 @@ static void handle_sig(int sig) {
 #define WIN_WIDTH        1920
 #define WIN_HEIGHT       1024
 
-// Sweep parameters (MHz)
+// Sweep parameters (MHz). Four-lane CSI is 38 Msps; step is the
+// digital-filter BW so adjacent dwells tile with ~18 MHz overlap.
 #define LO_START_MHZ     4900.0
 #define LO_END_MHZ       6000.0
-#define LO_STEP_MHZ      18.0
-#define FS_MHZ           18.0
+#define LO_STEP_MHZ      20.0
+#define FS_MHZ           38.0
 
 // Antenna Geometry & Tiling Constants
 #define ANTENNA_SPACING_MM      45.5f
@@ -104,9 +106,9 @@ static void handle_sig(int sig) {
 // If ring backlog grows, drop older data to keep latency bounded.
 #define MAX_QUEUED_BLOCKS   2
 
-// Aggressive ring-wait tuning:
-#define WAIT_SPIN_ITERS     2000   // spin iterations before sleeping
-#define WAIT_SLEEP_US       20     // short sleep after spin phase
+// Aggressive ring-wait tuning (tighter at 38 Msps / 4-lane CSI):
+#define WAIT_SPIN_ITERS     100    // spin iterations before sleeping
+#define WAIT_SLEEP_US       1      // short sleep after spin phase
 
 // Visualization tuning
 #define ENABLE_DECAY        1
@@ -1629,6 +1631,12 @@ static void *worker(void *arg)
     if (!topk) die("malloc topk");
 
     const int half = FFT_SIZE / 2;
+    // Process only ±LO_STEP/2 of the IF. Adjacent dwells then tile
+    // without double-counting, and CFAR stays off the filter skirts.
+    int k_min = half - (int)((LO_STEP_MHZ / 2.0) * ((double)FFT_SIZE / FS_MHZ));
+    int k_max = half + (int)((LO_STEP_MHZ / 2.0) * ((double)FFT_SIZE / FS_MHZ));
+    if (k_min < 0) k_min = 0;
+    if (k_max > FFT_SIZE - 1) k_max = FFT_SIZE - 1;
     // Precompute sweep list (MHz)
     const int nsteps = (int)ceil((LO_END_MHZ - LO_START_MHZ) / LO_STEP_MHZ);
     double *lo_list = (double*)malloc((size_t)nsteps * sizeof(double));
@@ -1731,7 +1739,7 @@ static void *worker(void *arg)
                 }
 
                 // 6. Find the peak energy bin for this LO step
-                for (int k = 0; k < FFT_SIZE; ++k) {
+                for (int k = k_min; k <= k_max; ++k) {
                     // Ignore the center 5 bins (DC Block)
                     if (k >= half - 2 && k <= half + 2) continue;
 
@@ -1858,8 +1866,8 @@ static void *worker(void *arg)
             // 3. Process
             uint64_t tp0 = now_ns();
 
-            // Compute Vraw across all bins to run CFAR
-            for (int k = 0; k < FFT_SIZE; ++k) {
+            // Compute Vraw across active bins to run CFAR
+            for (int k = k_min; k <= k_max; ++k) {
                 if (c->sweep_mode == MODE_LOCK && k >= half - 2 && k <= half + 2) {
                     Vraw[k] = -1e9f;
                     continue;
@@ -1886,14 +1894,17 @@ static void *worker(void *arg)
             // Run CFAR to find top targets (Dynamically Scaled)
             const int CFAR_WIN = 32 * cfar_scale;        
             const int CFAR_GUARD = 4 * cfar_scale;       
-            const float CFAR_THRESH = 1.2f; 
+            const float CFAR_THRESH = 1.6f; 
             const int num_noise_cells = (CFAR_WIN - CFAR_GUARD) * 2;
             
-            float window_sum = 0.0f;
-            for (int k = 0; k < CFAR_WIN * 2 + 1; ++k) window_sum += Vraw[k];
+            int cfar_start = k_min + CFAR_WIN;
+            int cfar_end = k_max - CFAR_WIN;
 
-            for (int k = CFAR_WIN; k < FFT_SIZE - CFAR_WIN; ++k) {
-                if (k > CFAR_WIN) window_sum += Vraw[k + CFAR_WIN] - Vraw[k - CFAR_WIN - 1];
+            float window_sum = 0.0f;
+            for (int k = k_min; k < k_min + CFAR_WIN * 2 + 1; ++k) window_sum += Vraw[k];
+
+            for (int k = cfar_start; k <= cfar_end; ++k) {
+                if (k > cfar_start) window_sum += Vraw[k + CFAR_WIN] - Vraw[k - CFAR_WIN - 1];
 
                 float guard_sum = 0.0f;
                 for (int g = -CFAR_GUARD; g <= CFAR_GUARD; ++g) guard_sum += Vraw[k + g];
@@ -2514,9 +2525,9 @@ int main(int argc, char **argv)
     // 2. Enable 4-channel interleave mode (reg 0x25 = 1)
     jtag_write_u16(fd, 0x25, 0x0001);
 
-    // 3. Change digital filter BW to 16 MHz 
-    //    k = 240 / target_bw = 240 / 16 = 15 (reg 0x27)
-    jtag_write_u16(fd, 0x27, 15);
+    // 3. Digital filter BW 20 MHz to match LO_STEP
+    //    k = 240 / target_bw = 240 / 20 = 12 (reg 0x27)
+    jtag_write_u16(fd, 0x27, 12);
 
     // 4. Switch to RHCP (reg 0x24 = 1)
     jtag_write_u16(fd, 0x24, 0x0001);
