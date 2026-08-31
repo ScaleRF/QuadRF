@@ -1,3 +1,6 @@
 #!/bin/bash
+if command -v pulseaudio >/dev/null 2>&1; then
+    pulseaudio --start --log-target=syslog 2>/dev/null || true
+fi
 pcmanfm --desktop --profile LXDE &
 tint2 -c "${HOME}/.config/tint2/tint2rc" &

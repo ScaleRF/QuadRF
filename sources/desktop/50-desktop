@@ -30,6 +30,15 @@ fi
 if getent group render >/dev/null; then
     adduser --quiet "${QUADRF_USER}" render || true
 fi
+if getent group audio >/dev/null; then
+    adduser --quiet "${QUADRF_USER}" audio || true
+fi
+
+# Dummy ALSA sound device for desktop audio services
+if [ ! -f /etc/modules-load.d/quadrf-audio.conf ]; then
+    printf 'snd-dummy\n' > /etc/modules-load.d/quadrf-audio.conf
+fi
+modprobe snd-dummy 2>/dev/null || true
 
 # install -o takes a user name only; pair it with -g for the group.
 install -d -o "${QUADRF_USER}" -g "${GROUP}" -m 755 "${HOME_DIR}/.vnc" "${HOME_DIR}/Desktop"
