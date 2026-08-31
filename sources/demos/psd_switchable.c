@@ -35,7 +35,7 @@
 #include <SDL2/SDL.h>
 #include <fftw3.h>
 
-#include "../csi/fpga_csi.h"
+#include "fpga_csi.h"
 
 // ---------------- Config ----------------
 

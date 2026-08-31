@@ -43,13 +43,19 @@ Description: software-defined radio appliance for the Raspberry Pi 5
 
 Package: quadrf-dev
 Architecture: arm64
-Depends: quadrf-fpga (= ${binary:Version}),
+Depends: build-essential,
+         cmake,
+         libsoapysdr-dev,
+         pkg-config,
+         quadrf-fpga (= ${binary:Version}),
          quadrf-soapy (= ${binary:Version}),
          ${misc:Depends}
+Recommends: libfftw3-dev, libsdl2-dev
 Description: QuadRF development headers and CMake configuration
- Contains the C++ headers and quadrfConfig.cmake required to build custom
- applications or out-of-tree plugins against the pre-compiled QuadRF drivers.
- .
+ C++ headers (fpga_csi.h, Farrow.hpp) and QuadRFConfig.cmake for building
+ custom applications against the installed SoapySDR modules. Recommends the
+ FFTW and SDL2 development packages used by the example sources in
+ quadrf-demos.
 
 Package: quadrf-headless
 Section: metapackages

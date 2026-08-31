@@ -177,8 +177,9 @@ install(FILES sources/systemd/quadrf-ups.service DESTINATION ${unitdir})
 install(PROGRAMS sources/ups_hat/60-ups DESTINATION ${libdir}/apply.d)
 
 # quadrf-dev
-configure_file(quadrfConfig.cmake.in ${CMAKE_CURRENT_BINARY_DIR}/quadrfConfig.cmake @ONLY)
-install(FILES ${CMAKE_CURRENT_BINARY_DIR}/quadrfConfig.cmake DESTINATION lib/cmake/quadrf)
+configure_file(quadrfConfig.cmake.in ${CMAKE_CURRENT_BINARY_DIR}/QuadRFConfig.cmake @ONLY)
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/QuadRFConfig.cmake DESTINATION lib/cmake/quadrf)
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/QuadRFConfig.cmake DESTINATION lib/cmake/quadrf RENAME quadrf-config.cmake)
 install(FILES sources/quadrfd/csi_uapi.hpp sources/quadrfd/Farrow.hpp sources/quadrfd/NEON.hpp DESTINATION include/quadrf)
 
 # CPack
@@ -188,4 +189,4 @@ include(CPack)
 
 # Examples Source Distribution
 install(FILES sources/demos/CMakeLists.txt.standalone DESTINATION share/quadrf/examples RENAME CMakeLists.txt)
-install(FILES sources/demos/csi_sweep.c sources/demos/mongoose.c sources/demos/mongoose.h sources/demos/psd_switchable.c sources/demos/ntsc_demod.cpp sources/demos/delay_cal.h DESTINATION share/quadrf/examples)
+install(FILES sources/demos/hello.cpp sources/demos/csi_sweep.c sources/demos/mongoose.c sources/demos/mongoose.h sources/demos/psd_switchable.c sources/demos/ntsc_demod.cpp sources/demos/delay_cal.h DESTINATION share/quadrf/examples)

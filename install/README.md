@@ -90,7 +90,7 @@ Install metapackages `quadrf` or `quadrf-headless`, or pick components. [docs/in
 | `quadrf-soapy`     | `mipi` and `quadrf` SoapySDR modules, SoapyRemote service                                                                                                 |
 | `quadrf-gui`       | Flask control panel on port 8080                                                                                                                          |
 | `quadrf-network`   | nginx, dnsmasq, mDNS, access point, OpenSSH (SFTP)                                                                                                        |
-| `quadrf-dev`       | C++ headers and CMake config to build against the installed drivers                                                                                       |
+| `quadrf-dev`       | C++ headers and `find_package(QuadRF)` to build against the installed SoapySDR modules                                                                    |
 | `quadrf-demos`     | Spatial RF Vision, PSD plot, NTSC decoder (`mpv`), AR, and example sources under `/usr/share/quadrf/examples`                                             |
 | `quadrf-desktop`   | KasmVNC session with QuadRF launchers                                                                                                                 |
 | `quadrf-gnuradio`  | Example flowgraphs                                                                                                                                        |
