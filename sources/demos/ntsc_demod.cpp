@@ -249,10 +249,10 @@ struct VideoTiming {
     explicit VideoTiming(double fs_vid) {
         samp_per_line = (int)std::llround(fs_vid * 63.555e-6);
         sync_samp     = (int)std::llround(fs_vid * 4.7e-6);
-        bp_samp       = (int)std::llround(fs_vid * 5.8e-6);
+        bp_samp       = (int)std::llround(fs_vid * 4.7e-6);
         active_samp   = (int)std::llround(fs_vid * 52.6e-6);
         active_start  = sync_samp + bp_samp;
-        burst_start   = sync_samp + (int)std::llround(fs_vid * 0.9e-6);
+        burst_start   = sync_samp + (int)std::llround(fs_vid * 0.7e-6);
         burst_len     = (int)std::llround(fs_vid * 2.5e-6);
 
         // Clamp to our fixed buffer budget.
@@ -704,8 +704,6 @@ struct NtscDecoder {
     bool no_color = false;
     Diag* diag = nullptr;
 
-    bool is_even_field = false; // Add interlacing tracker
-
     float blank_level = 0.0f, sync_level = -0.5f;
     float white_level = 0.7f, hue_rad = 0.0f, saturation = 1.0f;
     VideoTiming t;
@@ -771,9 +769,8 @@ struct NtscDecoder {
     inline void process_line(const float* ln, bool is_vsync, int orig_len) {
         if (is_vsync) {
             if (lines_since_v > 100) {
-                emit_frame(); 
-                is_even_field = !is_even_field;
-                out_line = is_even_field ? 1 : 0; 
+                emit_frame();
+                out_line = 0;
             }
             lines_since_v = 0;
             return;
@@ -822,7 +819,7 @@ struct NtscDecoder {
         }
 
         lines_since_v++;
-        if (lines_since_v <= 20 || out_line >= OUT_H - 1) return; 
+        if (lines_since_v <= 22) return; 
 
         float sync_amp = std::max(0.1f, current_blank - sync_level);
         float target_white = current_blank + sync_amp * 2.5f; 
@@ -1066,82 +1063,84 @@ struct NtscDecoder {
         }
 #endif
 
-        uint8_t* dst = frame_yuv.data();
+        if (out_line < OUT_H) {
+            uint8_t* dst = frame_yuv.data();
 
 #if defined(__ARM_NEON) || defined(__ARM_NEON__)
-        float32x4_t v_y_off = vdupq_n_f32(16.0f);
-        float32x4_t v_uv_off = vdupq_n_f32(128.0f);
-        v_half = vdupq_n_f32(0.5f);
-        float32x4_t v_color_en = vdupq_n_f32(color_valid ? 1.0f : 0.0f);
+            float32x4_t v_y_off = vdupq_n_f32(16.0f);
+            float32x4_t v_uv_off = vdupq_n_f32(128.0f);
+            v_half = vdupq_n_f32(0.5f);
+            float32x4_t v_color_en = vdupq_n_f32(color_valid ? 1.0f : 0.0f);
 
-        int x = 0;
-        for (; x <= OUT_W - 16; x += 16) {
-            float ye_arr[8], yo_arr[8], u_arr[8], v_arr[8];
-            
-            for (int k = 0; k < 8; k++) {
-                int si0 = xmap[x + k*2];
-                int si1 = xmap[x + k*2 + 1];
-                ye_arr[k] = Y_line[si0];
-                yo_arr[k] = Y_line[si1];
-                u_arr[k]  = U_line[si0] + U_line[si1];
-                v_arr[k]  = V_line[si0] + V_line[si1];
+            int x = 0;
+            for (; x <= OUT_W - 16; x += 16) {
+                float ye_arr[8], yo_arr[8], u_arr[8], v_arr[8];
+
+                for (int k = 0; k < 8; k++) {
+                    int si0 = xmap[x + k*2];
+                    int si1 = xmap[x + k*2 + 1];
+                    ye_arr[k] = Y_line[si0];
+                    yo_arr[k] = Y_line[si1];
+                    u_arr[k]  = U_line[si0] + U_line[si1];
+                    v_arr[k]  = V_line[si0] + V_line[si1];
+                }
+
+                float32x4_t ye1 = vaddq_f32(vld1q_f32(&ye_arr[0]), v_y_off);
+                float32x4_t ye2 = vaddq_f32(vld1q_f32(&ye_arr[4]), v_y_off);
+                int16x8_t ye_16 = vcombine_s16(vqmovn_s32(vcvtaq_s32_f32(ye1)), vqmovn_s32(vcvtaq_s32_f32(ye2)));
+                uint8x8_t ye_8 = vqmovun_s16(ye_16);
+
+                float32x4_t yo1 = vaddq_f32(vld1q_f32(&yo_arr[0]), v_y_off);
+                float32x4_t yo2 = vaddq_f32(vld1q_f32(&yo_arr[4]), v_y_off);
+                int16x8_t yo_16 = vcombine_s16(vqmovn_s32(vcvtaq_s32_f32(yo1)), vqmovn_s32(vcvtaq_s32_f32(yo2)));
+                uint8x8_t yo_8 = vqmovun_s16(yo_16);
+
+                float32x4_t u_in1 = vmulq_f32(vld1q_f32(&u_arr[0]), v_color_en);
+                float32x4_t u_in2 = vmulq_f32(vld1q_f32(&u_arr[4]), v_color_en);
+                float32x4_t u1 = vmlaq_f32(v_uv_off, u_in1, v_half);
+                float32x4_t u2 = vmlaq_f32(v_uv_off, u_in2, v_half);
+                int16x8_t u_16 = vcombine_s16(vqmovn_s32(vcvtaq_s32_f32(u1)), vqmovn_s32(vcvtaq_s32_f32(u2)));
+                uint8x8_t u_8 = vqmovun_s16(u_16);
+
+                float32x4_t v_in1 = vmulq_f32(vld1q_f32(&v_arr[0]), v_color_en);
+                float32x4_t v_in2 = vmulq_f32(vld1q_f32(&v_arr[4]), v_color_en);
+                float32x4_t v1 = vmlaq_f32(v_uv_off, v_in1, v_half);
+                float32x4_t v2 = vmlaq_f32(v_uv_off, v_in2, v_half);
+                int16x8_t v_16 = vcombine_s16(vqmovn_s32(vcvtaq_s32_f32(v1)), vqmovn_s32(vcvtaq_s32_f32(v2)));
+                uint8x8_t v_8 = vqmovun_s16(v_16);
+
+                uint8x8x4_t yuyv = {ye_8, u_8, yo_8, v_8};
+                int idx1 = (out_line * OUT_W + x) * 2;
+                int idx2 = ((out_line + 1) * OUT_W + x) * 2;
+                vst4_u8(&dst[idx1], yuyv);
+                vst4_u8(&dst[idx2], yuyv);
             }
 
-            float32x4_t ye1 = vaddq_f32(vld1q_f32(&ye_arr[0]), v_y_off);
-            float32x4_t ye2 = vaddq_f32(vld1q_f32(&ye_arr[4]), v_y_off);
-            int16x8_t ye_16 = vcombine_s16(vqmovn_s32(vcvtaq_s32_f32(ye1)), vqmovn_s32(vcvtaq_s32_f32(ye2)));
-            uint8x8_t ye_8 = vqmovun_s16(ye_16);
-
-            float32x4_t yo1 = vaddq_f32(vld1q_f32(&yo_arr[0]), v_y_off);
-            float32x4_t yo2 = vaddq_f32(vld1q_f32(&yo_arr[4]), v_y_off);
-            int16x8_t yo_16 = vcombine_s16(vqmovn_s32(vcvtaq_s32_f32(yo1)), vqmovn_s32(vcvtaq_s32_f32(yo2)));
-            uint8x8_t yo_8 = vqmovun_s16(yo_16);
-
-            float32x4_t u_in1 = vmulq_f32(vld1q_f32(&u_arr[0]), v_color_en);
-            float32x4_t u_in2 = vmulq_f32(vld1q_f32(&u_arr[4]), v_color_en);
-            float32x4_t u1 = vmlaq_f32(v_uv_off, u_in1, v_half);
-            float32x4_t u2 = vmlaq_f32(v_uv_off, u_in2, v_half);
-            int16x8_t u_16 = vcombine_s16(vqmovn_s32(vcvtaq_s32_f32(u1)), vqmovn_s32(vcvtaq_s32_f32(u2)));
-            uint8x8_t u_8 = vqmovun_s16(u_16);
-
-            float32x4_t v_in1 = vmulq_f32(vld1q_f32(&v_arr[0]), v_color_en);
-            float32x4_t v_in2 = vmulq_f32(vld1q_f32(&v_arr[4]), v_color_en);
-            float32x4_t v1 = vmlaq_f32(v_uv_off, v_in1, v_half);
-            float32x4_t v2 = vmlaq_f32(v_uv_off, v_in2, v_half);
-            int16x8_t v_16 = vcombine_s16(vqmovn_s32(vcvtaq_s32_f32(v1)), vqmovn_s32(vcvtaq_s32_f32(v2)));
-            uint8x8_t v_8 = vqmovun_s16(v_16);
-
-            uint8x8x4_t yuyv = {ye_8, u_8, yo_8, v_8};
-            int idx1 = (out_line * OUT_W + x) * 2;
-            int idx2 = ((out_line + 1) * OUT_W + x) * 2;
-            vst4_u8(&dst[idx1], yuyv); 
-            vst4_u8(&dst[idx2], yuyv); 
-        }
-        
-        for (; x < OUT_W; x += 2) {
+            for (; x < OUT_W; x += 2) {
 #else
-        for (int x = 0; x < OUT_W; x += 2) {
+            for (int x = 0; x < OUT_W; x += 2) {
 #endif
-            int si0 = xmap[x], si1 = xmap[x+1];
+                int si0 = xmap[x], si1 = xmap[x+1];
 
-            int y0 = 16 + (int)(Y_line[si0]);
-            int y1 = 16 + (int)(Y_line[si1]);
+                int y0 = 16 + (int)(Y_line[si0]);
+                int y1 = 16 + (int)(Y_line[si1]);
 
-            int u = 128, v = 128;
-            if (color_valid) {
-                u += (int)((U_line[si0] + U_line[si1]) * 0.5f);
-                v += (int)((V_line[si0] + V_line[si1]) * 0.5f);
+                int u = 128, v = 128;
+                if (color_valid) {
+                    u += (int)((U_line[si0] + U_line[si1]) * 0.5f);
+                    v += (int)((V_line[si0] + V_line[si1]) * 0.5f);
+                }
+
+                int idx1 = (out_line * OUT_W + x) * 2;
+                int idx2 = ((out_line + 1) * OUT_W + x) * 2;
+
+                dst[idx1 + 0] = dst[idx2 + 0] = u8_sat(y0);
+                dst[idx1 + 1] = dst[idx2 + 1] = u8_sat(u);
+                dst[idx1 + 2] = dst[idx2 + 2] = u8_sat(y1);
+                dst[idx1 + 3] = dst[idx2 + 3] = u8_sat(v);
             }
-
-            int idx1 = (out_line * OUT_W + x) * 2; 
-            int idx2 = ((out_line + 1) * OUT_W + x) * 2; 
-
-            dst[idx1 + 0] = dst[idx2 + 0] = u8_sat(y0); 
-            dst[idx1 + 1] = dst[idx2 + 1] = u8_sat(u);
-            dst[idx1 + 2] = dst[idx2 + 2] = u8_sat(y1); 
-            dst[idx1 + 3] = dst[idx2 + 3] = u8_sat(v);
+            out_line += 2;
         }
-        out_line += 2;
     }
 };
 
