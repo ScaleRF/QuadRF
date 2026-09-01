@@ -22,6 +22,7 @@
 #include <string.h>
 #include <errno.h>
 #include <pthread.h>
+#include <signal.h>
 #include <sys/mman.h>
 #include <sys/ioctl.h>
 #include <sys/poll.h>
@@ -58,7 +59,7 @@
 #define WIN_H 800
 
 // Thread Synchronization
-static volatile bool g_running = true;
+static volatile sig_atomic_t g_running = 1;
 static volatile bool g_radio_ready = false;
 static pthread_mutex_t g_phasor_mutex = PTHREAD_MUTEX_INITIALIZER;
 static float g_phasor_i[NUM_CHANNELS][NUM_CHANNELS] = {0}; // [RX][TX]
@@ -148,6 +149,29 @@ static void switch_tx_antenna(int fd, int tx_idx) {
         perror("[!] FPGA Mask Write Failed");
 }
 
+// Same sequence as quadrf-jtag --tx off / max2850_set_idle. Without this, a
+// control-page stop (SIGTERM) leaves MODE=TX and PA bias on.
+static void radio_tx_standby(int fd)
+{
+    uint16_t reg0 = 0x00E;
+    reg0 &= (uint16_t)~(0x7u << 2);
+    reg0 |= (uint16_t)(1u << 1);
+    if (spi_word(fd, MAX2850_REG_ADDR, 0, reg0) < 0)
+        perror("[!] MAX2850 standby failed");
+    if (jtag_write_u16(fd, 0x23, 0x0001) < 0)
+        perror("[!] FPGA TX path disable failed");
+    if (spi_word(fd, MAX2850_REG_ADDR, 10, 0x0000) < 0)
+        perror("[!] MAX2850 PA bias off failed");
+    if (jtag_write_u16(fd, 0x02, 0x0000) < 0)
+        perror("[!] FPGA TX mask clear failed");
+}
+
+static void request_stop(int sig)
+{
+    (void)sig;
+    g_running = 0;
+}
+
 // 4-channel interleave, analog TX, both LOs at RF_FREQ_MHZ. Hold the JTAG lease
 // for the whole run so TDM antenna switches are not interrupted.
 static int setup_radio(int fd) {
@@ -208,6 +232,7 @@ static int setup_radio(int fd) {
         perror("[!] FPGA interleave restrobe failed");
 
     switch_tx_antenna(fd, 0);
+
     // VAS + PLL settle, then force DOUT = lock detect before sampling it
     spi_word(fd, MAX2851_REG_ADDR, 14, 0x160);
     spi_word(fd, MAX2850_REG_ADDR, 14, 0x160);
@@ -473,6 +498,7 @@ void* rx_thread_func(void* arg) {
         }
     }
 
+    radio_tx_standby(fd_rx);
     ioctl(fd_rx, CSI_IOC_JTAG_RELEASE_LEASE);
     munmap(ring, map_len);
     close(fd_rx);
@@ -491,6 +517,12 @@ void draw_phasor(SDL_Renderer *ren, int cx, int cy, float i_val, float q_val, fl
 
 // --- Thread 3: Main UI Thread ---
 int main(void) {
+    struct sigaction sa = {0};
+    sa.sa_handler = request_stop;
+    sigemptyset(&sa.sa_mask);
+    sigaction(SIGTERM, &sa, NULL);
+    sigaction(SIGINT, &sa, NULL);
+
     init_luts();
 
     if (SDL_Init(SDL_INIT_VIDEO) != 0) { fprintf(stderr, "SDL_Init Error\n"); return EXIT_FAILURE; }
@@ -521,7 +553,7 @@ int main(void) {
     while (g_running) {
         while (SDL_PollEvent(&ev)) {
             if (ev.type == SDL_QUIT || (ev.type == SDL_KEYDOWN && ev.key.keysym.sym == SDLK_ESCAPE)) {
-                g_running = false;
+                g_running = 0;
             }
             else if (ev.type == SDL_KEYDOWN) {
                 if (ev.key.keysym.sym == SDLK_SPACE) {

@@ -9,7 +9,8 @@ down-converts the CSI ring buffer against a 1 MHz DDS tone, and draws one
 phasor pane per receive channel. Each pane shows the three bistatic paths
 from the other transmitters; the monostatic path (same TX and RX index) is
 blanked. On start the app enables 4-channel RX interleave, analog TX, and a
-5800 MHz LO. Display scale is fixed (pixels per unit I/Q); Up/Down zoom the
+5800 MHz LO. On quit or systemd stop the analog TX path is returned to
+standby. Display scale is fixed (pixels per unit I/Q); Up/Down zoom the
 plot only.
 .SH KEYS
 The SDL window must have keyboard focus (click it).
