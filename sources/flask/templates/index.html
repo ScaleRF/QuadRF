@@ -1841,9 +1841,18 @@
             return `http://${host}:6080/`;
         }
 
+        function splitUrl() {
+            return `${desktopUrl()}split`;
+        }
+
+        // Catalog "desktop" (and the register --open browser token) stay on
+        // the Kasm session. Only URL paths such as /AR/ open a new tab.
+        function isWebOpen(open) {
+            return !!(open && open !== 'desktop' && open !== 'browser');
+        }
+
         function resolveOpen(open) {
-            if (!open || open === 'desktop') return desktopUrl();
-            return open;
+            return isWebOpen(open) ? open : '';
         }
 
         function applyAppState(data) {
@@ -1870,7 +1879,10 @@
                         if (row.classList.contains('app-active')) controlApp(app.id, 'stop');
                         else controlApp(app.id, 'start', row.dataset.open);
                     });
-                    row.querySelector('.app-open').addEventListener('click', () => window.open(resolveOpen(row.dataset.open), '_blank'));
+                    row.querySelector('.app-open').addEventListener('click', () => {
+                        const dest = resolveOpen(row.dataset.open);
+                        if (dest) window.open(dest, '_blank');
+                    });
                     const icon = row.querySelector('.app-icon');
                     icon.addEventListener('load', () => icon.classList.remove('hidden'));
                     icon.addEventListener('error', () => icon.classList.add('hidden'));
@@ -1901,7 +1913,7 @@
                 toggle.classList.toggle('running', !!app.running);
                 toggle.title = app.running ? 'Stop' : 'Launch';
                 toggle.setAttribute('aria-label', app.running ? `Stop ${app.name}` : `Launch ${app.name}`);
-                row.querySelector('.app-open').classList.toggle('hidden', !app.open || !app.running);
+                row.querySelector('.app-open').classList.toggle('hidden', !isWebOpen(app.open) || !app.running);
                 row.dataset.open = app.open || '';
                 if (appListEl.children[i] !== row) {
                     appListEl.insertBefore(row, appListEl.children[i] || null);
@@ -1968,7 +1980,7 @@
         window.addEventListener('load', scrollToReceiveOnce);
 
         document.getElementById('openDesktopBtn').addEventListener('click', () => {
-            window.open(desktopUrl(), '_blank');
+            window.open(splitUrl(), '_blank');
         });
 
         const wifiModeApi = '{{ url_for("network_mode") }}';
