@@ -166,7 +166,6 @@ install(FILES sources/kasmvnc/kasmvnc_defaults.yaml DESTINATION ${datadir}/deskt
 install(PROGRAMS sources/desktop/openbox-autostart DESTINATION ${datadir}/desktop/config/openbox RENAME autostart)
 install(FILES sources/desktop/tint2rc DESTINATION ${datadir}/desktop/config/tint2)
 install(FILES sources/desktop/pcmanfm-LXDE.conf DESTINATION ${datadir}/desktop/config/pcmanfm/LXDE RENAME pcmanfm.conf)
-install(FILES sources/desktop/wallpaper.png DESTINATION ${datadir}/desktop)
 install(FILES sources/desktop/libfm.conf DESTINATION ${datadir}/desktop/config/libfm)
 install(FILES sources/desktop/mimeapps.list DESTINATION ${datadir}/desktop/config)
 install(FILES sources/desktop/qradiolink.cfg DESTINATION ${datadir}/desktop/config/qradiolink)
