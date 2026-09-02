@@ -52,7 +52,7 @@ chown "${QUADRF_USER}:${GROUP}" "${HOME_DIR}/.vnc/.de-was-selected"
 # install -d -o only owns the last component; intermediates stay root and
 # then qradiolink/GRC cannot create ~/.config/<app>.
 install -d -o "${QUADRF_USER}" -g "${GROUP}" -m 755 "${HOME_DIR}/.config"
-for entry in openbox/autostart tint2/tint2rc pcmanfm/LXDE/pcmanfm.conf libfm/libfm.conf mimeapps.list; do
+for entry in openbox/autostart openbox/rc.xml tint2/tint2rc pcmanfm/LXDE/pcmanfm.conf libfm/libfm.conf mimeapps.list; do
     src="${SHARE}/config/${entry}"
     dest="${HOME_DIR}/.config/${entry}"
     [ -f "${src}" ] || continue
@@ -119,32 +119,6 @@ fi
 printf '%s %s\n' "${grc_uri}" "${grc_label}" >> "${bookmark_tmp}"
 install -o "${QUADRF_USER}" -g "${GROUP}" -m 644 "${bookmark_tmp}" "${bookmarks}"
 rm -f "${bookmark_tmp}"
-
-# Generated qt_gui flowgraphs are a separate python3 process. GRC is nearly
-# fullscreen on the VNC framebuffer, so without raise the spectrum window
-# maps behind the editor.
-ob_dir="${HOME_DIR}/.config/openbox"
-install -d -o "${QUADRF_USER}" -g "${GROUP}" -m 755 "${ob_dir}"
-ob_rc="${ob_dir}/rc.xml"
-if [ ! -f "${ob_rc}" ] && [ -f /etc/xdg/openbox/rc.xml ]; then
-    install -o "${QUADRF_USER}" -g "${GROUP}" -m 644 /etc/xdg/openbox/rc.xml "${ob_rc}"
-fi
-if [ -f "${ob_rc}" ] && ! grep -q "quadrf: raise GNU Radio" "${ob_rc}"; then
-    ob_tmp="$(mktemp)"
-    awk '
-        /<\/applications>/ && !done {
-            print "  <!-- quadrf: raise GNU Radio generated Qt windows -->"
-            print "  <application class=\"python3\">"
-            print "    <focus>yes</focus>"
-            print "    <raise>yes</raise>"
-            print "  </application>"
-            done = 1
-        }
-        { print }
-    ' "${ob_rc}" > "${ob_tmp}"
-    install -o "${QUADRF_USER}" -g "${GROUP}" -m 644 "${ob_tmp}" "${ob_rc}"
-    rm -f "${ob_tmp}"
-fi
 
 /usr/lib/quadrf/sync-desktop-apps
 

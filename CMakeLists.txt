@@ -165,6 +165,7 @@ install(PROGRAMS sources/desktop/kasm-xstartup.sh DESTINATION ${datadir}/desktop
 install(PROGRAMS sources/desktop/kasm-wrangle.sh DESTINATION ${libdir} RENAME kasm-wrangle)
 install(FILES sources/kasmvnc/kasmvnc_defaults.yaml DESTINATION ${datadir}/desktop RENAME kasmvnc.yaml)
 install(PROGRAMS sources/desktop/openbox-autostart DESTINATION ${datadir}/desktop/config/openbox RENAME autostart)
+install(FILES sources/desktop/openbox-rc.xml DESTINATION ${datadir}/desktop/config/openbox RENAME rc.xml)
 install(FILES sources/desktop/tint2rc DESTINATION ${datadir}/desktop/config/tint2)
 install(FILES sources/desktop/pcmanfm-LXDE.conf DESTINATION ${datadir}/desktop/config/pcmanfm/LXDE RENAME pcmanfm.conf)
 install(FILES sources/desktop/libfm.conf DESTINATION ${datadir}/desktop/config/libfm)
