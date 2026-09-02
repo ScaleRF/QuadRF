@@ -1,3 +1,14 @@
+quadrf (1.0.19) trixie; urgency=medium
+
+  * build: Support on-target make rebuilds, app registration CLI, and overhaul docs
+  * ups: Ensure i2c-dev module load and order systemd service
+  * gui: Render System Terminal init line with a real newline
+  * desktop: Remove wallpaper
+  * Update pcmanfm-LXDE.conf
+  * Fixed new race condition in fpga-csi
+
+ -- QuadRF Engineering <contact@ScaleRF.com>  Wed, 02 Sep 2026 14:30:03 -0700
+
 quadrf (1.0.18) trixie; urgency=medium
 
   * network: Defer hotspot start and default Wi-Fi mode to sta
