@@ -603,7 +603,9 @@ static void csi_start_channel(struct fpga_csi_dev *cd, u32 ch)
         writel(len16,    base + CH_LENGTH);
     }
 
-    writel(ctrl | CH_CTRL_DMA_EN, base + CH_CTRL);
+    /* Configure the channel while keeping DMA stopped.  Probe programs a
+     * valid initial address before enabling DMA. */
+    writel(ctrl, base + CH_CTRL);
 }
 
 /*
@@ -612,7 +614,7 @@ static void csi_start_channel(struct fpga_csi_dev *cd, u32 ch)
  * The HW requires CH_ADDR1 (upper bits) to be written before CH_ADDR0,
  * and CH_ADDR0 write latches & arms the channel.
  */
-static void csi_dma_arm(struct fpga_csi_dev *cd, u32 ch, u32 buf_idx)
+static void csi_dma_program_addr(struct fpga_csi_dev *cd, u32 ch, u32 buf_idx)
 {
     void __iomem *base = ch_base(cd->regs.csi2, ch);
     u64 addr = cd->dbuf[buf_idx].dma;
@@ -622,6 +624,13 @@ static void csi_dma_arm(struct fpga_csi_dev *cd, u32 ch, u32 buf_idx)
     wmb();
     writel((u32)((addr >> 4) & 0xffffffffu), base + CH_ADDR0);
     wmb();
+}
+
+static void csi_dma_arm(struct fpga_csi_dev *cd, u32 ch, u32 buf_idx)
+{
+    void __iomem *base = ch_base(cd->regs.csi2, ch);
+
+    csi_dma_program_addr(cd, ch, buf_idx);
 
     /* Make sure DMA_EN stays asserted */
     {
@@ -630,6 +639,60 @@ static void csi_dma_arm(struct fpga_csi_dev *cd, u32 ch, u32 buf_idx)
         if (!(ctrl & CH_CTRL_DMA_EN))
             writel(ctrl | CH_CTRL_DMA_EN, base + CH_CTRL);
     }
+}
+
+static void csi_clear_pending_irqs(struct fpga_csi_dev *cd)
+{
+    u32 ints = rd_mipic(cd, MIPIC_INTR);
+    u32 status = rd(cd, CSI2_STATUS);
+
+    /* Both clear registers are W1C. */
+    if (ints)
+        wr_mipic(cd, MIPIC_INTS, ints);
+    if (status)
+        wr(cd, CSI2_STATUS, status);
+    wmb();
+}
+
+static void csi_hw_quiesce(struct fpga_csi_dev *cd)
+{
+    void __iomem *ch = ch_base(cd->regs.csi2, CSI_DMA_CHANNEL);
+
+    /* Stop delivery first, then stop the producer. */
+    wr(cd, CSI2_IRQ_MASK, 0xffffffff);
+    wr_mipic(cd, MIPIC_INTE,
+             rd_mipic(cd, MIPIC_INTE) & ~MIPIC_INT_CSI_DMA);
+
+    /* RP1 requires an ADDR0 write to latch CH_CTRL.  FORCE permits stopping
+     * mid-frame; the second zero write is required by the reference driver. */
+    writel(CH_CTRL_FORCE, ch + CH_CTRL);
+    writel(0, ch + CH_ADDR0);
+    writel(0, ch + CH_ADDR0);
+    wmb();
+
+    csi_clear_pending_irqs(cd);
+}
+
+static void csi_enable_streaming(struct fpga_csi_dev *cd)
+{
+    void __iomem *ch = ch_base(cd->regs.csi2, CSI_DMA_CHANNEL);
+    u32 ctrl;
+
+    /* Begin from a clean status state.  All DMA buffers are valid now. */
+    csi_clear_pending_irqs(cd);
+    wr(cd, CSI2_IRQ_MASK, 0x00000000);
+
+    /* CH_CTRL changes latch on CH_ADDR0.  Set DMA_EN, then latch it together
+     * with the first valid buffer and queue the second buffer. */
+    ctrl = readl(ch + CH_CTRL);
+    writel(ctrl | CH_CTRL_DMA_EN, ch + CH_CTRL);
+    csi_dma_program_addr(cd, CSI_DMA_CHANNEL, 0);
+    csi_dma_program_addr(cd, CSI_DMA_CHANNEL, 1);
+
+    /* Enable delivery to Linux last; any pending event is now safe. */
+    wr_mipic(cd, MIPIC_INTE,
+             rd_mipic(cd, MIPIC_INTE) | MIPIC_INT_CSI_DMA);
+    wmb();
 }
 
 /* Push current DMA span to userspace ring */
@@ -672,6 +735,9 @@ static void csi_channel_recover(struct fpga_csi_dev *cd, u32 ch)
 {
     void __iomem *base = ch_base(cd->regs.csi2, ch);
     u32 ctrl = readl(base + CH_CTRL);
+
+    if (atomic_read(&cd->stopping))
+        return;
 
     /*
      * Nudge HW to realign to an FE boundary and ensure DMA stays on.
@@ -716,6 +782,13 @@ static irqreturn_t fpga_csi_irq_thread(int irq, void *data)
 
     /* Clear summary first (W1C) */
     wr_mipic(cd, MIPIC_INTS, ints);
+
+    if (atomic_read(&cd->stopping)) {
+        status = rd(cd, CSI2_STATUS);
+        if (status)
+            wr(cd, CSI2_STATUS, status);
+        return IRQ_HANDLED;
+    }
 
     /* If no CSI-DMA summary, still try to recover on HOST events */
     if (!(ints & MIPIC_INT_CSI_DMA)) {
@@ -769,6 +842,9 @@ static irqreturn_t fpga_csi_irq_thread(int irq, void *data)
 
             push_dma_to_ring(cd, idx, n);
             cd->stats.dma_bytes += n;
+
+            if (atomic_read(&cd->stopping))
+                return IRQ_HANDLED;
 
             /* Advance the tracker to the currently active buffer */
             cd->cur_idx = (idx + 1) % DMA_BUF_COUNT;
@@ -928,9 +1004,6 @@ static int alloc_dma_buffers(struct fpga_csi_dev *cd, size_t span)
         memset(cd->dbuf[i].cpu, 0, alloc_sz);
     }
 
-    /* Unmask all CSI2 IRQs for this block (0 = unmask on this HW) */
-    wr(cd, CSI2_IRQ_MASK, 0x00000000);
-
     dev_info(cd->dev, "DMA buffers allocated: %d x %zu (span=%zu)",
              DMA_BUF_COUNT, alloc_sz, span);
     return 0;
@@ -954,26 +1027,12 @@ static void free_dma_buffers(struct fpga_csi_dev *cd)
 
 static void csi_stop(struct fpga_csi_dev *cd)
 {
-    void __iomem *ch;
-
     atomic_set(&cd->stopping, 1);
 
     if (!cd->regs.csi2)
         return;
 
-    ch = ch_base(cd->regs.csi2, CSI_DMA_CHANNEL);
-
-    /* Mask CSI2 IRQs and disable MIPIC CSI-DMA summary interrupt. */
-    wr(cd, CSI2_IRQ_MASK, 0xffffffff);
-    wr_mipic(cd, MIPIC_INTE, rd_mipic(cd, MIPIC_INTE) & ~MIPIC_INT_CSI_DMA);
-
-    /* Best-effort DMA channel shutdown. */
-    if (ch) {
-        u32 ctrl = readl(ch + CH_CTRL);
-        if (ctrl & CH_CTRL_DMA_EN)
-            writel(ctrl & ~CH_CTRL_DMA_EN, ch + CH_CTRL);
-    }
-    wmb();
+    csi_hw_quiesce(cd);
 
     /* Unblock any IRQ thread waiting on space or userspace reader */
     wake_up_all(&cd->ring.wq_space);
@@ -1357,9 +1416,9 @@ static int jtag_reg_read(struct fpga_csi_dev *cd, u8 addr, u16 *out_val)
  * Apply a geometry:
  *  - Validates bytes_per_line.
  *  - Disallows live geometry *changes* once DMA buffers exist.
- *  - Routes MIPIC to CSI and enables CSI-DMA summary IRQ.
+ *  - Routes MIPIC to CSI while keeping interrupt delivery disabled.
  *  - Initializes the D-PHY (if present).
- *  - Allocates DMA buffers (first time) and starts the channel.
+ *  - Allocates DMA buffers (first time) and configures the channel stopped.
  *
  * Today this is called once at probe using DT-derived defaults; the
  * CSI_IOC_SET_GEOMETRY ioctl is intentionally a no-op for ABI stability.
@@ -1398,9 +1457,9 @@ static int csi_apply_geometry(struct fpga_csi_dev *cd,
         return -EBUSY;
     }
 
-    /* Route MIPI-CFG to CSI and enable CSI-DMA summary interrupt */
+    /* Route MIPI-CFG to CSI.  IRQ delivery remains disabled until the
+     * handler is registered and every buffer is valid. */
     wr_mipic(cd, MIPIC_CFG,  MIPIC_CFG_SEL_CSI);
-    wr_mipic(cd, MIPIC_INTE, MIPIC_INT_CSI_DMA);
 
     /* Init the D-PHY (no STOPSTATE gating). Log failures but do not abort
      * for the optional D-PHY window (e.g. FPGA-driven CSI).
@@ -1421,10 +1480,7 @@ static int csi_apply_geometry(struct fpga_csi_dev *cd,
 
         cd->cur_idx = 0;
         csi_start_channel(cd, CSI_DMA_CHANNEL);
-        
-        /* Arm Active and Shadow buffers */
-        csi_dma_arm(cd, CSI_DMA_CHANNEL, 0); 
-        csi_dma_arm(cd, CSI_DMA_CHANNEL, 1);
+
     } else {
         /* Same geometry as before: just refresh span in case lines changed from 0 */
         cd->geom     = geom;
@@ -1982,6 +2038,34 @@ static int fpga_csi_probe(struct platform_device *pdev)
     pm_runtime_enable(&pdev->dev);
     pm_runtime_get_sync(&pdev->dev);
 
+    /*
+     * Auto-apply the overlay/driver default geometry at probe time.
+     * First stop and acknowledge any state retained from an earlier module
+     * instance.  Geometry setup allocates every DMA buffer and configures the
+     * channel, but deliberately leaves DMA and IRQ delivery off.
+     */
+    csi_hw_quiesce(cd);
+    ret = csi_apply_geometry(cd, &cd->geom);
+    if (ret && ret != -EBUSY) {
+        dev_err(&pdev->dev,
+                "failed to apply default geometry (bytes_per_line=%u, lines=%u): %d\n",
+                cd->geom.bytes_per_line, cd->geom.lines, ret);
+        goto err_dma;
+    }
+
+    /* request_threaded_irq() may invoke the handler immediately.  At this
+     * point the ring, all DMA buffers, and all handler-visible state are valid. */
+    ret = devm_request_threaded_irq(&pdev->dev, cd->irq,
+                                    fpga_csi_irq_top,
+                                    fpga_csi_irq_thread,
+                                    IRQF_ONESHOT, DRV_NAME, cd);
+    if (ret) {
+        dev_err(&pdev->dev, "irq request failed: %d", ret);
+        goto err_dma;
+    }
+
+    csi_enable_streaming(cd);
+
     cd->miscdev.minor = MISC_DYNAMIC_MINOR;
     cd->miscdev.name  = DEV_NAME;
     cd->miscdev.fops  = &csi_fops;
@@ -1990,29 +2074,7 @@ static int fpga_csi_probe(struct platform_device *pdev)
     ret = misc_register(&cd->miscdev);
     if (ret) {
         dev_err(&pdev->dev, "misc register failed: %d", ret);
-        goto err_misc;
-    }
-
-    ret = devm_request_threaded_irq(&pdev->dev, cd->irq,
-                                    fpga_csi_irq_top,
-                                    fpga_csi_irq_thread,
-                                    IRQF_ONESHOT, DRV_NAME, cd);
-    if (ret) {
-        dev_err(&pdev->dev, "irq request failed: %d", ret);
         goto err_irq;
-    }
-
-    /*
-     * Auto-apply the overlay/driver default geometry at probe time.
-     * This allocates DMA buffers, initializes the D-PHY, and starts
-     * the CSI2 DMA channel using cd->geom as set above.
-     */
-    ret = csi_apply_geometry(cd, &cd->geom);
-    if (ret && ret != -EBUSY) {
-        dev_err(&pdev->dev,
-                "failed to apply default geometry (bytes_per_line=%u, lines=%u): %d\n",
-                cd->geom.bytes_per_line, cd->geom.lines, ret);
-        goto err_geom;
     }
 
     platform_set_drvdata(pdev, cd);
@@ -2022,12 +2084,13 @@ static int fpga_csi_probe(struct platform_device *pdev)
              cd->geom.bytes_per_line, cd->geom.lines, cd->dma_span);
     return 0;
 
-err_geom:
+err_irq:
     csi_stop(cd);
     devm_free_irq(&pdev->dev, cd->irq, cd);
-err_irq:
-    misc_deregister(&cd->miscdev);
-err_misc:
+    /* An in-flight thread may have re-armed DMA before observing stopping. */
+    csi_hw_quiesce(cd);
+err_dma:
+    free_dma_buffers(cd);
     vfree(cd->ring.data);
     pm_runtime_put_sync(&pdev->dev);
     pm_runtime_disable(&pdev->dev);
@@ -2044,9 +2107,12 @@ static void fpga_csi_remove(struct platform_device *pdev)
     /* Explicitly synchronize and release the IRQ before freeing DMA/ring memory. */
     devm_free_irq(&pdev->dev, cd->irq, cd);
 
+    /* Ensure an IRQ thread that was already running did not re-arm DMA. */
+    csi_hw_quiesce(cd);
+
     misc_deregister(&cd->miscdev);
-    vfree(cd->ring.data);
     free_dma_buffers(cd);
+    vfree(cd->ring.data);
     pm_runtime_put_sync(&pdev->dev);
     pm_runtime_disable(&pdev->dev);
 }
