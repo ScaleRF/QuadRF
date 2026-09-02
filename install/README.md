@@ -121,7 +121,7 @@ Install the locally generated certificate, then use:
 https://quadrf.local/
 ```
 
-To put the QuadRF back into **AP Mode** so you can connect with your phone, open the control GUI and set the Wi-Fi SSID to `none`.
+To put the QuadRF into **AP Mode** so you can connect with your phone, open the control GUI and enable the Hotspot toggle.
 
 ## Packages
 

@@ -36,4 +36,5 @@ tests/
 # keys and certs
 .config/gptme/env
 *.pem
+obj-*/
 obj-x86_64-linux-gnu/
