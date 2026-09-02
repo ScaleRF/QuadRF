@@ -62,6 +62,8 @@ border_color_pressed = #000000 100
 
 #-------------------------------------
 # Panel
+# L launcher T taskbar S systray C clock E UPS executor.
+# Stock battery (B) is omitted; capacity is the UPS HAT via /tmp/ups_status.
 panel_items = LTSC E
 panel_size = 100% 30
 panel_margin = 0 0
@@ -170,26 +172,6 @@ clock_rclick_command = orage
 clock_mclick_command = 
 clock_uwheel_command = 
 clock_dwheel_command = 
-
-#-------------------------------------
-# Battery
-battery_tooltip = 1
-battery_low_status = 10
-battery_low_cmd = xmessage 'tint2: Battery low!'
-battery_full_cmd = 
-battery_font_color = #ffffff 100
-bat1_format = 
-bat2_format = 
-battery_padding = 1 0
-battery_background_id = 0
-battery_hide = 101
-battery_lclick_command = 
-battery_rclick_command = 
-battery_mclick_command = 
-battery_uwheel_command = 
-battery_dwheel_command = 
-ac_connected_cmd = 
-ac_disconnected_cmd = 
 
 #-------------------------------------
 # Tooltip

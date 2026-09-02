@@ -1,6 +1,6 @@
 [Unit]
 Description=QuadRF UPS HAT monitor
-After=network.target
+After=network.target systemd-modules-load.service
 ConditionPathExists=/dev/i2c-1
 
 [Service]

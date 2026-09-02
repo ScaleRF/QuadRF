@@ -1,5 +1,6 @@
 #!/bin/sh
 # Run the UPS monitor as the operator account and give it I2C access.
+# dtparam=i2c_arm=on (10-boot) creates the adapter; i2c-dev is the /dev node.
 set -eu
 
 . /usr/share/quadrf/functions.sh
@@ -8,4 +9,11 @@ quadrf_user_dropin quadrf-ups.service
 
 if getent group i2c >/dev/null && getent passwd "${QUADRF_USER}" >/dev/null; then
     adduser --quiet "${QUADRF_USER}" i2c || true
+fi
+
+printf 'i2c-dev\n' > /etc/modules-load.d/quadrf-i2c.conf
+modprobe i2c-dev 2>/dev/null || true
+
+if [ -e /dev/i2c-1 ]; then
+    systemctl restart quadrf-ups.service 2>/dev/null || true
 fi
