@@ -62,7 +62,7 @@ The first boot takes longer than a normal boot because DietPi expands the filesy
 From Linux, macOS, or a current Windows terminal, connect with:
 
 ```bash
-ssh root@dietpi.local
+ssh dietpi@dietpi.local
 ```
 
 For Windows, you may alternatively use [PuTTY](https://www.chiark.greenend.org.uk/~sgtatham/putty/latest.html) and enter `dietpi.local` in the **Host Name** field.
@@ -70,7 +70,7 @@ For Windows, you may alternatively use [PuTTY](https://www.chiark.greenend.org.u
 Use the following credentials:
 
 ```text
-Username: root
+Username: dietpi
 Password: the value you set in AUTO_SETUP_GLOBAL_PASSWORD
 ```
 
@@ -79,14 +79,14 @@ Hostnames are not case-sensitive, but lowercase `dietpi.local` is conventional.
 If `dietpi.local` does not resolve after the first-run setup has finished, find the Pi's IP address in your router's connected-device or DHCP list and connect directly:
 
 ```bash
-ssh root@192.168.x.x
+ssh dietpi@192.168.x.x
 ```
 
 Some guest, enterprise, and client-isolated Wi-Fi networks block the multicast traffic used by `.local` discovery. An incorrect Wi-Fi name or password will also prevent remote access; in that recovery case, correct the files on a freshly written card or connect a Micro-HDMI display and USB keyboard.
 
 ## Install the QuadRF software
 
-Once you are logged into the QuadRF Pi 5, run the following commands as root:
+Once you are logged into the QuadRF Pi 5, run the following commands:
 
 ```bash
 # Trust the repository key and add the QuadRF repository
