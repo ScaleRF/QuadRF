@@ -4,8 +4,11 @@
 CSI/DSI are single-client. Starting one app stops the others in the catalog
 before the new unit is brought up. Invoked by the web GUI through sudoers.
 """
+import argparse
+import grp
 import json
 import os
+import pwd
 import re
 import socket
 import subprocess
@@ -236,8 +239,212 @@ def cmd_stop(catalog, app_id):
     return 0
 
 
+def get_quadrf_user():
+    user = "dietpi"
+    conf_path = os.environ.get("QUADRF_CONF", "/etc/quadrf/quadrf.conf")
+    if os.path.isfile(conf_path):
+        try:
+            with open(conf_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line.startswith("QUADRF_USER="):
+                        val = line.split("=", 1)[1].strip(' "\'')
+                        if val:
+                            user = val
+        except OSError:
+            pass
+    return user
+
+
+def cmd_register(argv):
+    if os.geteuid() != 0:
+        die("quadrf-app register needs root (run with sudo)")
+
+    parser = argparse.ArgumentParser(
+        prog="quadrf-app register",
+        description="Register a custom application on the desktop and web control panel",
+    )
+    parser.add_argument("--id", required=True, help="Unique application identifier (e.g. my-psd)")
+    parser.add_argument("--name", required=True, help="Display name (e.g. 'My PSD')")
+    parser.add_argument("--exec", required=True, dest="exec_path", help="Full path to executable (e.g. /usr/local/bin/my-psd)")
+    parser.add_argument("--icon", default="quadrf-psd", help="Icon name (default: quadrf-psd)")
+    parser.add_argument("--comment", default=None, help="Application description / tooltip")
+    parser.add_argument("--exclusive", action="store_true", default=True, help="Stop other radio apps when starting (default: true)")
+    parser.add_argument("--no-exclusive", action="store_false", dest="exclusive", help="Allow running concurrently with other radio apps")
+    parser.add_argument("--open", default="desktop", choices=["desktop", "browser"], help="Where app opens: desktop or browser (default: desktop)")
+    parser.add_argument("--desktop-entry", default=None, help="Desktop entry filename (default: <id>.desktop)")
+    parser.add_argument("--service", default=None, help="Systemd unit name (default: <id>.service)")
+
+    args = parser.parse_args(argv)
+
+    if not APP_ID_RE.fullmatch(args.id):
+        die(f"invalid app id: {args.id} (must match {APP_ID_RE.pattern})")
+
+    exec_path = os.path.abspath(args.exec_path)
+    if not os.path.isfile(exec_path):
+        warn(f"executable does not exist yet: {exec_path}")
+
+    binary_name = os.path.basename(exec_path)
+    desktop_entry = args.desktop_entry or f"{args.id}.desktop"
+    if not desktop_entry.endswith(".desktop"):
+        desktop_entry += ".desktop"
+    service_name = args.service or f"{args.id}.service"
+    if not service_name.endswith(".service"):
+        service_name += ".service"
+    comment = args.comment or args.name
+
+    user = get_quadrf_user()
+    try:
+        pw = pwd.getpwnam(user)
+        home = pw.pw_dir
+        group = grp.getgrgid(pw.pw_gid).gr_name
+    except KeyError:
+        home = f"/home/{user}"
+        group = user
+
+    # 1. Desktop Entry
+    desktop_dir = "/usr/share/applications"
+    os.makedirs(desktop_dir, exist_ok=True)
+    desktop_file = os.path.join(desktop_dir, desktop_entry)
+    with open(desktop_file, "w", encoding="utf-8") as f:
+        f.write(
+            f"[Desktop Entry]\n"
+            f"Type=Application\n"
+            f"Version=1.0\n"
+            f"Name={args.name}\n"
+            f"Comment={comment}\n"
+            f"Exec={exec_path}\n"
+            f"TryExec={exec_path}\n"
+            f"Icon={args.icon}\n"
+            f"Terminal=false\n"
+            f"Categories=HamRadio;Science;\n"
+            f"X-QuadRF-Desktop=true\n"
+        )
+    os.chmod(desktop_file, 0o644)
+
+    # 2. Systemd Service
+    systemd_dir = "/etc/systemd/system"
+    os.makedirs(systemd_dir, exist_ok=True)
+    service_file = os.path.join(systemd_dir, service_name)
+    with open(service_file, "w", encoding="utf-8") as f:
+        f.write(
+            f"[Unit]\n"
+            f"Description={args.name}\n"
+            f"Wants=load-quadrf.service quadrf-desktop.service\n"
+            f"After=load-quadrf.service quadrf-desktop.service\n\n"
+            f"[Service]\n"
+            f"Type=simple\n"
+            f"User={user}\n"
+            f"Group={group}\n"
+            f"Environment=HOME={home}\n"
+            f"Environment=DISPLAY=:1\n"
+            f"Environment=XAUTHORITY={home}/.Xauthority\n"
+            f"Environment=SDL_VIDEODRIVER=x11\n"
+            f"ExecStart={exec_path}\n"
+            f"TimeoutStopSec=8\n"
+            f"Restart=no\n"
+        )
+    os.chmod(service_file, 0o644)
+
+    # 3. Catalog JSON Descriptor
+    os.makedirs(CATALOG_DIR, exist_ok=True)
+    catalog_file = os.path.join(CATALOG_DIR, f"{args.id}.json")
+    catalog_data = {
+        "apps": [
+            {
+                "id": args.id,
+                "desktop_entry": desktop_entry,
+                "service": service_name,
+                "binaries": [binary_name],
+                "exclusive": bool(args.exclusive),
+                "open": args.open,
+            }
+        ]
+    }
+    with open(catalog_file, "w", encoding="utf-8") as f:
+        json.dump(catalog_data, f, indent=2)
+        f.write("\n")
+    os.chmod(catalog_file, 0o644)
+
+    # 4. Reload systemd and sync desktop entries
+    run(["systemctl", "daemon-reload"])
+    sync_script = "/usr/lib/quadrf/sync-desktop-apps"
+    if os.path.isfile(sync_script) and os.access(sync_script, os.X_OK):
+        run([sync_script])
+
+    print(f"Registered application '{args.id}' successfully.")
+    print(f"  Desktop entry: {desktop_file}")
+    print(f"  Service unit:  {service_file}")
+    print(f"  Descriptor:    {catalog_file}")
+    return 0
+
+
+def cmd_unregister(argv):
+    if os.geteuid() != 0:
+        die("quadrf-app unregister needs root (run with sudo)")
+
+    parser = argparse.ArgumentParser(
+        prog="quadrf-app unregister",
+        description="Unregister a custom application from the desktop and web control panel",
+    )
+    parser.add_argument("id", help="Application identifier to remove")
+    args = parser.parse_args(argv)
+
+    catalog = load_catalog()
+    app = catalog.get(args.id)
+    if app:
+        stop_app(app)
+        desktop_entry = app.get("desktop_entry")
+        service_name = app.get("service")
+    else:
+        desktop_entry = None
+        service_name = None
+
+    # Remove catalog descriptor
+    catalog_file = os.path.join(CATALOG_DIR, f"{args.id}.json")
+    if os.path.isfile(catalog_file):
+        try:
+            os.remove(catalog_file)
+        except OSError as e:
+            warn(f"could not remove {catalog_file}: {e}")
+
+    # Remove systemd service
+    for svc in filter(None, [service_name, f"{args.id}.service"]):
+        service_file = os.path.join("/etc/systemd/system", svc)
+        if os.path.isfile(service_file):
+            try:
+                os.remove(service_file)
+            except OSError as e:
+                warn(f"could not remove {service_file}: {e}")
+
+    # Remove desktop entry
+    for de in filter(None, [desktop_entry, f"{args.id}.desktop", f"com.example.{args.id}.desktop"]):
+        desktop_file = os.path.join("/usr/share/applications", de)
+        if os.path.isfile(desktop_file):
+            try:
+                os.remove(desktop_file)
+            except OSError as e:
+                warn(f"could not remove {desktop_file}: {e}")
+
+    # Reload systemd and sync desktop entries
+    run(["systemctl", "daemon-reload"])
+    sync_script = "/usr/lib/quadrf/sync-desktop-apps"
+    if os.path.isfile(sync_script) and os.access(sync_script, os.X_OK):
+        run([sync_script])
+
+    print(f"Unregistered application '{args.id}'.")
+    return 0
+
+
 def usage():
-    print("usage: quadrf-app status | start <app> | stop <app>", file=sys.stderr)
+    print(
+        "usage: quadrf-app status\n"
+        "       quadrf-app start <app>\n"
+        "       quadrf-app stop <app>\n"
+        "       quadrf-app register --id <id> --name <name> --exec <path> [options]\n"
+        "       quadrf-app unregister <id>",
+        file=sys.stderr,
+    )
     return 2
 
 
@@ -245,17 +452,22 @@ def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
     if not argv or argv[0] in ("-h", "--help"):
         return usage()
-    catalog = load_catalog()
     cmd = argv[0]
     if cmd in ("status", "list"):
+        catalog = load_catalog()
         return cmd_status(catalog)
     if cmd in ("start", "stop"):
         if len(argv) < 2:
             return usage()
+        catalog = load_catalog()
         app_id = argv[1]
         if cmd == "start":
             return cmd_start(catalog, app_id)
         return cmd_stop(catalog, app_id)
+    if cmd == "register":
+        return cmd_register(argv[1:])
+    if cmd == "unregister":
+        return cmd_unregister(argv[1:])
     return usage()
 
 

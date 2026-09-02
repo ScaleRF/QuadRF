@@ -125,7 +125,7 @@ To put the QuadRF into **AP Mode** so you can connect with your phone, open the 
 
 ## Packages
 
-Install the `quadrf` or `quadrf-headless` metapackage, or select individual components. See [docs/install.md](../docs/install.md#packages).
+Install the `quadrf` or `quadrf-headless` metapackage, or select individual components. See [docs/overview.md](../docs/overview.md#2-package-architecture).
 
 | Package | Contents |
 | --- | --- |
@@ -135,7 +135,7 @@ Install the `quadrf` or `quadrf-headless` metapackage, or select individual comp
 | `quadrf-boot` | Device-tree overlays and firmware configuration |
 | `quadrf-fpga` | Bitstream, `quadrf-jtag`, and `load-quadrf.service` |
 | `quadrf-fpga-dkms` | CSI and DSI kernel drivers built by DKMS |
-| `quadrf-soapy` | `mipi` and `quadrf` SoapySDR modules and the SoapyRemote service |
+| `quadrf-soapy` | `mipi` SoapySDR module and the SoapyRemote service |
 | `quadrf-gui` | Flask control panel on port 8080 |
 | `quadrf-network` | nginx, dnsmasq, mDNS, access point support, and OpenSSH/SFTP |
 | `quadrf-dev` | C++ headers and `find_package(QuadRF)` support for building against the installed SoapySDR modules |
@@ -157,7 +157,7 @@ SoapySDR, GNU Radio, gr-osmosdr, nginx, dnsmasq, hostapd, mpv, and other depende
 | Document | Contents |
 | --- | --- |
 | [docs/overview.md](../docs/overview.md) | Overview |
-| [docs/install.md](../docs/install.md) | Install, configure, upgrade, and remove |
+| [docs/troubleshooting.md](../docs/troubleshooting.md) | Diagnostic matrix, service logs, and recovery procedures |
 | [docs/applications.md](../docs/applications.md) | Desktop icons, control pages, and packaging an application |
 | [docs/develop.md](../docs/develop.md) | Compile custom applications and rebuild drivers on the board |
 | [docs/tls.md](../docs/tls.md) | HTTPS setup |

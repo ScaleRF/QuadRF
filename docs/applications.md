@@ -1,124 +1,118 @@
 # Applications
 
-If a `.deb` installed on the QuadRF includes a desktop entry and control-page descriptor, an icon appears on the remote desktop and a launcher appears on the Applications list at
-[https://quadrf.local/](https://quadrf.local/). QuadRF picks them up on `apt install` and drops them on `apt remove`. To register the same files by hand without packaging, see [Developing](develop.md#3-create-an-app-with-desktop-and-web-ui-launchers).
+Applications on the QuadRF integrate with two user surfaces: the operator remote desktop (`:1`) and the web control panel at `https://quadrf.local/`.
 
-| File in the `.deb` | Function |
-|--------------------|----------|
-| A `.desktop` file with `X-QuadRF-Desktop=true`, plus an icon | Remote desktop |
-| `/usr/share/quadrf/apps.d/*.json` and a systemd unit | Control page |
+Applications packaged as Debian packages (`.deb`) register automatically upon installation:
 
-## Included applications
+| Target Surface | Required File in Package | Purpose |
+| --- | --- | --- |
+| **Remote Desktop** | `/usr/share/applications/*.desktop`<br>`/usr/share/icons/hicolor/...` | Desktop launcher with `X-QuadRF-Desktop=true` and application icon. |
+| **Web Control Panel** | `/lib/systemd/system/*.service`<br>`/usr/share/quadrf/apps.d/*.json` | Systemd unit for execution lifecycle and catalog JSON descriptor. |
 
-These come with the complete `quadrf` package.
+To test and register custom binaries directly on the board without creating a Debian package, see [Developing on the QuadRF](develop.md#2-registering-apps-on-the-desktop-and-web-ui).
 
-| Application | What it does | Opens |
-|-------------|--------------|-------|
-| Spatial RF Vision | Swept-LO phase scatter of the RF scene, 30 fps | Browser AR page at `/AR/` |
-| Camera Decoder | NTSC demodulation of analog FPV video | Remote desktop |
-| PSD Plot | Live FFT spectrum, one or four channels | Remote desktop |
-| Near-Field Phasors | Coherent 4x4 MIMO near-field phasors with TDM TX | Remote desktop |
-| GNU Radio Companion | Flowgraph editor with QuadRF examples | Remote desktop |
-| QRadioLink | Digital-voice and analog transceiver | Remote desktop |
-| Terminal | Shell on the appliance | Remote desktop |
-| File Manager | PCManFM file browser | Remote desktop |
-| Text Editor | Mousepad, for config and source files | Remote desktop |
-| Software Install | DietPi software installer | Remote desktop |
+---
 
-The `quadrf-headless` metapackage omits the remote desktop and every
-application in the table. To drop only the four radio apps from a full
-install:
+## 1. Included Applications
 
-```sh
+The complete `quadrf` package ships with the following built-in applications:
+
+| Application | Description | Surface |
+| --- | --- | --- |
+| **Spatial RF Vision** | Swept-LO phase scatter of the RF scene (30 fps) | Browser AR view at `/AR/` |
+| **Camera Decoder** | Real-time NTSC demodulation of analog FPV video | Remote desktop |
+| **PSD Plot** | Live FFT power spectral density (1 to 4 channels) | Remote desktop |
+| **Near-Field Phasors** | Coherent 4x4 MIMO near-field phasors with TDM TX cycling | Remote desktop |
+| **GNU Radio Companion** | Flowgraph development with QuadRF source/sink blocks | Remote desktop |
+| **QRadioLink** | Multi-mode digital voice and analog transceiver | Remote desktop |
+| **Terminal** | Appliance shell session | Remote desktop |
+| **File Manager** | PCManFM graphical file manager | Remote desktop |
+| **Text Editor** | Mousepad editor | Remote desktop |
+| **Software Install** | DietPi package management interface | Remote desktop |
+
+The `quadrf-headless` package excludes the desktop environment and bundled graphical tools. To remove only the four hardware demonstration programs from a standard install:
+
+```bash
 sudo apt remove quadrf-demos
 ```
 
-## Installing another application
+---
 
-If you have a `.deb` file:
+## 2. Installing Third-Party Applications
 
-```sh
-sudo apt install ./example_1.0_arm64.deb
+Install standalone Debian packages directly using `apt`:
+
+```bash
+sudo apt install ./my-radio-app_1.0.0_arm64.deb
 ```
 
-If there's an APT repository, add it, then:
+For applications hosted in an APT repository:
 
-```sh
+```bash
 sudo apt update
-sudo apt install example
+sudo apt install my-radio-app
 ```
 
-The desktop icon and control-page row appear as soon as the package is
-installed, for whichever of those files the `.deb` included. Removing the
-package removes both:
+Installation places the desktop launcher on `/home/dietpi/Desktop/` and adds the application to the web control panel. Removing the package unregisters both interfaces:
 
-```sh
-sudo apt remove example
+```bash
+sudo apt remove my-radio-app
 ```
 
-A Debian package and its maintainer scripts run as root. Install packages and
-repository signing keys only from publishers you trust.
+Applications can be started or stopped from the web UI drawer, or via terminal with `sudo quadrf-app start <id>` and `sudo quadrf-app stop <id>` (see [Developing on the QuadRF](develop.md#test-and-control-the-application) or `man quadrf-app`).
 
-## Make and share an application
+---
 
-Build a Debian package for the QuadRF (`arm64` if you compiled anything, or
-`all` if the contents are architecture-independent). Put the `.deb` on a
-release page, or publish a signed APT repository so people can update with
-`apt`.
+## 3. Packaging an Application (`.deb`)
 
-### Desktop icon
+To distribute an application, package the binary, desktop entry, systemd unit, and catalog descriptor into a Debian package (`arm64` for compiled binaries, `all` for scripts).
 
-Install the program plus a standard desktop entry and icon:
+> **Tip:** Before authoring package metadata, verify your binary on the board using `sudo quadrf-app register` as described in [Developing on the QuadRF](develop.md#2-registering-apps-on-the-desktop-and-web-ui).
+
+### Package File Layout
 
 ```text
-/usr/bin/example-spectrum
-/usr/share/applications/org.example.ExampleSpectrum.desktop
-/usr/share/icons/hicolor/scalable/apps/org.example.ExampleSpectrum.svg
+/usr/bin/my-app
+/usr/share/applications/com.example.MyApp.desktop
+/usr/share/icons/hicolor/scalable/apps/com.example.MyApp.svg
+/lib/systemd/system/my-app.service
+/usr/share/quadrf/apps.d/my-app.json
+/usr/share/metainfo/com.example.MyApp.metainfo.xml (optional)
 ```
 
-Name the desktop file with a reverse-DNS id based on a domain you control.
-`X-QuadRF-Desktop=true` is the one QuadRF-specific line: it opts the icon onto
-the remote desktop. Use an icon *name*, not a file path.
+---
+
+### Desktop Entry
+
+Desktop files must use reverse-DNS naming. The `X-QuadRF-Desktop=true` flag instructs the desktop session to pin the launcher to `/home/dietpi/Desktop/`:
 
 ```ini
 [Desktop Entry]
 Type=Application
 Version=1.0
-Name=Example Spectrum
-Comment=View the example receiver spectrum
-Exec=example-spectrum
-TryExec=example-spectrum
-Icon=org.example.ExampleSpectrum
+Name=My Radio App
+Comment=Real-time spectrum monitor
+Exec=/usr/bin/my-app
+TryExec=/usr/bin/my-app
+Icon=com.example.MyApp
 Terminal=false
 Categories=HamRadio;Science;
 X-QuadRF-Desktop=true
 ```
 
-`TryExec` hides the icon if the program is missing. Check the file with
-`desktop-file-validate org.example.ExampleSpectrum.desktop`. The entry follows
-the [Desktop Entry Specification](https://specifications.freedesktop.org/desktop-entry/latest-single/);
-named icons follow the
-[Icon Theme Specification](https://specifications.freedesktop.org/icon-theme/latest/).
+- `TryExec`: Hides the icon if the binary is absent or unexecutable.
+- `Icon`: Name of the installed SVG/PNG icon (without file extension or directory path).
+- Validate the entry using: `desktop-file-validate com.example.MyApp.desktop`.
 
-That is enough for a desktop-only application. GNU Radio Companion on QuadRF
-is this kind of app: an icon, no control-page row.
+---
 
-### Control page
+### Systemd Service Unit
 
-To start and stop the app from the browser, the same package also installs a
-systemd unit (not enabled at boot) and a short JSON file:
-
-```text
-/lib/systemd/system/quadrf-example-spectrum.service
-/usr/share/quadrf/apps.d/example-spectrum.json
-```
-
-The unit must run as `dietpi` on display `:1`. QuadRF does not inject that
-for third-party services.
+The systemd service manages execution lifecycle for the web control panel. Because GUI applications run within the KasmVNC session, the unit must target `DISPLAY=:1` under user `dietpi`:
 
 ```ini
 [Unit]
-Description=Example Spectrum
+Description=My Radio App
 Wants=load-quadrf.service quadrf-desktop.service
 After=load-quadrf.service quadrf-desktop.service
 
@@ -130,19 +124,28 @@ Environment=HOME=/home/dietpi
 Environment=DISPLAY=:1
 Environment=XAUTHORITY=/home/dietpi/.Xauthority
 Environment=SDL_VIDEODRIVER=x11
-ExecStart=/usr/bin/example-spectrum
+ExecStart=/usr/bin/my-app
 TimeoutStopSec=8
 Restart=no
+
+[Install]
+# Do not enable at boot; quadrf-app starts the unit on demand.
 ```
+
+---
+
+### Catalog Descriptor (`apps.d/*.json`)
+
+The web UI reads application metadata from JSON files in `/usr/share/quadrf/apps.d/`:
 
 ```json
 {
   "apps": [
     {
-      "id": "org.example.example-spectrum",
-      "desktop_entry": "org.example.ExampleSpectrum.desktop",
-      "service": "quadrf-example-spectrum.service",
-      "binaries": ["example-spectrum"],
+      "id": "my-app",
+      "desktop_entry": "com.example.MyApp.desktop",
+      "service": "my-app.service",
+      "binaries": ["my-app"],
       "exclusive": true,
       "open": "desktop"
     }
@@ -150,50 +153,43 @@ Restart=no
 }
 ```
 
-Keep the visible name, description, and icon in the `.desktop` file. The JSON
-only tells QuadRF which service to start:
+| Field | Required | Description |
+| --- | --- | --- |
+| `id` | Yes | Unique string matching `^[a-z0-9][a-z0-9._-]{0,63}$`. |
+| `desktop_entry` | Recommended | Basename of the `.desktop` file used to extract the display name, comment, and icon. |
+| `service` | Yes | Systemd unit name (`<name>.service`). |
+| `binaries` | Recommended | Array of process names stopped via `pkill` if the user also launched a copy outside systemd. |
+| `exclusive` | No | Set to `true` if the app opens CSI/DSI device nodes. Starting an exclusive app stops other running radio apps. |
+| `open` | No | Destination after launch: `"desktop"` opens the KasmVNC tab; URL paths like `"/AR/"` open web endpoints. |
+| `ready_port` | No | Local TCP port that must accept connections before the application is marked running. |
 
-| Field | Required | Meaning |
-|-------|----------|---------|
-| `id` | Yes | Identifier the control page uses. Letters, digits, dots, underscores, hyphens. |
-| `desktop_entry` | Recommended | Basename of the `.desktop` file (name, comment, and icon). |
-| `service` | Yes | systemd unit to start and stop. |
-| `binaries` | Recommended | Process names to stop if a copy was launched from the desktop instead. |
-| `exclusive` | No | `true` if the app uses the radio, so starting it stops other radio apps. |
-| `open` | No | `desktop` opens the remote desktop; a path such as `/AR/` opens that page. |
-| `ready_port` | No | Local TCP port that must accept connections before launch is reported as ready. |
+---
 
-The control page sends only a registered `id`. It never runs a command line
-from the browser.
+### Package Maintainer Scripts and Triggers
 
-### Software catalog metadata
+- **Desktop sync trigger**: The `quadrf-desktop` package registers a dpkg trigger on `/usr/share/applications`. When a package installs or removes a `.desktop` file with `X-QuadRF-Desktop=true`, desktop icons update automatically.
+- **Service reloading**: Run `systemctl daemon-reload` in `postinst` and `postrm` to register the new service unit with systemd:
 
-AppStream metadata is optional. Include it if you want the app described in
-standard software catalogs:
+```bash
+#!/bin/sh
+set -e
+if [ "$1" = "configure" ]; then
+    systemctl daemon-reload
+fi
+```
+
+---
+
+### Software Catalog Metadata (AppStream)
+
+To publish metadata to software centers, include an AppStream metainfo file:
 
 ```text
-/usr/share/metainfo/org.example.ExampleSpectrum.metainfo.xml
+/usr/share/metainfo/com.example.MyApp.metainfo.xml
 ```
 
-Use the same reverse-DNS id as the desktop file, keep the metainfo in the same
-package as the app, and check it with:
+Validate with:
 
-```sh
-appstreamcli validate org.example.ExampleSpectrum.metainfo.xml
+```bash
+appstreamcli validate com.example.MyApp.metainfo.xml
 ```
-
-See the [AppStream metadata documentation](https://www.freedesktop.org/software/appstream/docs/chap-Metadata.html).
-
-## Command line
-
-The same start/stop path is available over SSH:
-
-```sh
-quadrf-app status
-sudo quadrf-app start psd
-sudo quadrf-app stop psd
-```
-
-The included radio apps use the ids `ar` (Spatial RF Vision), `ntsc` (Camera
-Decoder), `psd` (PSD Plot), and `nearfield` (Near-Field Phasors). See
-`man quadrf-app`.

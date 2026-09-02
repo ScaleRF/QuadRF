@@ -8,7 +8,6 @@ Build-Depends: debhelper-compat (= 13),
                libfftw3-dev,
                libsdl2-dev,
                libsoapysdr-dev,
-               libzmq3-dev,
                pkgconf | pkg-config
 Standards-Version: 4.6.2
 Rules-Requires-Root: no
@@ -109,6 +108,7 @@ Architecture: all
 Depends: dkms,
          linux-headers-rpi-2712 | linux-headers-rpi-v8 | raspberrypi-kernel-headers | linux-headers-arm64,
          ${misc:Depends}
+Suggests: device-tree-compiler
 Description: QuadRF CSI and DSI kernel drivers (DKMS)
  Source for the fpga-csi and fpga-dsi out-of-tree drivers. DKMS rebuilds them
  against each installed kernel, so a kernel upgrade does not need a manual
@@ -122,8 +122,8 @@ Depends: quadrf-common (= ${binary:Version}),
          soapysdr-tools,
          ${misc:Depends},
          ${shlibs:Depends}
-Description: SoapySDR drivers for the QuadRF front-end
- The mipi and quadrf SoapySDR modules, which expose the appliance to
+Description: SoapySDR driver for the QuadRF front-end
+ The mipi SoapySDR module, which exposes the appliance to
  SoapySDRUtil, GNU Radio and any other SoapySDR client, plus a service that
  publishes the radio over SoapyRemote.
 

@@ -1,44 +1,78 @@
 # Developing on the QuadRF
 
-Modify demos, write custom apps, and rebuild modules from source.
+Modify demos, write custom apps, and rebuild the radio stack from source.
 
 ## Prerequisites
 
 The standard `quadrf` install provides the build toolchain and header files:
 
 - **Compiler toolchain**: `build-essential`, `cmake`, `pkg-config`
-- **Development headers**: `quadrf-dev` provides `fpga_csi.h`, `Farrow.hpp`, `NEON.hpp`, and CMake package configuration (`find_package(QuadRF)`)
+- **Development headers**: `quadrf-dev` provides headers (`fpga_csi.h`, `Farrow.hpp`), CMake configuration (`find_package(QuadRF)`), and source trees under `/usr/src/`
+- **Kernel headers and DKMS**: `quadrf-fpga-dkms` and `linux-headers-rpi-2712` (for kernel driver builds)
 - **Example sources**: `quadrf-demos` provides reference sources under `/usr/share/quadrf/examples`
 
-For applications requiring FFTW or SDL2 (such as `quadrf-rf-vision`, `quadrf-psd`, and `quadrf-nearfield`), install the libraries:
+If you are compiling additional demos or rebuilding Soapy drivers, install the required development libraries:
 
 ```bash
-sudo apt install -y libfftw3-dev libsdl2-dev
+sudo apt install -y libfftw3-dev libsdl2-dev libzmq3-dev device-tree-compiler
 ```
 
 ---
 
-## 1. Build and Run from Source
+## 1. Working with Example Demos
 
-To quickly compile and run a single C++ source file using `pkg-config` and `g++`:
+The `quadrf-demos` package provides complete reference applications under `/usr/share/quadrf/examples`. Copy this tree into a working directory to experiment with and modify the code:
 
 ```bash
-mkdir -p ~/my-app && cd ~/my-app
-cp /usr/share/quadrf/examples/hello.cpp ./main.cpp
-g++ -O3 -std=c++17 main.cpp -o my-app $(pkg-config --cflags --libs SoapySDR)
-./my-app
+mkdir -p ~/my-demos
+cp -r /usr/share/quadrf/examples/* ~/my-demos/
+cd ~/my-demos
 ```
 
-For applications reading composite video (such as NTSC demodulation), compile with ARM NEON optimizations and pipe the raw YUYV stream directly into `mpv`:
+### Build with Make
+
+Compile all example binaries directly using the bundled Makefile:
 
 ```bash
-g++ -O3 -march=native -ffast-math -std=c++17 \
-  /usr/share/quadrf/examples/ntsc_demod.cpp -o my-ntsc-demod \
-  $(pkg-config --cflags --libs SoapySDR)
+make -j4
+```
 
+You can also build individual applications using convenience targets:
+
+```bash
+make hello       # Sanity test: verifies CSI header and SoapySDR driver detection
+make psd         # Live spectrum display using FFTW and SDL2
+make rf-vision   # 30 fps swept-LO phase scatter display
+make ntsc-demod  # Low-latency NTSC analog video demodulator
+make nearfield   # 4x4 MIMO near-field phasor display
+```
+
+Install custom-built binaries to `/usr/local/bin`:
+
+```bash
+sudo make install
+```
+
+Clean build artifacts:
+
+```bash
+make clean
+```
+
+### Running Example Applications
+
+Run the sanity check directly:
+
+```bash
+./quadrf-hello
+```
+
+To run video demodulation, tune the front-end with `quadrf-jtag` and pipe raw YUYV frames from `quadrf-ntsc-demod` directly into `mpv`:
+
+```bash
 quadrf-jtag --rx autosteer=1,antennas=15,interleave=0,tone_en=0,bw=12.0,agc=-14.0,freq=5806
 
-./my-ntsc-demod --bypass_iir true --disc atan2 --no_deemph --read_samps 65536 --flush_frames 1 \
+./quadrf-ntsc-demod --bypass_iir true --disc atan2 --no_deemph --read_samps 65536 --flush_frames 1 \
   --args "numBuffers=2,bufferLength=65536" \
   --diag_hz 2 --hsync_min 25 --hsync_max 160 --sat 3.0 --hue -3.0 \
 | mpv --profile=low-latency --no-cache \
@@ -49,174 +83,208 @@ quadrf-jtag --rx autosteer=1,antennas=15,interleave=0,tone_en=0,bw=12.0,agc=-14.
   --vo=x11 -
 ```
 
----
+### Alternative: Building with CMake
 
-## 2. Modify Demos
-
-The `quadrf-demos` package installs example sources and a CMake project under
-`/usr/share/quadrf/examples`. Copy that tree into a workspace you can edit:
-
-```bash
-mkdir -p ~/my-sdr-project
-cp -r /usr/share/quadrf/examples/* ~/my-sdr-project/
-cd ~/my-sdr-project
-```
-
-The copy includes a `CMakeLists.txt` that builds each example
-(`quadrf-hello`, `quadrf-ntsc-demod`, `quadrf-rf-vision`, `quadrf-psd`,
-`quadrf-nearfield`) against the installed `quadrf-dev` package. Edit the
-`.c` / `.cpp` files, then build:
+A `CMakeLists.txt` is also included if you prefer CMake or are integrating into a larger CMake project:
 
 ```bash
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j4
 ```
 
-Binaries land in `build/`. Edit `CMakeLists.txt` if you add a source
-file, or change compiler flags. For a new program:
+To link an external application against QuadRF in CMake:
 
 ```cmake
-add_executable(my-app my_app.cpp)
+find_package(QuadRF REQUIRED)
+add_executable(my-app main.cpp)
 target_link_libraries(my-app PRIVATE QuadRF::quadrf)
 ```
 
 ---
 
-## 3. Create an App with Desktop and Web UI Launchers
+## 2. Registering Apps on the Desktop and Web UI
 
-Four files put a binary on the remote desktop and on the Applications list at
-`https://quadrf.local/`: the binary, a `.desktop` entry, a systemd unit, and a
-JSON descriptor. This example registers a copy of the packaged PSD plot as
-`my-psd`. If you built your own binary in the previous section, copy that
-instead of `/usr/bin/quadrf-psd`.
+QuadRF allows custom applications to appear on both the operator desktop (`:1`) and the web control panel at `https://quadrf.local/`.
 
-### 1. Install the binary
+### Register an Application
+
+Once your binary is installed (e.g. at `/usr/local/bin/my-psd`), register it with `quadrf-app`:
 
 ```bash
-sudo cp /usr/bin/quadrf-psd /usr/local/bin/my-psd
+sudo quadrf-app register \
+  --id my-psd \
+  --name "My PSD" \
+  --exec /usr/local/bin/my-psd \
+  --icon quadrf-psd
 ```
 
-### 2. Desktop entry
+`quadrf-app register` handles the configuration in one step:
+1. Writes `/usr/share/applications/my-psd.desktop` and syncs the launcher icon to `/home/dietpi/Desktop/`.
+2. Creates `/etc/systemd/system/my-psd.service` configured with `DISPLAY=:1`, `User=dietpi`, and X11 authentication.
+3. Adds the application catalog entry in `/usr/share/quadrf/apps.d/my-psd.json`. By default, `--exclusive` is active so starting your app stops conflicting radio tasks.
+4. Reloads systemd and syncs the desktop session.
+
+### Test and Control the Application
+
+Verify that the application is registered and query its status:
 
 ```bash
-sudo tee /usr/share/applications/com.example.MyPsd.desktop > /dev/null << 'EOF'
-[Desktop Entry]
-Type=Application
-Version=1.0
-Name=My PSD
-Comment=Live spectrum from the CSI ring buffer
-Exec=/usr/local/bin/my-psd
-TryExec=/usr/local/bin/my-psd
-Icon=quadrf-psd
-Terminal=false
-Categories=HamRadio;Science;
-X-QuadRF-Desktop=true
-EOF
-
-sudo /usr/lib/quadrf/sync-desktop-apps
-```
-
-`X-QuadRF-Desktop=true` opts the icon onto the operator desktop. `Icon=` is an
-icon *name* (here the packaged PSD icon), not a file path.
-
-### 3. systemd unit
-
-The unit runs as `dietpi` on the remote desktop display. Do not enable it at
-boot; the control page starts and stops it.
-
-```bash
-sudo tee /etc/systemd/system/my-psd.service > /dev/null << 'EOF'
-[Unit]
-Description=My PSD Plot
-Wants=load-quadrf.service quadrf-desktop.service
-After=load-quadrf.service quadrf-desktop.service
-
-[Service]
-Type=simple
-User=dietpi
-Group=dietpi
-Environment=HOME=/home/dietpi
-Environment=DISPLAY=:1
-Environment=XAUTHORITY=/home/dietpi/.Xauthority
-Environment=SDL_VIDEODRIVER=x11
-ExecStart=/usr/local/bin/my-psd
-TimeoutStopSec=8
-Restart=no
-EOF
-
-sudo systemctl daemon-reload
-```
-
-### 4. Control-page descriptor
-
-```bash
-sudo tee /usr/share/quadrf/apps.d/my-psd.json > /dev/null << 'EOF'
-{
-  "apps": [
-    {
-      "id": "my-psd",
-      "desktop_entry": "com.example.MyPsd.desktop",
-      "service": "my-psd.service",
-      "binaries": ["my-psd"],
-      "exclusive": true,
-      "open": "desktop"
-    }
-  ]
-}
-EOF
-
 sudo quadrf-app status
+```
+
+Start and stop the app from the command line:
+
+```bash
 sudo quadrf-app start my-psd
 sudo quadrf-app stop my-psd
 ```
 
-`status` should list `"id": "my-psd"` with the name and icon from the desktop
-entry. Reload `https://quadrf.local/` and My PSD appears in Applications;
-start and stop work from there as well. `exclusive` is `true` for anything
-that uses the radio, so starting this app stops the other radio apps.
+Open `https://quadrf.local/` in your browser. "My PSD" appears in the Applications drawer where you can launch or stop it directly from the web interface.
 
-To package as a `.deb`, and for details, see [Applications](applications.md).
+### Unregister an Application
+
+To remove the desktop icon, systemd service, and web UI entry:
+
+```bash
+sudo quadrf-app unregister my-psd
+```
+
+> **Packaging Note:** To distribute your application as a standalone `.deb` package with post-install triggers, see [Applications](applications.md).
 
 ---
 
-## 4. Rebuilding SoapySDR Modules and Core Tree from Git
+## 3. Rebuilding Components from Source
 
-To modify the Farrow resampler, CSI interface, or SoapySDR modules (`mipi`, `quadrf`), build the repo directly on the quad.
+Every component in the QuadRF stack can be modified and rebuilt directly on the Raspberry Pi using standard `make` workflows.
 
-### Step 1: Clone Repository and Install Build Dependencies
+Source trees and Makefiles are installed on the board under `/usr/src/`:
+
+| Component | Source Path | Target Output | Install Location |
+| --- | --- | --- | --- |
+| **CSI Driver & Overlay** | `/usr/src/quadrf-fpga-<version>/csi/` | `fpga-csi.ko`, `fpga-csi.dtbo` | `/lib/modules/.../updates/dkms/`, `/boot/firmware/overlays/` |
+| **DSI Driver & Overlay** | `/usr/src/quadrf-fpga-<version>/dsi/` | `fpga-dsi.ko`, `fpga-dsi.dtbo` | `/lib/modules/.../updates/dkms/`, `/boot/firmware/overlays/` |
+| **Transceiver Utility** | `/usr/src/quadrf-jtag/` | `quadrf-jtag` | `/usr/bin/quadrf-jtag` |
+| **SoapySDR Module** | `/usr/src/quadrf-soapy/` | `libmipi.so` | `/usr/lib/aarch64-linux-gnu/SoapySDR/modules0.8/` |
+
+If working from a git clone instead of `/usr/src/`, the identical Makefiles are located under `sources/fpga/drivers/csi/`, `sources/fpga/drivers/dsi/`, `sources/fpga/jtag_src/`, and `sources/soapy/`.
+
+---
+
+### Kernel Drivers and Overlays (`fpga-csi`, `fpga-dsi`)
+
+The CSI driver handles DMA image capture from the RP1 MIPI CSI-2 receiver into circular userspace buffers. The DSI driver handles high-speed transmit data over the MIPI DSI interface. Both drivers use device tree overlays (`.dtbo`) to configure RP1 pinmuxing, clocks, and interrupts.
+
+To rebuild and install the driver and overlay:
 
 ```bash
-git clone https://github.com/ScaleRF/QuadRF.git
-cd QuadRF
-sudo apt install -y device-tree-compiler libfftw3-dev libsdl2-dev libsoapysdr-dev libzmq3-dev
+cd /usr/src/quadrf-fpga-*/csi
+sudo make install
+sudo quadrf-load
 ```
 
-### Step 2: Build
+*(For the transmit driver, run the same commands inside `/usr/src/quadrf-fpga-*/dsi`)*.
+
+> **Note:** If you edit the device tree source (`.dts`), reboot the board (`sudo systemctl reboot --force`) so the bootloader applies the new overlay. If only modifying C driver code (`fpga-csi.c`), running `sudo quadrf-load` reloads the module without rebooting.
+
+To revert back to the packaged kernel drivers:
 
 ```bash
-cmake -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j4
+sudo apt install --reinstall -y quadrf-fpga-dkms quadrf-boot
+sudo quadrf-load
 ```
 
-Rebuilt SoapySDR modules are generated at:
-- `build/sources/soapy/libmipi.so`
-- `build/sources/quadrfd/soapy/quadrf.so`
+---
 
-### Step 3: Test Rebuilt Modules
+### Transceiver Control CLI (`quadrf-jtag`)
 
-Copy the rebuilt modules over the installed module directory:
+`quadrf-jtag` controls the MAX2850 (TX) and MAX2851 (RX) front-end transceiver chips via bit-banged JTAG through ioctls on `/dev/csi_stream0`.
+
+To rebuild and install `quadrf-jtag`:
 
 ```bash
-sudo cp build/sources/soapy/libmipi.so /usr/lib/aarch64-linux-gnu/SoapySDR/modules0.8/
-sudo cp build/sources/quadrfd/soapy/quadrf.so /usr/lib/aarch64-linux-gnu/SoapySDR/modules0.8/
+cd /usr/src/quadrf-jtag
+sudo make install
+```
+
+Test the binary:
+
+```bash
+quadrf-jtag --help
+```
+
+To revert back to the packaged binary:
+
+```bash
+sudo apt install --reinstall -y quadrf-fpga
+```
+
+---
+
+### SoapySDR Module (`mipi`)
+
+`libmipi.so` is the primary hardware driver. It reads CSI circular DMA buffers, applies polynomial Farrow sample rate conversion and ARM NEON SIMD packing/unpacking, and interfaces with `quadrf-jtag`.
+
+To rebuild and install the SoapySDR driver:
+
+```bash
+cd /usr/src/quadrf-soapy
+sudo make install
+```
+
+Verify that SoapySDR detects the rebuilt module:
+
+```bash
 SoapySDRUtil --probe="driver=mipi"
 ```
 
-### Revert to Packaged Modules
-
-To revert all modules to the official packaged release:
+To revert back to the packaged SoapySDR module:
 
 ```bash
-sudo apt-get install --reinstall -y quadrf-soapy
-SoapySDRUtil --probe="driver=mipi"
+sudo apt install --reinstall -y quadrf-soapy
+```
+
+---
+
+### Web Control Panel (Flask GUI)
+
+The web interface is written in Python using Flask and Socket.IO. The application source runs directly from `/usr/share/quadrf/gui/`.
+
+To modify the web UI:
+1. Edit files under `/usr/share/quadrf/gui/` (or copy modified files from your git clone).
+2. Restart the GUI systemd service:
+
+```bash
+sudo systemctl restart quadrf-gui
+```
+
+Check service status and logs:
+
+```bash
+systemctl status quadrf-gui
+journalctl -u quadrf-gui -n 50 -f
+```
+
+To revert back to the packaged GUI:
+
+```bash
+sudo apt install --reinstall -y quadrf-gui
+sudo systemctl restart quadrf-gui
+```
+
+---
+
+### Restoring All Components to Stock
+
+To discard all local rebuilds and return the entire software stack to official apt repository packages:
+
+```bash
+sudo apt install --reinstall -y \
+  quadrf-boot \
+  quadrf-fpga \
+  quadrf-fpga-dkms \
+  quadrf-soapy \
+  quadrf-gui \
+  quadrf-demos
+
+sudo quadrf-load
 ```

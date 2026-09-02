@@ -7,7 +7,6 @@
 | `boot/` | Apply hook for the firmware configuration |
 | `fpga/` | `quadrf.svf` placeholder (factory bitstream is not published), `jtag` CLI, kernel driver sources, device-tree overlays, OpenOCD board configuration |
 | `soapy/` | SoapySDR MIPI module |
-| `quadrfd/` | QuadRF Soapy module and thin client |
 | `flask/` | Web control panel |
 | `network/` | nginx, dnsmasq, hostapd, DHCP, interface drop-ins, hotspot and Wi-Fi scripts |
 | `demos/` | Spatial RF Vision, PSD plot, NTSC decoder, near-field phasors and the AR page |

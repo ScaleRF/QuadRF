@@ -6,18 +6,13 @@ KDIR ?= /lib/modules/$(KREL)/build
 DTC ?= dtc
 SUDO ?= sudo
 
-INSTALL_MOD_DIR ?= updates/quadrf
+INSTALL_MOD_DIR ?= updates/dkms
 DTS := fpga-csi.dts
 DTBO := fpga-csi.dtbo
 
-# Raspberry Pi OS/DietPi normally uses /boot/firmware. Retain compatibility
-# with older installations that use /boot directly.
-OVERLAY_DIR ?= $(shell \
-	if [ -d /boot/firmware/overlays ]; then \
-		printf '%s' /boot/firmware/overlays; \
-	elif [ -d /boot/overlays ]; then \
-		printf '%s' /boot/overlays; \
-	fi)
+OVERLAY_DIR ?= /boot/firmware/overlays
+
+default: module
 
 all: module overlay
 
@@ -40,8 +35,8 @@ $(DTBO): $(DTS)
 	$(DTC) -I dtb -O dts -o /dev/null "$@"
 
 install: all
-	@test -n "$(OVERLAY_DIR)" || { \
-		echo "Raspberry Pi overlay directory not found." >&2; \
+	@test -d "$(OVERLAY_DIR)" || { \
+		echo "Overlay directory not found: $(OVERLAY_DIR)" >&2; \
 		exit 1; \
 	}
 	$(SUDO) $(MAKE) -C "$(KDIR)" \
@@ -51,10 +46,13 @@ install: all
 	$(SUDO) depmod -a "$(KREL)"
 	$(SUDO) install -m 0644 "$(DTBO)" \
 		"$(OVERLAY_DIR)/$(DTBO)"
+	@if [ -d /usr/lib/quadrf/overlays ]; then \
+		$(SUDO) install -m 0644 "$(DTBO)" /usr/lib/quadrf/overlays/"$(DTBO)"; \
+	fi
 	@echo "Installed fpga-csi for kernel $(KREL). Reboot to load it."
 
 clean:
 	$(MAKE) -C "$(KDIR)" M="$(CURDIR)" clean
 	$(RM) "$(DTBO)"
 
-.PHONY: all module overlay install clean
+.PHONY: default all module overlay install clean

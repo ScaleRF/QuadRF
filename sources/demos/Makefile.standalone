@@ -1,0 +1,54 @@
+CC ?= gcc
+CXX ?= g++
+CFLAGS ?= -O3 -Wall -Wextra -I. -I/usr/include/quadrf -I../fpga/drivers/csi
+CXXFLAGS ?= -O3 -std=c++17 -Wall -Wextra -I. -I/usr/include/quadrf -I../fpga/drivers/csi
+ifneq (,$(findstring aarch64,$(shell uname -m)))
+  CFLAGS += -mcpu=cortex-a76 -mtune=cortex-a76
+  CXXFLAGS += -mcpu=cortex-a76 -mtune=cortex-a76
+endif
+
+PREFIX ?= /usr/local
+BINDIR ?= $(PREFIX)/bin
+SUDO ?= sudo
+
+SOAPY_CFLAGS ?= $(shell pkg-config --cflags SoapySDR 2>/dev/null)
+SOAPY_LIBS ?= $(shell pkg-config --libs SoapySDR 2>/dev/null)
+FFTW_CFLAGS ?= $(shell pkg-config --cflags fftw3f 2>/dev/null)
+FFTW_LIBS ?= $(shell pkg-config --libs fftw3f 2>/dev/null)
+SDL2_CFLAGS ?= $(shell pkg-config --cflags sdl2 2>/dev/null)
+SDL2_LIBS ?= $(shell pkg-config --libs sdl2 2>/dev/null)
+
+TARGETS := quadrf-hello quadrf-psd quadrf-rf-vision quadrf-ntsc-demod quadrf-nearfield
+
+all: $(TARGETS)
+
+quadrf-hello: hello.cpp
+	$(CXX) $(CXXFLAGS) $< $(SOAPY_CFLAGS) $(SOAPY_LIBS) -o $@
+
+quadrf-psd: psd_switchable.c
+	$(CC) $(CFLAGS) $(FFTW_CFLAGS) $(SDL2_CFLAGS) $< $(FFTW_LIBS) $(SDL2_LIBS) -lm -o $@
+
+quadrf-rf-vision: csi_sweep.c mongoose.c
+	$(CC) $(CFLAGS) $(FFTW_CFLAGS) $(SDL2_CFLAGS) $^ $(FFTW_LIBS) $(SDL2_LIBS) -lm -lpthread -o $@
+
+quadrf-ntsc-demod: ntsc_demod.cpp
+	$(CXX) $(CXXFLAGS) -ffast-math $< $(SOAPY_CFLAGS) $(SOAPY_LIBS) -o $@
+
+quadrf-nearfield: nearfield.c
+	$(CC) $(CFLAGS) $(SDL2_CFLAGS) $< $(SDL2_LIBS) -lm -lpthread -o $@
+
+hello: quadrf-hello
+psd: quadrf-psd
+rf-vision: quadrf-rf-vision
+ntsc-demod: quadrf-ntsc-demod
+nearfield: quadrf-nearfield
+
+install: all
+	$(SUDO) install -d "$(BINDIR)"
+	$(SUDO) install -m 0755 $(TARGETS) "$(BINDIR)/"
+	@echo "Installed examples to $(BINDIR)"
+
+clean:
+	rm -f $(TARGETS)
+
+.PHONY: all install clean hello psd rf-vision ntsc-demod nearfield

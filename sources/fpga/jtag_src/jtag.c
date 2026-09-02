@@ -16,7 +16,13 @@
 #include <sys/ioctl.h>
 #include <unistd.h>
 
+#if __has_include(<quadrf/fpga_csi.h>)
+#include <quadrf/fpga_csi.h>
+#elif __has_include("../drivers/csi/fpga_csi.h")
 #include "../drivers/csi/fpga_csi.h"
+#else
+#include "fpga_csi.h"
+#endif
 #include "max285x.h"
 
 static void usage(const char *argv0)

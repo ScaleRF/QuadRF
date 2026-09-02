@@ -53,7 +53,7 @@ As a complete, full-duplex (Tx+Rx) SDR featuring dual-polarization (RHCP and LHC
 
 **Software & Ecosystem**
 * Out-of-the-box Web RF GUI, Web Remote Desktop, and Direct Pi 5 Linux access.
-* Compatible with GNU Radio, SoapySDR, and ZeroMQ.
+* Compatible with GNU Radio and SoapySDR.
 
 ## Open Source Software and Antennas
 

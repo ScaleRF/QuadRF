@@ -31,7 +31,6 @@ if(NOT VERSION)
 endif()
 
 add_subdirectory(sources/soapy)
-add_subdirectory(sources/quadrfd/soapy)
 add_subdirectory(sources/demos)
 
 add_executable(quadrf-jtag sources/fpga/jtag_src/jtag.c sources/fpga/jtag_src/max285x.c)
@@ -65,9 +64,11 @@ install(FILES sources/man/quadrf-jtag.1 DESTINATION ${mandir}/man1)
 install(FILES sources/man/quadrf-load.8 DESTINATION ${mandir}/man8)
 install(FILES sources/fpga/drivers/csi/fpga-csi.c
               sources/fpga/drivers/csi/fpga_csi.h
+              sources/fpga/drivers/csi/fpga-csi.dts
               sources/fpga/drivers/csi/Makefile
         DESTINATION ${srcdir}/quadrf-fpga-${VERSION}/csi)
 install(FILES sources/fpga/drivers/dsi/fpga-dsi.c
+              sources/fpga/drivers/dsi/fpga-dsi.dts
               sources/fpga/drivers/dsi/Makefile
         DESTINATION ${srcdir}/quadrf-fpga-${VERSION}/dsi)
 configure_file(sources/fpga/drivers/dkms.conf.in ${CMAKE_CURRENT_BINARY_DIR}/dkms.conf @ONLY)
@@ -194,7 +195,19 @@ install(PROGRAMS sources/ups_hat/60-ups DESTINATION ${libdir}/apply.d)
 configure_file(quadrfConfig.cmake.in ${CMAKE_CURRENT_BINARY_DIR}/QuadRFConfig.cmake @ONLY)
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/QuadRFConfig.cmake DESTINATION lib/cmake/quadrf)
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/QuadRFConfig.cmake DESTINATION lib/cmake/quadrf RENAME quadrf-config.cmake)
-install(FILES sources/quadrfd/csi_uapi.hpp sources/quadrfd/Farrow.hpp sources/quadrfd/NEON.hpp DESTINATION include/quadrf)
+install(FILES sources/soapy/Farrow.hpp DESTINATION ${includedir})
+install(FILES sources/fpga/jtag_src/jtag.c
+              sources/fpga/jtag_src/max285x.c
+              sources/fpga/jtag_src/max285x.h
+              sources/fpga/jtag_src/Makefile
+        DESTINATION ${srcdir}/quadrf-jtag)
+install(FILES sources/soapy/Registration.cpp
+              sources/soapy/MipiDevice.cpp
+              sources/soapy/NEON.cpp
+              sources/soapy/MipiDevice.hpp
+              sources/soapy/Farrow.hpp
+              sources/soapy/Makefile
+        DESTINATION ${srcdir}/quadrf-soapy)
 
 # CPack
 set(CPACK_GENERATOR "DEB")
@@ -203,4 +216,5 @@ include(CPack)
 
 # Examples Source Distribution
 install(FILES sources/demos/CMakeLists.txt.standalone DESTINATION share/quadrf/examples RENAME CMakeLists.txt)
+install(FILES sources/demos/Makefile.standalone DESTINATION share/quadrf/examples RENAME Makefile)
 install(FILES sources/demos/hello.cpp sources/demos/csi_sweep.c sources/demos/mongoose.c sources/demos/mongoose.h sources/demos/psd_switchable.c sources/demos/ntsc_demod.cpp sources/demos/nearfield.c sources/demos/delay_cal.h DESTINATION share/quadrf/examples)

@@ -39,6 +39,9 @@ static constexpr const double TX_DEFAULT_PAYLOAD_FRACTION =
 #  if __has_include("fpga_csi.h")
 #    include "fpga_csi.h"
 #    define MIPI_DEVICE_HAS_EXTERNAL_CSI_UAPI 1
+#  elif __has_include(<quadrf/fpga_csi.h>)
+#    include <quadrf/fpga_csi.h>
+#    define MIPI_DEVICE_HAS_EXTERNAL_CSI_UAPI 1
 #  endif
 #endif
 

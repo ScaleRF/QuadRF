@@ -1,2 +1,4 @@
 usr/include/quadrf/
 usr/lib/cmake/quadrf/
+usr/src/quadrf-jtag/
+usr/src/quadrf-soapy/

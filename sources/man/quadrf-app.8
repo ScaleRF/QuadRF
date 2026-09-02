@@ -12,14 +12,35 @@ quadrf-app \- start and stop registered QuadRF applications
 .B quadrf-app
 .B stop
 .I app
+.br
+.B quadrf-app
+.B register
+.BI --id\  id
+.BI --name\  name
+.BI --exec\  path
+.RI [ options ]
+.br
+.B quadrf-app
+.B unregister
+.I id
 .SH DESCRIPTION
-Starts or stops an application registered with the control page.
-Packages install a JSON descriptor in
+Starts, stops, registers, and unregisters applications on the operator desktop and web control page.
+Packages or manual registrations install a JSON descriptor in
 .IR /usr/share/quadrf/apps.d/ .
 The visible name, comment and icon come from the application's
 .I .desktop
 file under
 .IR /usr/share/applications/ .
+.PP
+The
+.B register
+command configures a custom application in one step: creates the
+.I .desktop
+launcher, creates a systemd service unit configured for the remote desktop session, writes the catalog descriptor, and updates desktop launchers.
+.PP
+The
+.B unregister
+command stops the application if running, removes the service unit, desktop entry, and catalog descriptor, and cleans up desktop launchers.
 .PP
 The radio front-end is single-client, so
 .B start

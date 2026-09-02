@@ -60,8 +60,6 @@ RUN apt-get update \
         qtbase5-dev \
         qtmultimedia5-dev \
         liblimesuite-dev \
-        libzmq3-dev \
-        cppzmq-dev \
         libsoapysdr-dev \
         liblog4cpp5-dev \
         libuhd-dev \
