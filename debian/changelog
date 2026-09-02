@@ -1,3 +1,10 @@
+quadrf (1.0.20) trixie; urgency=medium
+
+  * ntsc: Kill demodulator when mpv quits
+  * gui: Start desktop apps in place; Open Desktop uses split view
+
+ -- QuadRF Engineering <contact@ScaleRF.com>  Wed, 02 Sep 2026 16:16:15 -0700
+
 quadrf (1.0.19) trixie; urgency=medium
 
   * build: Support on-target make rebuilds, app registration CLI, and overhaul docs
