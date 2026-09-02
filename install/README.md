@@ -76,13 +76,7 @@ Password: the value you set in AUTO_SETUP_GLOBAL_PASSWORD
 
 Hostnames are not case-sensitive, but lowercase `dietpi.local` is conventional.
 
-If `dietpi.local` does not resolve after the first-run setup has finished, find the Pi's IP address in your router's connected-device or DHCP list and connect directly:
-
-```bash
-ssh dietpi@192.168.x.x
-```
-
-Some guest, enterprise, and client-isolated Wi-Fi networks block the multicast traffic used by `.local` discovery. An incorrect Wi-Fi name or password will also prevent remote access; in that recovery case, correct the files on a freshly written card or connect a Micro-HDMI display and USB keyboard.
+If `dietpi.local` does not resolve after the first-run setup has finished, find the Pi's IP address in your router's connected-device or DHCP list and connect directly (`ssh dietpi@192.168.x.x`). Some guest  Wi-Fi networks block the multicast traffic used by `.local` discovery. Worst case, you can connect a Micro-HDMI display and USB keyboard directly to the QuadRF.
 
 ## Install the QuadRF software
 
