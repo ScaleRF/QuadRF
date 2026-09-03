@@ -1336,6 +1336,15 @@
         }
 
         const dragState = { rx: false, tx: false };
+        const sliderDrag = new Set();
+        document.addEventListener('pointerdown', (e) => {
+            const t = e.target;
+            if (t && t.matches && t.matches('input[type="range"]')) sliderDrag.add(t);
+        }, true);
+        const endSliderDrag = () => sliderDrag.clear();
+        window.addEventListener('pointerup', endSliderDrag, true);
+        window.addEventListener('pointercancel', endSliderDrag, true);
+        window.addEventListener('blur', endSliderDrag);
 
         function updatePuckFromPhases(prefix, p1, p2, p3, p4) {
             if (dragState[prefix]) return; 
@@ -1651,9 +1660,12 @@
         }
 
         function applyState(state) {
+            function isEditing(el) {
+                return el && (document.activeElement === el || sliderDrag.has(el));
+            }
             function updateIfUnfocused(id, val) {
                 const el = document.getElementById(id);
-                if (el && document.activeElement !== el && el.value != val) { el.value = val; }
+                if (el && !isEditing(el) && el.value != val) { el.value = val; }
             }
             function updateCheckbox(id, checked) {
                 const el = document.getElementById(id);
@@ -1667,31 +1679,39 @@
             if(state.rx_freq !== undefined) { updateIfUnfocused('rxFreqNum', state.rx_freq); updateIfUnfocused('rxFreq', state.rx_freq); }
             if(state.rx_agc !== undefined) {
                 const isAgc = state.rx_agc;
-                if (isAgc) {
-                    document.getElementById('rxGainLabelText').innerText = 'AGC Target';
-                    document.getElementById('rxGainUnit').innerText = 'dBFS';
-                    document.getElementById('rxGain').min = -40; document.getElementById('rxGain').max = -6; document.getElementById('rxGain').step = 0.5;
-                    document.getElementById('rxGainNum').min = -40; document.getElementById('rxGainNum').max = -6; document.getElementById('rxGainNum').step = 'any';
-                } else {
-                    document.getElementById('rxGainLabelText').innerText = 'Rx Gain';
-                    document.getElementById('rxGainUnit').innerText = 'dB';
-                    document.getElementById('rxGain').min = 0; document.getElementById('rxGain').max = 63; document.getElementById('rxGain').step = 1;
-                    document.getElementById('rxGainNum').min = 0; document.getElementById('rxGainNum').max = 63; document.getElementById('rxGainNum').step = 1;
-                }
-                updateCheckbox('rxAgc', isAgc);
-                let targetGain = isAgc ? state.rx_gain_dbfs : state.rx_gain;
-                if (targetGain !== undefined && document.activeElement !== document.getElementById('rxBwSlider')) {
-                    const gSlider = document.getElementById('rxGain');
-                    const lo = parseFloat(gSlider.min), hi = parseFloat(gSlider.max);
-                    if (targetGain < lo) targetGain = lo;
-                    if (targetGain > hi) targetGain = hi;
-                    updateIfUnfocused('rxGainNum', targetGain); updateIfUnfocused('rxGain', targetGain);
+                const gSlider = document.getElementById('rxGain');
+                const gNum = document.getElementById('rxGainNum');
+                if (!isEditing(gSlider) && !isEditing(gNum)) {
+                    const wantMin = isAgc ? '-40' : '0';
+                    if (gSlider.min !== wantMin) {
+                        if (isAgc) {
+                            document.getElementById('rxGainLabelText').innerText = 'AGC Target';
+                            document.getElementById('rxGainUnit').innerText = 'dBFS';
+                            gSlider.min = -40; gSlider.max = -6; gSlider.step = 0.5;
+                            gNum.min = -40; gNum.max = -6; gNum.step = 'any';
+                        } else {
+                            document.getElementById('rxGainLabelText').innerText = 'Rx Gain';
+                            document.getElementById('rxGainUnit').innerText = 'dB';
+                            gSlider.min = 0; gSlider.max = 63; gSlider.step = 1;
+                            gNum.min = 0; gNum.max = 63; gNum.step = 1;
+                        }
+                    }
+                    updateCheckbox('rxAgc', isAgc);
+                    let targetGain = isAgc ? state.rx_gain_dbfs : state.rx_gain;
+                    if (targetGain !== undefined) {
+                        const lo = parseFloat(gSlider.min), hi = parseFloat(gSlider.max);
+                        if (targetGain < lo) targetGain = lo;
+                        if (targetGain > hi) targetGain = hi;
+                        const step = parseFloat(gSlider.step);
+                        if (step > 0) targetGain = Math.round(targetGain / step) * step;
+                        updateIfUnfocused('rxGainNum', targetGain); updateIfUnfocused('rxGain', targetGain);
+                    }
                 }
             }
             if(state.rx_bw_k !== undefined) {
                 updateToneBounds(state.rx_bw_k);
                 updateIfUnfocused('rxBwSlider', state.rx_bw_k);
-                if (document.activeElement !== document.getElementById('rxBwSlider')) {
+                if (!isEditing(document.getElementById('rxBwSlider'))) {
                     document.getElementById('rxBwReadoutText').textContent = (240 / state.rx_bw_k).toFixed(3);
                     document.getElementById('rxBwK').innerText = state.rx_bw_k;
                 }
