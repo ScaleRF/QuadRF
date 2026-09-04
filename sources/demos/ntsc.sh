@@ -43,7 +43,7 @@ exec {video_fd}< <(exec quadrf-ntsc-demod --bypass_iir true --disc atan2 --no_de
 demod_pid=$!
 
 mpv --profile=low-latency --no-cache \
-  --demuxer-thread=no --vd-lavc-threads=1 \
+  --untimed \
   --demuxer=rawvideo --demuxer-rawvideo-w=640 --demuxer-rawvideo-h=480 \
   --demuxer-rawvideo-mp-format=yuyv422 --demuxer-rawvideo-fps=60 \
   --script="$CH_LUA" --osd-font-size=40 --osd-duration=1500 \

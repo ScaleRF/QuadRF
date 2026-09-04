@@ -780,8 +780,8 @@ struct NtscDecoder {
         const int lineN = t.samp_per_line;
 
         float bp_acc = 0.0f, bp_sq_acc = 0.0f;
-        int bp0 = t.sync_samp + (int)std::llround(fs_vid_rate * 0.5e-6);
-        int bp1 = std::min(t.burst_start - 2, lineN);
+        int bp0 = t.sync_samp + 1;
+        int bp1 = std::min(lineN, std::max(bp0 + 1, t.burst_start - 1));
         for (int i = bp0; i < bp1; i++) {
             bp_acc += ln[i];
             bp_sq_acc += ln[i] * ln[i];
@@ -819,7 +819,7 @@ struct NtscDecoder {
         }
 
         lines_since_v++;
-        if (lines_since_v <= 22) return; 
+        if (lines_since_v <= 22 || out_line >= OUT_H) return; 
 
         float sync_amp = std::max(0.1f, current_blank - sync_level);
         float target_white = current_blank + sync_amp * 2.5f; 

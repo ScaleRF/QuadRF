@@ -76,7 +76,7 @@ quadrf-jtag --rx autosteer=1,antennas=15,interleave=0,tone_en=0,bw=12.0,agc=-14.
   --args "numBuffers=2,bufferLength=65536" \
   --diag_hz 2 --hsync_min 25 --hsync_max 160 --sat 3.0 --hue -3.0 \
 | mpv --profile=low-latency --no-cache \
-  --demuxer-thread=no --vd-lavc-threads=1 \
+  --untimed \
   --demuxer=rawvideo --demuxer-rawvideo-w=640 --demuxer-rawvideo-h=480 \
   --demuxer-rawvideo-mp-format=yuyv422 --demuxer-rawvideo-fps=60 \
   --script=/usr/share/quadrf/ntsc_ch.lua --osd-font-size=40 --osd-duration=1500 \
