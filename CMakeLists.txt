@@ -181,7 +181,6 @@ install(FILES sources/icons/agentic_radio.svg DESTINATION ${icondir} RENAME quad
 install(FILES sources/icons/files.svg DESTINATION ${icondir} RENAME quadrf-files.svg)
 install(FILES sources/gptme/config/env.example DESTINATION ${datadir}/agent)
 install(FILES sources/desktop/applications/quadrf-gnuradio.desktop DESTINATION ${appdir})
-install(FILES sources/icons/gnu_radio.svg DESTINATION ${icondir} RENAME quadrf-gnuradio.svg)
 file(GLOB files "sources/grc_projects/*.grc")
 install(FILES ${files} DESTINATION ${datadir}/grc)
 install(DIRECTORY DESTINATION share/gnuradio/grc/blocks)

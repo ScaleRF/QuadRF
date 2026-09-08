@@ -223,7 +223,8 @@ Replaces: quadrf-desktop (<< ${binary:Version})
 Recommends: gr-osmosdr, quadrf-soapy
 Description: GNU Radio flowgraphs for QuadRF
  Receive and transmit example flowgraphs for the QuadRF front-end, installed
- under /usr/share/quadrf/grc, plus the GNU Radio desktop entry and icon.
+ under /usr/share/quadrf/grc, plus the GNU Radio desktop entry using the
+ gnuradio package icon.
 
 Package: quadrf-ups
 Architecture: all

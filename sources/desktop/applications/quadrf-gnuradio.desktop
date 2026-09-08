@@ -5,6 +5,6 @@ Name=GNU Radio
 Comment=Flowgraph editor; File Open bookmark GNURadio QuadRF Examples
 Exec=gnuradio-companion
 TryExec=gnuradio-companion
-Icon=quadrf-gnuradio
+Icon=gnuradio-grc
 Terminal=false
 Categories=HamRadio;Science;
