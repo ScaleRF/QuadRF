@@ -1,0 +1,26 @@
+.TH QUADRF-APPLY-CALLSIGN 8 "September 2026" "QuadRF" "QuadRF"
+.SH NAME
+quadrf-apply-callsign \- set the QuadRF station callsign
+.SH SYNOPSIS
+.B quadrf-apply-callsign
+.I callsign
+.SH DESCRIPTION
+.B quadrf-apply-callsign
+persists
+.B CALLSIGN
+into
+.IR /etc/quadrf/quadrf.conf .
+The callsign is normalized to uppercase and validated to contain between 1 and 16
+alphanumeric characters, hyphens, or slashes.
+.PP
+The web control panel invokes this command through the sudoers rule in
+.IR /etc/sudoers.d/quadrf .
+.SH FILES
+.TP
+.I /etc/quadrf/quadrf.conf
+Site configuration file where
+.B CALLSIGN
+is stored.
+.SH SEE ALSO
+.BR quadrf (1),
+.BR quadrf.conf (5)

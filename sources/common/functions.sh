@@ -19,10 +19,17 @@ quadrf_load_conf() {
     QUADRF_WIFI_MODE=sta
     QUADRF_WIFI_FALLBACK=yes
     QUADRF_OPENOCD=
+    CALLSIGN=
+    QUADRF_CALLSIGN=
 
     if [ -r "${QUADRF_CONF}" ]; then
         . "${QUADRF_CONF}"
     fi
+
+    CALLSIGN="${CALLSIGN:-${QUADRF_CALLSIGN:-NOCALL}}"
+    QUADRF_CALLSIGN="${CALLSIGN}"
+    export CALLSIGN
+    export QUADRF_CALLSIGN
 }
 
 # Single-label mDNS names for the KasmVNC vhost.

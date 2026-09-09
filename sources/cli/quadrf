@@ -2,7 +2,7 @@
 # QuadRF appliance control.
 set -eu
 
-. /usr/share/quadrf/functions.sh
+. "${QUADRF_FUNCTIONS:-/usr/share/quadrf/functions.sh}"
 
 APPLY_DIR=/usr/lib/quadrf/apply.d
 UNITS="load-quadrf.service quadrf-gui.service quadrf-soapy-server.service
@@ -18,6 +18,7 @@ Usage: quadrf <command> [arguments]
   status              service, radio and network state
   apply               re-apply site configuration for the installed packages
   packages            installed quadrf-* packages and versions
+  callsign [name]     display or update station callsign
   tls import <dir>    install a certificate and private key
   tls local-ca        regenerate the local CA and server certificate
 EOF
@@ -60,6 +61,7 @@ cmd_status() {
     echo
     echo "Network"
     printf '  %-28s %s\n' "hostname" "$(hostname)"
+    printf '  %-28s %s\n' "callsign" "${CALLSIGN:-NOCALL}"
     for iface in wlan0 eth0 usb0; do
         addr="$(ip -4 -o addr show dev "${iface}" scope global 2>/dev/null |
                 awk '{print $4}' | tr '\n' ' ')"
@@ -83,6 +85,16 @@ cmd_apply() {
 cmd_packages() {
     dpkg-query -W -f '${Package} ${Version} ${Status}\n' 'quadrf*' 2>/dev/null |
         awk '$4 == "ok" && $5 == "installed" { printf "  %-24s %s\n", $1, $2 }'
+}
+
+cmd_callsign() {
+    if [ $# -eq 0 ]; then
+        quadrf_load_conf
+        echo "${CALLSIGN:-NOCALL}"
+    else
+        require_root "callsign"
+        /usr/sbin/quadrf-apply-callsign "$@"
+    fi
 }
 
 cmd_tls() {
@@ -145,6 +157,7 @@ case "${command}" in
     status)   cmd_status ;;
     apply)    cmd_apply ;;
     packages) cmd_packages ;;
+    callsign) cmd_callsign "$@" ;;
     tls)      cmd_tls "$@" ;;
     help|-h|--help) usage ;;
     *)        usage; exit 1 ;;

@@ -31,6 +31,7 @@ HOSTNAME_CLI = os.environ.get("QUADRF_APPLY_HOSTNAME", "/usr/sbin/quadrf-apply-h
 HOTSPOT_CLI = os.environ.get("QUADRF_HOTSPOT", "/usr/sbin/quadrf-hotspot")
 APP_CLI = os.environ.get("QUADRF_APP", "/usr/sbin/quadrf-app")
 UNLOCK_CLI = os.environ.get("QUADRF_TX_UNLOCK", "/usr/sbin/quadrf-tx-unlock")
+CALLSIGN_CLI = os.environ.get("QUADRF_APPLY_CALLSIGN", "/usr/sbin/quadrf-apply-callsign")
 CONF_PATH = os.environ.get("QUADRF_CONF", "/etc/quadrf/quadrf.conf")
 WPA_CONF = os.environ.get("QUADRF_WPA_CONF", "/etc/wpa_supplicant/wpa_supplicant.conf")
 TX_FULL_POWER_PATH = os.environ.get("QUADRF_TX_FULL_POWER", "/var/lib/quadrf/tx_full_power")
@@ -156,6 +157,7 @@ def get_network_status(via_addr=None):
     mode = wifi_mode_from_conf(conf)
     fallback = wifi_fallback_from_conf(conf)
     hostname = (conf.get("QUADRF_HOSTNAME") or "quadrf").strip() or "quadrf"
+    callsign = (conf.get("CALLSIGN") or conf.get("QUADRF_CALLSIGN") or "NOCALL").strip() or "NOCALL"
     return {
         "paths": paths,
         "via": via,
@@ -165,10 +167,12 @@ def get_network_status(via_addr=None):
         "wifi_fallback_active": mode == "sta" and paths["wifi_ap"]["up"],
         "hostname": hostname,
         "hostname_lock": hostname_lock_from_conf(conf),
+        "callsign": callsign,
     }
 
 
 HOSTNAME_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
+CALLSIGN_RE = re.compile(r"^[A-Z0-9/-]{1,16}$")
 
 
 def hostname_lock_from_conf(conf=None):
@@ -375,10 +379,12 @@ def get_sdr_status(force=False):
 def index():
     conf = load_quadrf_conf()
     hostname = conf.get('QUADRF_HOSTNAME', 'quadrf')
+    callsign = (conf.get('CALLSIGN') or conf.get('QUADRF_CALLSIGN') or 'NOCALL').strip() or 'NOCALL'
     net = get_network_status(_via_header())
     return render_template(
         'index.html',
         ap_ssid=conf.get('QUADRF_AP_SSID', 'QuadRF'),
+        callsign=callsign,
         desktop_host=f"{hostname}d.local",
         hostname=hostname,
         hostname_lock=net["hostname_lock"],
@@ -511,6 +517,21 @@ def network_hostname():
             return jsonify({"status": "error", "message": _cli_error(proc, "failed to reset hostname")}), 500
         return jsonify({"status": "ok", **get_network_status(_via_header())})
     return jsonify({"status": "error", "message": "lock, name, or reset required"}), 400
+
+
+@app.route('/api/callsign', methods=['POST'])
+@app.route('/api/system/callsign', methods=['POST'])
+def system_callsign():
+    body = _json_body()
+    callsign = (body.get("callsign") or "").strip().upper()
+    if not callsign:
+        return jsonify({"status": "error", "message": "callsign required"}), 400
+    if not CALLSIGN_RE.match(callsign):
+        return jsonify({"status": "error", "message": "callsign must be 1-16 characters (letters, digits, -, /)"}), 400
+    proc = run_sudo([CALLSIGN_CLI, callsign])
+    if proc.returncode != 0:
+        return jsonify({"status": "error", "message": _cli_error(proc, "failed to set callsign")}), 500
+    return jsonify({"status": "ok", **get_network_status(_via_header())})
 
 def broadcast_full_status(force=False):
     """Fetches the latest state and pushes it to all connected WebSocket clients."""

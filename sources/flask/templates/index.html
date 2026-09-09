@@ -1163,6 +1163,11 @@
             <div class="header-row">
                 <h2><span class="indicator" style="background-color: #f59e0b;"></span> Network Setup</h2>
                 <div class="hostname-row">
+                    <label class="hostname-edit" title="Station callsign (default NOCALL). Edit and Save.">
+                        <span style="color: #94a3b8; margin-right: 0.25rem;">Callsign</span>
+                        <input type="text" id="callsignInput" spellcheck="false" autocomplete="off" autocapitalize="characters" maxlength="16" value="{{ callsign|default('NOCALL') }}" data-applied="{{ callsign|default('NOCALL') }}" style="text-align: left; text-transform: uppercase;">
+                    </label>
+                    <button type="button" class="path-cfg hidden" id="callsignSave">Save</button>
                     <label class="hostname-edit" title="Edit the mDNS name, then Save. Applies without reboot.">
                         <input type="text" id="hostnameInput" spellcheck="false" autocomplete="off" autocapitalize="none" maxlength="63" value="{{ hostname|default('quadrf') }}" data-applied="{{ hostname|default('quadrf') }}">
                         <span class="hostname-suffix">.local</span>
@@ -2008,6 +2013,7 @@
         const wifiStationApi = '{{ url_for("network_station") }}';
         const wifiHotspotApi = '{{ url_for("network_hotspot") }}';
         const hostnameApi = '{{ url_for("network_hostname") }}';
+        const callsignApi = '{{ url_for("system_callsign") }}';
         const wifiStaToggle = document.getElementById('wifiStaToggle');
         const wifiApToggle = document.getElementById('wifiApToggle');
         const wifiFallbackToggle = document.getElementById('wifiFallbackToggle');
@@ -2052,6 +2058,9 @@
             }
             if (state.hostname) {
                 applyHostnameState(state.hostname);
+            }
+            if (state.callsign) {
+                applyCallsignState(state.callsign);
             }
             const lockEl = document.getElementById('hostnameLockToggle');
             if (lockEl && typeof state.hostname_lock === 'boolean' && document.activeElement !== lockEl) {
@@ -2114,6 +2123,73 @@
                 wifiBusy = false;
             }
         });
+        const callsignInput = document.getElementById('callsignInput');
+        const callsignSave = document.getElementById('callsignSave');
+        const callsignRe = /^[a-z0-9/-]{1,16}$/i;
+
+        function callsignDraft() {
+            return (callsignInput.value || '').trim().toUpperCase();
+        }
+
+        function callsignDirty() {
+            return callsignDraft() !== ((callsignInput.dataset.applied || '').trim().toUpperCase());
+        }
+
+        function sizeCallsignInput() {
+            callsignInput.style.setProperty('width', Math.max(6, callsignInput.value.length + 1) + 'ch', 'important');
+        }
+
+        function syncCallsignUi() {
+            const draft = callsignDraft();
+            const valid = callsignRe.test(draft);
+            callsignSave.classList.toggle('hidden', !callsignDirty());
+            callsignSave.disabled = !valid;
+            callsignSave.title = valid ? 'Save station callsign' : 'Use 1-16 letters, digits, -, /';
+        }
+
+        function applyCallsignState(callsign) {
+            if (document.activeElement === callsignInput || callsignDirty()) return;
+            callsignInput.dataset.applied = callsign;
+            callsignInput.value = callsign;
+            sizeCallsignInput();
+            syncCallsignUi();
+        }
+
+        async function applyCallsign(callsign) {
+            callsignSave.disabled = true;
+            try {
+                await postWifi(callsignApi, { callsign });
+                callsignInput.dataset.applied = callsign;
+                callsignInput.value = callsign;
+                sizeCallsignInput();
+                syncCallsignUi();
+                showWifiBanner('success', `Callsign saved: ${callsign}`);
+            } catch (e) {
+                showWifiBanner('error', e.message);
+            } finally {
+                callsignSave.disabled = false;
+                syncCallsignUi();
+            }
+        }
+
+        sizeCallsignInput();
+        syncCallsignUi();
+        callsignInput.addEventListener('input', () => {
+            callsignInput.value = callsignInput.value.toUpperCase();
+            sizeCallsignInput();
+            syncCallsignUi();
+        });
+        callsignInput.addEventListener('keydown', (e) => {
+            if (e.key !== 'Enter') return;
+            e.preventDefault();
+            const call = callsignDraft();
+            if (callsignDirty() && callsignRe.test(call)) applyCallsign(call);
+        });
+        callsignSave.addEventListener('click', () => {
+            const call = callsignDraft();
+            if (callsignDirty() && callsignRe.test(call)) applyCallsign(call);
+        });
+
         const hostnameInput = document.getElementById('hostnameInput');
         const hostnameSave = document.getElementById('hostnameSave');
         const hostnameLockToggle = document.getElementById('hostnameLockToggle');

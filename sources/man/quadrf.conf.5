@@ -19,6 +19,11 @@ reboot, which
 will report.
 .SH SETTINGS
 .TP
+.B CALLSIGN
+Amateur radio callsign of the station or operator. Operators should edit
+this value and set their personal callsign if licensed. Default:
+.BR NOCALL .
+.TP
 .B QUADRF_USER
 Account that owns the desktop session, the web control panel and the demo
 applications. The packages ship generic systemd units and override the user
@@ -121,6 +126,7 @@ or
 is used.
 .SH EXAMPLE
 .nf
+CALLSIGN="W1AW"
 QUADRF_USER=operator
 QUADRF_BOOT_DIR=/boot/firmware
 QUADRF_HOSTNAME=quadrf-14

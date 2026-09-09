@@ -184,6 +184,7 @@ Configuration settings are stored in `/etc/quadrf/quadrf.conf`:
 
 | Parameter | Default | Description |
 | --- | --- | --- |
+| `CALLSIGN` | `NOCALL` | Amateur radio callsign of the operator |
 | `QUADRF_USER` | `dietpi` | User account running desktop, GUI, and user apps |
 | `QUADRF_BOOT_DIR` | `/boot/firmware` | Boot partition path for `config.txt` and overlays |
 | `QUADRF_HOSTNAME` | `quadrf` | Base system hostname and mDNS name |
