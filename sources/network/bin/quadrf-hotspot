@@ -136,8 +136,12 @@ stop_sta() {
     systemctl stop wpa_supplicant 2>/dev/null || true
     pkill -f 'wpa_supplicant.*wlan0' 2>/dev/null || true
     if command -v dhclient >/dev/null; then
-        timeout 2 dhclient -r wlan0 >/dev/null 2>&1 || true
+        timeout 2 dhclient -r \
+            -pf /run/dhclient.wlan0.pid \
+            -lf /var/lib/dhcp/dhclient.wlan0.leases \
+            wlan0 >/dev/null 2>&1 || true
         pkill -f 'dhclient.*wlan0' 2>/dev/null || true
+        rm -f /run/dhclient.wlan0.pid
     fi
 }
 
@@ -275,7 +279,10 @@ try_station() {
         drop_ap_subnet_sta
         if iw dev wlan0 link 2>/dev/null | grep -q 'Connected to' &&
            [[ -z "$(wlan_sta_addr)" ]]; then
-            timeout 8 dhclient -1 wlan0 9>&- >/dev/null 2>&1 || true
+            timeout 8 dhclient -1 \
+                -pf /run/dhclient.wlan0.pid \
+                -lf /var/lib/dhcp/dhclient.wlan0.leases \
+                wlan0 9>&- >/dev/null 2>&1 || true
             drop_ap_subnet_sta
         fi
         sta_ready && return 0

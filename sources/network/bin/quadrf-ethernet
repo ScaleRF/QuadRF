@@ -103,7 +103,10 @@ EOF
 
 try_dhcp() {
     if command -v dhclient >/dev/null; then
-        timeout "${DHCP_WAIT}" dhclient -1 "${IFACE}" >/dev/null 2>&1 || true
+        timeout "${DHCP_WAIT}" dhclient -1 \
+            -pf "/run/dhclient.${IFACE}.pid" \
+            -lf "/var/lib/dhcp/dhclient.${IFACE}.leases" \
+            "${IFACE}" >/dev/null 2>&1 || true
     elif command -v dhcpcd >/dev/null; then
         timeout "${DHCP_WAIT}" dhcpcd -1 -w --timeout "${DHCP_WAIT}" "${IFACE}" >/dev/null 2>&1 || true
     fi
@@ -111,11 +114,28 @@ try_dhcp() {
 
 stop_dhcp() {
     if command -v dhclient >/dev/null; then
-        timeout 2 dhclient -r "${IFACE}" >/dev/null 2>&1 || true
+        timeout 2 dhclient -r \
+            -pf "/run/dhclient.${IFACE}.pid" \
+            -lf "/var/lib/dhcp/dhclient.${IFACE}.leases" \
+            "${IFACE}" >/dev/null 2>&1 || true
         pkill -f "dhclient.*${IFACE}" >/dev/null 2>&1 || true
+        rm -f "/run/dhclient.${IFACE}.pid"
     fi
     if command -v dhcpcd >/dev/null; then
         dhcpcd -k "${IFACE}" >/dev/null 2>&1 || true
+    fi
+}
+
+dhcp_client_running() {
+    if command -v dhclient >/dev/null; then
+        local pid
+        [[ -r "/run/dhclient.${IFACE}.pid" ]] || return 1
+        read -r pid < "/run/dhclient.${IFACE}.pid" || return 1
+        [[ -n "${pid}" ]] && kill -0 "${pid}" 2>/dev/null
+    elif command -v dhcpcd >/dev/null; then
+        pgrep -f "dhcpcd.*${IFACE}" >/dev/null
+    else
+        return 1
     fi
 }
 
@@ -253,6 +273,7 @@ do_watch() {
     ip link show "${IFACE}" &>/dev/null && ip link set dev "${IFACE}" up || true
 
     local prev="init" cur
+    local last_empty_retry=0 last_dhcp_retry=0
     while true; do
         if ! ip link show "${IFACE}" &>/dev/null; then
             if [[ "${prev}" != "gone" ]]; then
@@ -279,6 +300,21 @@ do_watch() {
                 leave_link
             fi
             prev="${cur}"
+        elif [[ "${cur}" == "up" ]]; then
+            local now=$SECONDS
+            if [[ -z "$(global_v4)" ]]; then
+                if (( now - last_empty_retry >= 5 )); then
+                    last_empty_retry=$now
+                    log "carrier up on ${IFACE} with no IPv4 address; reconfiguring"
+                    do_configure
+                fi
+            elif [[ -n "$(lan_v4)" ]] && ! dhcp_client_running; then
+                if (( now - last_dhcp_retry >= 15 )); then
+                    last_dhcp_retry=$now
+                    log "DHCP client on ${IFACE} not running; restarting"
+                    try_dhcp
+                fi
+            fi
         fi
         sleep 1
     done
