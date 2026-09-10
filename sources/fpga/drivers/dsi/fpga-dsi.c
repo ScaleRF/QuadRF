@@ -57,7 +57,8 @@
 #endif
 
 #define DRV_NAME "dsi-stream-panel"
-#define DSI_STREAM_NUM_BUFS  4
+/* One framebuffer scanning out, two queued. Each frame is ~19 ms at 52 fps. */
+#define DSI_STREAM_NUM_BUFS  3
 
 #ifndef DSI_IOC_MAGIC
 #define DSI_IOC_MAGIC   'D'

@@ -1262,10 +1262,10 @@ int MipiDevice::readStream(SoapySDR::Stream *stream, void * const *buffs,
         if (inputNeeded > mtu) inputNeeded = mtu;
 
         const size_t bytesReq = inputNeeded * 2;
-        if (rxScratch_.size() < bytesReq) rxScratch_.resize(bytesReq);
+        int8_t* writePtr = rxCs8Buf_.prepareWrite(bytesReq);
 
-        const ssize_t gotBytes = (rxRing_ ? rx_read_ring(rxScratch_.data(), bytesReq, loopTimeoutUs)
-                                          : rx_read_legacy(rxScratch_.data(), bytesReq, loopTimeoutUs));
+        const ssize_t gotBytes = (rxRing_ ? rx_read_ring(writePtr, bytesReq, loopTimeoutUs)
+                                          : rx_read_legacy(writePtr, bytesReq, loopTimeoutUs));
 
         if (gotBytes == -EAGAIN) {
             if (totalProduced > 0) break;
@@ -1276,11 +1276,8 @@ int MipiDevice::readStream(SoapySDR::Stream *stream, void * const *buffs,
             return SOAPY_SDR_STREAM_ERROR;
         }
 
-        const size_t gotSamples = size_t(gotBytes / 2);
-        if (gotSamples > 0) {
-            int8_t* writePtr = rxCs8Buf_.prepareWrite(gotSamples * 2);
-            std::memcpy(writePtr, rxScratch_.data(), gotSamples * 2);
-            rxCs8Buf_.commitWrite(gotSamples * 2);
+        if (gotBytes > 0) {
+            rxCs8Buf_.commitWrite(size_t(gotBytes));
         }
 
         while (totalProduced < numElems && rxCs8Buf_.readAvail() >= 8) {
@@ -1320,7 +1317,10 @@ int MipiDevice::readStream(SoapySDR::Stream *stream, void * const *buffs,
 void MipiDevice::txRingInit_()
 {
     const double lineBytesPerSec = 2.0 * txLineRate_;
-    const double defaultQueueSeconds = 0.10; 
+    // Ring capacity ahead of kernel DSI staging. Sizing to 0.02 s hits the
+    // minFrames (2 frames = 6.64 MB, ~38.4 ms) floor, eliminating ~61 ms of
+    // queue delay present @ 0.10 s.
+    const double defaultQueueSeconds = 0.02; 
     size_t want = size_t(lineBytesPerSec * defaultQueueSeconds);
 
     const size_t minFrames = 2;
