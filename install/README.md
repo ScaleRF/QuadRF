@@ -129,7 +129,7 @@ Install the `quadrf` or `quadrf-headless` metapackage, or select individual comp
 
 | Package | Contents |
 | --- | --- |
-| `quadrf` | **Metapackage:** boot, common, FPGA, SoapySDR, GUI, network, development files, demos, desktop, GNU Radio, and UPS support |
+| `quadrf` | **Metapackage:** boot, common, FPGA, SoapySDR, GUI, network, development files, demos, desktop, GNU Radio, Mesh, and UPS support |
 | `quadrf-headless` | **Metapackage:** boot, common, FPGA, SoapySDR, GUI, and network support |
 | `quadrf-common` | `/etc/quadrf/quadrf.conf`, shared helpers, and the `quadrf` command |
 | `quadrf-boot` | Device-tree overlays and firmware configuration |
@@ -142,6 +142,7 @@ Install the `quadrf` or `quadrf-headless` metapackage, or select individual comp
 | `quadrf-demos` | Spatial RF Vision, PSD plot, NTSC decoder (`mpv`), near-field phasors, AR, and example sources under `/usr/share/quadrf/examples` |
 | `quadrf-desktop` | KasmVNC session with QuadRF launchers |
 | `quadrf-gnuradio` | Example GNU Radio flowgraphs |
+| `quadrf-mesh` | QuadRF Mesh desktop launcher, control-panel app, and Meshtastic services |
 | `quadrf-ups` | UPS HAT battery monitor |
 
 ## Dependencies
@@ -151,6 +152,7 @@ SoapySDR, GNU Radio, gr-osmosdr, nginx, dnsmasq, hostapd, mpv, and other depende
 - `quadrf-openocd`: the Raspberry Pi OpenOCD fork with RP1 GPIO support
 - `kasmvncserver`: the upstream KasmVNC release
 - `qradiolink`: the SDR transceiver used by the KasmVNC desktop launcher
+- `quadrf-mesh`: QuadRF Mesh (`quadrf-lora-phy`, `quadrf-meshtasticd`) from the [quadrf-mesh](https://github.com/radioroy/quadrf-mesh) release
 
 ## Additional setup documentation
 

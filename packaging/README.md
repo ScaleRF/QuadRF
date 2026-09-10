@@ -30,7 +30,7 @@ The workflow:
 
 - pulls or builds a cached `debian:trixie` arm64 builder image
   (`packaging/Dockerfile.builder`)
-- runs `make -C packaging quadrf openocd qradiolink kasmvnc repo`
+- runs `make -C packaging quadrf openocd qradiolink kasmvnc mesh repo`
 - imports `QUADRF_GPG_PRIVATE_KEY` and lets reprepro sign `Release`
 
 ## Maintainer builds
@@ -39,7 +39,7 @@ The same container path used in CI:
 
 ```bash
 ./packaging/build-in-container.sh quadrf
-./packaging/build-in-container.sh quadrf openocd qradiolink kasmvnc
+./packaging/build-in-container.sh quadrf openocd qradiolink kasmvnc mesh
 ```
 
 On an arm64 Debian trixie machine, without Docker:

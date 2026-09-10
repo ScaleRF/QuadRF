@@ -57,7 +57,7 @@ jobs:
           QUADRF_BUILD_IMAGE: ${{ steps.image.outputs.name }}
           QUADRF_GPG_PRIVATE_KEY: ${{ secrets.QUADRF_GPG_PRIVATE_KEY }}
           QUADRF_GPG_PASSPHRASE: ${{ secrets.QUADRF_GPG_PASSPHRASE }}
-        run: ./packaging/build-in-container.sh quadrf openocd qradiolink kasmvnc repo
+        run: ./packaging/build-in-container.sh quadrf openocd qradiolink kasmvnc mesh repo
 
       - name: Push builder image
         run: docker push "${{ steps.image.outputs.name }}" || true

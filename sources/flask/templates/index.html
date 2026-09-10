@@ -1877,7 +1877,15 @@
         }
 
         function resolveOpen(open) {
-            return isWebOpen(open) ? open : '';
+            if (!isWebOpen(open)) return '';
+            try {
+                const u = new URL(open, window.location.href);
+                if (u.port && window.location.hostname && window.location.hostname !== u.hostname) {
+                    u.hostname = window.location.hostname;
+                    return u.href;
+                }
+            } catch (e) {}
+            return open;
         }
 
         function applyAppState(data) {

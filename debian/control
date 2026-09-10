@@ -27,6 +27,7 @@ Depends: build-essential,
          quadrf-fpga (= ${binary:Version}),
          quadrf-gui (= ${binary:Version}),
          quadrf-gnuradio (= ${binary:Version}),
+         quadrf-mesh (>= 0.1.4),
          quadrf-network (= ${binary:Version}),
          quadrf-soapy (= ${binary:Version}),
          quadrf-ups (= ${binary:Version}),
@@ -34,7 +35,7 @@ Depends: build-essential,
 Description: software-defined radio appliance for the Raspberry Pi 5
  QuadRF turns a Raspberry Pi 5 and a Lattice ECP5 radio front-end into a
  self-contained SDR appliance: FPGA bring-up at boot, SoapySDR drivers, a web
- control panel, a remote desktop and the demo applications.
+ control panel, a remote desktop, QuadRF Mesh, and the demo applications.
  .
  This metapackage includes the compiler toolchain, headers, and demo
  source code. Install individual quadrf-* packages instead to build a

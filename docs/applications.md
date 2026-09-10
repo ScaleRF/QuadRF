@@ -23,6 +23,7 @@ The complete `quadrf` package ships with the following built-in applications:
 | **Camera Decoder** | Real-time NTSC demodulation of analog FPV video | Remote desktop |
 | **PSD Plot** | Live FFT power spectral density (1 to 4 channels) | Remote desktop |
 | **Near-Field Phasors** | Coherent 4x4 MIMO near-field phasors with TDM TX cycling | Remote desktop |
+| **QuadRF Mesh** | Experimental Meshtastic daemon and LoRa-compatible PHY | Control panel + remote desktop (`:9443`) |
 | **GNU Radio Companion** | Flowgraph development with QuadRF source/sink blocks | Remote desktop |
 | **QRadioLink** | Multi-mode digital voice and analog transceiver | Remote desktop |
 | **Terminal** | Appliance shell session | Remote desktop |

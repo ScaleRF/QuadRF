@@ -18,6 +18,7 @@ flowchart TB
     FLASK["Control panel (Flask)"]
     DEMOS["Included applications"]
     GRC["GNU Radio Companion"]
+    MESH["QuadRF Mesh"]
     SOAPY_CLI["SoapySDRUtil"]
   end
 
@@ -36,8 +37,10 @@ flowchart TB
   WEB --> FLASK
   WEB --> KASM
   WEB --> DEMOS
+  WEB --> MESH
   KASM --> DEMOS
   KASM --> GRC
+  KASM --> MESH
   TERM --> JTAG
   FLASK --> JTAG
   DEMOS --> KO
@@ -60,7 +63,7 @@ flowchart TB
 ## 2. Package Architecture
 
 QuadRF provides two top-level metapackages:
-- `quadrf`: Full appliance installation with remote desktop, graphical apps, GNU Radio, demo sources, and development headers.
+- `quadrf`: Full appliance installation with remote desktop, graphical apps, GNU Radio, QuadRF Mesh, demo sources, and development headers.
 - `quadrf-headless`: Minimal installation containing drivers, SoapySDR modules, web control panel, and network services without X11 or desktop software.
 
 ```mermaid
@@ -86,10 +89,11 @@ flowchart TB
     DESK["quadrf-desktop"]
     UPS["quadrf-ups"]
     GRC["quadrf-gnuradio"]
+    MESH["quadrf-mesh"]
     QRL["qradiolink"]
   end
 
-  FULL --> COMMON & BOOT & FPGA & SOAPY & GUI & NET & DEV & DEMOS & DESK & UPS & GRC
+  FULL --> COMMON & BOOT & FPGA & SOAPY & GUI & NET & DEV & DEMOS & DESK & UPS & GRC & MESH
   HEAD --> COMMON & BOOT & FPGA & SOAPY & GUI & NET
 
   BOOT --> COMMON
@@ -117,6 +121,7 @@ flowchart TB
 | `quadrf-demos` | Reference apps (Spatial RF Vision, PSD Plot, NTSC decoder, Near-Field Phasors) and source examples |
 | `quadrf-desktop` | KasmVNC desktop environment (`DISPLAY=:1`) with desktop launchers and triggers |
 | `quadrf-gnuradio` | Example GNU Radio Companion flowgraphs |
+| `quadrf-mesh` | QuadRF Mesh (LoRa-compatible PHY, Meshtastic daemon, desktop and control-panel launcher) |
 | `quadrf-ups` | Hardware battery monitor integration for the UPS HAT |
 
 ---

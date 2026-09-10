@@ -1,3 +1,14 @@
+quadrf (1.0.22) trixie; urgency=medium
+
+  * debian: Package quadrf-apply-callsign in quadrf-network
+  * common: Add system-wide CALLSIGN configuration parameter
+  * network: Namespace dhclient PID/lease paths and poll address state in watcher
+  * desktop: Use Onyx Openbox theme
+  * desktop: Use GNU Radio's icon
+  * debian: Depend on quadrf-mesh in the default metapackage
+
+ -- QuadRF Engineering <contact@ScaleRF.com>  Wed, 09 Sep 2026 17:11:06 -0700
+
 quadrf (1.0.21) trixie; urgency=medium
 
   * demos: pass --untimed to mpv and skip DSP on inactive raster lines
