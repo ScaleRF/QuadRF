@@ -1,3 +1,14 @@
+quadrf (1.0.23) trixie; urgency=medium
+
+  * debian: Pin quadrf-mesh 0.1.5
+  * demos: Enable all RX channels when Spatial RF Vision starts
+  * gui: fix callsign element wrapping
+  * gui: Add per-channel RX enables; honor TX mask on enable
+  * soapy, dsi: shrink TX queues; only one spare DSI frame
+  * gui: Move callsign edit from Network Setup to Transmit
+
+ -- QuadRF Engineering <contact@ScaleRF.com>  Thu, 10 Sep 2026 22:04:39 -0700
+
 quadrf (1.0.22) trixie; urgency=medium
 
   * debian: Package quadrf-apply-callsign in quadrf-network
