@@ -1,3 +1,9 @@
+quadrf (1.0.24) trixie; urgency=medium
+
+  * debian: Require the pinned quadrf-mesh version
+
+ -- QuadRF Engineering <contact@ScaleRF.com>  Thu, 10 Sep 2026 22:32:31 -0700
+
 quadrf (1.0.23) trixie; urgency=medium
 
   * debian: Pin quadrf-mesh 0.1.5
