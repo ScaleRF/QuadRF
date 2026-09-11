@@ -641,11 +641,21 @@
             gap: 0.45rem;
             justify-content: flex-end;
         }
+        .header-lead {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 0.75rem;
+            flex: 0 0 auto;
+            max-width: 100%;
+            min-width: 0;
+        }
         .callsign-row {
             display: flex;
             flex-wrap: wrap;
             align-items: center;
             gap: 0.45rem;
+            min-width: 0;
         }
         .hostname-edit {
             display: inline-flex;
@@ -662,7 +672,7 @@
         }
         .hostname-edit input {
             width: 9ch !important;
-            min-width: 4ch;
+            min-width: 0;
             max-width: 18ch;
             background: transparent !important;
             border: none !important;
@@ -841,7 +851,7 @@
             .panel { padding: 0.75rem; }
             .header-row { flex-direction: column; align-items: stretch; gap: 0.75rem; }
             .header-row h2 { justify-content: flex-start; }
-            .callsign-row { justify-content: flex-start; width: 100%; }
+            .header-lead { width: 100%; justify-content: flex-start; }
             .controls-row { justify-content: flex-start; width: 100%; }
             .beam-container {
                 flex-direction: column;
@@ -1033,6 +1043,7 @@
 
         <article class="panel panel-tx">
             <div class="header-row">
+                <div class="header-lead">
                 <h2><span class="indicator" style="background-color: var(--tx-color);"></span> Transmit</h2>
                 <div class="callsign-row">
                     <label class="hostname-edit" title="Station callsign (default NOCALL). Edit and Save.">
@@ -1040,6 +1051,7 @@
                         <input type="text" id="callsignInput" spellcheck="false" autocomplete="off" autocapitalize="characters" maxlength="16" value="{{ callsign|default('NOCALL') }}" data-applied="{{ callsign|default('NOCALL') }}" style="text-align: left; text-transform: uppercase;">
                     </label>
                     <button type="button" class="path-cfg hidden" id="callsignSave">Save</button>
+                </div>
                 </div>
                 <div class="controls-row">
                     <label class="chip chip-arm" title="Enable transmit">
