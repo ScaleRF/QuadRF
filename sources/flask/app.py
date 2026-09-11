@@ -302,6 +302,14 @@ def get_sdr_status(force=False):
                                 state['rx_gain_dbfs'] = round(20.0 * math.log10(thr / 180.0), 1) if thr > 0 else -40.0
                     elif line.startswith("- Interleaved Mode:"): 
                         rx_interleave_on = "ON" in line
+                    elif line.startswith("- Antennas enabled:"):
+                        parts = line.split(':', 1)
+                        if len(parts) > 1:
+                            ants = parts[1].strip()
+                            state['rx_ant1'] = '1' in ants
+                            state['rx_ant2'] = '2' in ants
+                            state['rx_ant3'] = '3' in ants
+                            state['rx_ant4'] = '4' in ants
                     elif line.startswith("- Auto Steer:"):
                         state['rx_auto_steer'] = "ON" in line
                     elif line.startswith("- Polarization:"):
@@ -738,9 +746,16 @@ def control_sdr():
             if str(value) == "4":
                 cmd.extend(["--rx", "antennas=15,interleave=1,tone_en=0"])
             elif str(value) == "1":
-                cmd.extend(["--rx", "antennas=15,interleave=0,tone_en=0"])
+                cmd.extend(["--rx", "interleave=0,tone_en=0"])
             elif str(value) == "test":
                 cmd.extend(["--rx", "interleave=0,tone_en=1"])
+        elif control_type == 'rx_ant_enables':
+            mask = 0
+            if value.get('a1'): mask |= 1
+            if value.get('a2'): mask |= 2
+            if value.get('a3'): mask |= 4
+            if value.get('a4'): mask |= 8
+            cmd.extend(["--rx", f"antennas={mask}"])
         elif control_type == 'rx_auto_steer':
             cmd.extend(["--rx", f"autosteer={1 if value else 0}"])
         elif control_type == 'rx_tone':
@@ -754,8 +769,18 @@ def control_sdr():
         elif control_type == 'tx_follow_rx':
             cmd.extend(["--tx", f"tx_follow_rx={1 if value else 0}"])
         elif control_type == 'tx_on_off':
-            if value:
-                cmd.extend(["--tx", "antennas=15"]) 
+            if isinstance(value, dict):
+                on = bool(value.get('on'))
+                mask = 0
+                if value.get('a1'): mask |= 1
+                if value.get('a2'): mask |= 2
+                if value.get('a3'): mask |= 4
+                if value.get('a4'): mask |= 8
+            else:
+                on = bool(value)
+                mask = 15
+            if on:
+                cmd.extend(["--tx", f"antennas={mask}"])
             else:
                 cmd.extend(["--tx", "off"])
         elif control_type == 'tx_freq':
@@ -787,10 +812,6 @@ def control_sdr():
         elif control_type == 'tx_phases':
             cmd.extend(["--tx", f"p1={float(value['p1']):.1f},p2={float(value['p2']):.1f},p3={float(value['p3']):.1f},p4={float(value['p4']):.1f}"])
 
-        # --- UNSUPPORTED / MOCKED FEATURES ---
-        if control_type in ['rx_analog_bw']:
-            return jsonify({"status": "success", "executed": f"{control_type} (Mocked)", "output": ""})
-            
         result = subprocess.run(cmd, check=True, text=True, capture_output=True, timeout=5.0)
         
         def delayed_broadcast():

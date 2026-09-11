@@ -378,9 +378,10 @@
             background: none;
             border: none;
             padding: 0;
-            margin: 0 0.4rem 0 auto;
-            width: auto;
-            height: auto;
+            margin: 0;
+            width: auto !important;
+            height: auto !important;
+            flex: 0 0 auto;
             display: inline;
             color: #fb7185;
             font-size: 0.75rem;
@@ -388,7 +389,6 @@
             line-height: 1.2;
             cursor: pointer;
             opacity: 0.7;
-            flex-shrink: 0;
             white-space: nowrap;
             text-decoration: underline;
             text-underline-offset: 0.15em;
@@ -888,6 +888,13 @@
                         <button type="button" class="chip" data-pol="lhcp" id="rxPolLhcpBtn">LHCP</button>
                         <button type="button" class="chip" data-pol="rhcp" id="rxPolRhcpBtn">RHCP</button>
                     </div>
+                    <div class="chip-row" id="rxAntEnablesRow">
+                        <span class="unit-text">Ch:</span>
+                        <label class="chip"><input type="checkbox" class="rx-ant-en" id="rxAnt1" checked> 1</label>
+                        <label class="chip"><input type="checkbox" class="rx-ant-en" id="rxAnt2" checked> 2</label>
+                        <label class="chip"><input type="checkbox" class="rx-ant-en" id="rxAnt3" checked> 3</label>
+                        <label class="chip"><input type="checkbox" class="rx-ant-en" id="rxAnt4" checked> 4</label>
+                    </div>
                     <div class="status-pill"><div class="indicator" id="rxPllIndicator"></div> PLL</div>
                 </div>
             </div>
@@ -946,7 +953,7 @@
 
 <div id="rx1AntennaGrp" class="control-group" style="padding: 0; background: transparent; border: none;">
     <div style="display: flex; justify-content: space-between; align-items: center; width: 100%; margin-bottom: 0.75rem; padding: 0 0.25rem;">
-        <label class="chip" id="rxAutoSteerContainer">
+        <label class="chip" id="rxAutoSteerContainer" title="Auto steer functions properly only when all four channels are enabled.">
             <input type="checkbox" id="rxAutoSteer" checked> Auto Steer
         </label>
         <label class="chip">
@@ -1042,7 +1049,7 @@
                         <span class="chip-stop">Disable</span>
                     </label>
                     <div class="chip-row">
-                        <span class="unit-text">Enables</span>
+                        <span class="unit-text">Ch:</span>
                         <label class="chip"><input type="checkbox" class="tx-ant-en" id="txAnt1" checked> 1</label>
                         <label class="chip"><input type="checkbox" class="tx-ant-en" id="txAnt2" checked> 2</label>
                         <label class="chip"><input type="checkbox" class="tx-ant-en" id="txAnt3" checked> 3</label>
@@ -1068,13 +1075,12 @@
                 <div class="control-group" id="txGainGroup">
                     <div class="setting-row">
                         <label>Tx Gain</label>
-                        <button type="button" id="txGainNotice" class="tx-notice">Notice</button>
                         <div class="value-group" style="gap: 0.5rem;">
                             <div class="value-group">
                                 <input type="number" id="txGainNum" value="30" class="readout-input">
                                 <span class="unit-text">dB</span>
                             </div>
-                            <label class="chip"><input type="checkbox" id="txAgc"> ALC</label>
+                            <button type="button" id="txGainNotice" class="tx-notice">Notice</button>
                         </div>
                     </div>
                     <div class="tx-gain-track">
@@ -1644,6 +1650,26 @@
         const TX_GAIN_CAP = 40;
         let txFullPower = false;
         let txNoticeClosedAtCap = false;
+        let lastRxAntMask = null;
+
+        function rxAntPayload() {
+            return {
+                a1: document.getElementById('rxAnt1').checked,
+                a2: document.getElementById('rxAnt2').checked,
+                a3: document.getElementById('rxAnt3').checked,
+                a4: document.getElementById('rxAnt4').checked
+            };
+        }
+        function rxAntMaskFromBoxes() {
+            const p = rxAntPayload();
+            return (p.a1 ? 1 : 0) | (p.a2 ? 2 : 0) | (p.a3 ? 4 : 0) | (p.a4 ? 8 : 0);
+        }
+        function applyRxAntMask(mask) {
+            document.getElementById('rxAnt1').checked = !!(mask & 1);
+            document.getElementById('rxAnt2').checked = !!(mask & 2);
+            document.getElementById('rxAnt3').checked = !!(mask & 4);
+            document.getElementById('rxAnt4').checked = !!(mask & 8);
+        }
 
         function setTxFullPower(unlocked) {
             txFullPower = !!unlocked;
@@ -1743,6 +1769,13 @@
                     el.dispatchEvent(new Event('change', { bubbles: true }));
                 }
             }
+            if(state.rx_ant1 !== undefined) updateCheckbox('rxAnt1', state.rx_ant1);
+            if(state.rx_ant2 !== undefined) updateCheckbox('rxAnt2', state.rx_ant2);
+            if(state.rx_ant3 !== undefined) updateCheckbox('rxAnt3', state.rx_ant3);
+            if(state.rx_ant4 !== undefined) updateCheckbox('rxAnt4', state.rx_ant4);
+            if (state.rx_ant1 !== undefined && document.getElementById('rxAntennaMode').value === '1') {
+                lastRxAntMask = rxAntMaskFromBoxes();
+            }
             if(state.rx_auto_steer !== undefined) { updateCheckbox('rxAutoSteer', state.rx_auto_steer); }
             if(state.rx_tone_freq !== undefined) { updateIfUnfocused('rxToneNum', state.rx_tone_freq); updateIfUnfocused('rxToneFreq', state.rx_tone_freq); }
 
@@ -1774,10 +1807,13 @@
             if(state.tx_freq !== undefined) { updateIfUnfocused('txFreqNum', state.tx_freq); updateIfUnfocused('txFreq', state.tx_freq); }
             if(state.tx_gain !== undefined) { updateIfUnfocused('txGainNum', state.tx_gain); updateIfUnfocused('txGain', state.tx_gain); }
             if(state.tx_on !== undefined) { updateCheckbox('txOnOff', state.tx_on); }
-            if(state.tx_ant1 !== undefined) updateCheckbox('txAnt1', state.tx_ant1);
-            if(state.tx_ant2 !== undefined) updateCheckbox('txAnt2', state.tx_ant2);
-            if(state.tx_ant3 !== undefined) updateCheckbox('txAnt3', state.tx_ant3);
-            if(state.tx_ant4 !== undefined) updateCheckbox('txAnt4', state.tx_ant4);
+            // --tx off clears E_TX; keep the Ch: boxes as the last user mask.
+            if (state.tx_on) {
+                if(state.tx_ant1 !== undefined) updateCheckbox('txAnt1', state.tx_ant1);
+                if(state.tx_ant2 !== undefined) updateCheckbox('txAnt2', state.tx_ant2);
+                if(state.tx_ant3 !== undefined) updateCheckbox('txAnt3', state.tx_ant3);
+                if(state.tx_ant4 !== undefined) updateCheckbox('txAnt4', state.tx_ant4);
+            }
             if(state.tx_tone_en !== undefined) {
                 const el = document.getElementById('txMode');
                 const targetVal = state.tx_tone_en ? "test" : "normal";
@@ -2469,19 +2505,31 @@
             const mode = e.target.value;
             const phaseGrp = document.getElementById('rx1AntennaGrp');
             const testGrp = document.getElementById('rxTestToneGrp');
+            const antRow = document.getElementById('rxAntEnablesRow');
 
             if (mode === '1') {
                 phaseGrp.classList.remove('hidden');
                 testGrp.classList.add('hidden');
+                antRow.classList.remove('hidden');
             } else if (mode === '4') {
                 phaseGrp.classList.add('hidden');
                 testGrp.classList.add('hidden');
+                antRow.classList.add('hidden');
             } else if (mode === 'test') {
                 phaseGrp.classList.add('hidden');
                 testGrp.classList.remove('hidden');
+                antRow.classList.add('hidden');
             }
-            
-            if (e.isTrusted) sendCommand('rx_antenna_mode', mode);
+
+            if (e.isTrusted) {
+                (async () => {
+                    await sendCommand('rx_antenna_mode', mode);
+                    if (mode === '1' && lastRxAntMask != null && lastRxAntMask !== 15) {
+                        applyRxAntMask(lastRxAntMask);
+                        await sendCommand('rx_ant_enables', rxAntPayload());
+                    }
+                })();
+            }
         });
 
         document.getElementById('rxControlModeToggle').addEventListener('change', (e) => {
@@ -2500,7 +2548,13 @@
         bindPhaseControls('rx');
 
         document.getElementById('txOnOff').addEventListener('change', (e) => {
-            if (e.isTrusted) sendCommand('tx_on_off', e.target.checked);
+            if (e.isTrusted) sendCommand('tx_on_off', {
+                on: e.target.checked,
+                a1: document.getElementById('txAnt1').checked,
+                a2: document.getElementById('txAnt2').checked,
+                a3: document.getElementById('txAnt3').checked,
+                a4: document.getElementById('txAnt4').checked
+            });
         });
 
         bindFreqControls('txFreq', 'txFreqNum', 'tx_freq');
@@ -2543,11 +2597,6 @@
             }
         });
 
-        document.getElementById('txAgc').addEventListener('change', (e) => {
-            txGainSlider.disabled = e.target.checked; txGainNum.disabled = e.target.checked;
-            if (e.isTrusted) sendCommand('tx_agc', e.target.checked);
-        });
-
         document.getElementById('txMode').addEventListener('change', (e) => {
             document.getElementById('txTestToneGrp').classList.toggle('hidden', e.target.value !== 'test');
             if (e.isTrusted) sendCommand('tx_mode', e.target.value);
@@ -2563,6 +2612,15 @@
             document.getElementById('txBeamVisualizerGrp').style.pointerEvents = isLocked ? 'none' : 'auto';
             document.getElementById('txManualPhaseGrp').style.opacity = isLocked ? '0.4' : '1';
             document.getElementById('txManualPhaseGrp').style.pointerEvents = isLocked ? 'none' : 'auto';
+        });
+
+        document.querySelectorAll('.rx-ant-en').forEach(cb => {
+            cb.addEventListener('change', (e) => {
+                if (e.isTrusted) {
+                    lastRxAntMask = rxAntMaskFromBoxes();
+                    sendCommand('rx_ant_enables', rxAntPayload());
+                }
+            });
         });
 
         document.querySelectorAll('.tx-ant-en').forEach(cb => {

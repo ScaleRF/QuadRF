@@ -310,7 +310,6 @@ int max2851_rx_on(int fd,
 
     if (set_antennas) {
         uint8_t m = (uint8_t)(rx_mask & 0x1Fu);
-        if (m == 0) m = 0x0Fu;
         const uint16_t reg6 = (uint16_t)(((uint16_t)m << 5) | (uint16_t)m);
         if (max2851_write_main(fd, 6, reg6) != 0) return -1;
         analog_written = true;
@@ -798,6 +797,22 @@ int max2851_status(int fd)
     printf("- AGC: %s (Setpoint: %u)\n", (agc_en & 0x0080) ? "Enabled" : "Disabled", agc_setpoint);
     printf("- Polarization: %s\n", (pol_val == 0x01) ? "RHCP" : "LHCP");
     printf("- Interleaved Mode: %s\n", (int_val == 0x01) ? "ON" : "OFF");
+
+    uint16_t e_rx = regs[6] & 0xF;
+    printf("- Antennas enabled: ");
+    if (e_rx == 0) {
+        printf("None\n");
+    } else {
+        bool first = true;
+        for (int i = 0; i < 4; i++) {
+            if (e_rx & (1 << i)) {
+                if (!first) printf(", ");
+                printf("%d", i + 1);
+                first = false;
+            }
+        }
+        printf("\n");
+    }
 
     uint16_t reg_2e=0, reg_2a=0, reg_2b=0;
     double tone_freq = 0.0;
