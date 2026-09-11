@@ -1291,6 +1291,38 @@ static void radio_cleanup_atexit(void)
     release_jtag_control();
 }
 
+/* Mesh (and --rx off) can leave E_RX as a single antenna or MODE=standby.
+ * FPGA 0x25/0x27/0x6A writes do not turn those analog paths back on. */
+static int setup_rx_for_sweep(int fd)
+{
+    int failed = 0;
+
+    if (max2851_write_main(fd, 6, 0x3FF) != 0)
+        failed++;
+    /* Main0: MODE=RX (010), analog RFBW=20 MHz (D1=0) to match digital k=12. */
+    if (max2851_write_main(fd, 0, 0x008) != 0)
+        failed++;
+
+    uint16_t val_6a = (uint16_t)(g_radio_state.fpga_6a & ~0x0080u);
+    if (jtag_write_u16(fd, 0x6A, val_6a) != 0)
+        failed++;
+    if (jtag_write_u16(fd, 0x25, 0x0001) != 0)
+        failed++;
+    if (jtag_write_u16(fd, 0x27, 12) != 0)
+        failed++;
+    if (jtag_write_u16(fd, 0x24, 0x0001) != 0)
+        failed++;
+
+    uint16_t val_2e = 0;
+    if (jtag_read_u16(fd, 0x2E, &val_2e) == 0) {
+        val_2e &= (uint16_t)~0x0003u;
+        if (jtag_write_u16(fd, 0x2E, val_2e) != 0)
+            failed++;
+    }
+
+    return failed ? -1 : 0;
+}
+
 static int adjust_rx_gain(int fd, int adjust)
 {
     uint16_t value = 0;
@@ -2517,20 +2549,8 @@ int main(int argc, char **argv)
     if (save_radio_state(fd) != 0)
         die("save_radio_state");
 
-    uint16_t val_6a = g_radio_state.fpga_6a;
-    
-    // 1. Disable AGC (Clear bit 0x0080 in reg 0x6A)
-    jtag_write_u16(fd, 0x6A, val_6a & ~0x0080);
-
-    // 2. Enable 4-channel interleave mode (reg 0x25 = 1)
-    jtag_write_u16(fd, 0x25, 0x0001);
-
-    // 3. Digital filter BW 20 MHz to match LO_STEP
-    //    k = 240 / target_bw = 240 / 20 = 12 (reg 0x27)
-    jtag_write_u16(fd, 0x27, 12);
-
-    // 4. Switch to RHCP (reg 0x24 = 1)
-    jtag_write_u16(fd, 0x24, 0x0001);
+    if (setup_rx_for_sweep(fd) != 0)
+        die("setup_rx_for_sweep");
 
     struct csi_ring_info ri;
     if (ioctl(fd, CSI_IOC_GET_RING_INFO, &ri) < 0) die("CSI_IOC_GET_RING_INFO");
