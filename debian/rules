@@ -15,6 +15,11 @@ override_dh_auto_configure:
 override_dh_missing:
 	dh_missing --fail-missing
 
+# The metapackage Depends on the mesh version in pins.env, same as it
+# pins the other quadrf-* packages to this release.
+override_dh_gencontrol:
+	. $(CURDIR)/packaging/pins.env && dh_gencontrol -- -Vquadrf:MeshVersion=$$QUADRF_MESH_VERSION
+
 # Units are installed via debian/*.install under lib/systemd/system so
 # bookworm's dh_installsystemd can see them (it does not look in usr/lib).
 # several names do not match the binary package (load-quadrf, quadrf-hotspot).

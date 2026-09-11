@@ -54,3 +54,16 @@ Artefacts land in `packaging/out/`. The builder image is tagged
 `quadrf-builder:trixie-<hash>` from `Dockerfile.builder` and `debian/control`.
 Override the image name with `QUADRF_BUILD_IMAGE`, or set `DEB_BUILD_OPTIONS`
 (default `parallel=$(nproc)`).
+
+## QuadRF Mesh
+
+`packaging/pins.env` is the mesh version copied into the apt repo. The `quadrf`
+metapackage Depends on that same version, so `apt upgrade quadrf` on a board
+installs it. To take a new upstream mesh release:
+
+```bash
+./packaging/thirdparty/pin-quadrf-mesh.sh          # latest GitHub release
+./packaging/thirdparty/pin-quadrf-mesh.sh v0.1.6
+```
+
+Commit `packaging/pins.env` and tag a QuadRF release.
