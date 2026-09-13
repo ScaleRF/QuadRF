@@ -1,3 +1,17 @@
+quadrf (1.0.25) trixie; urgency=medium
+
+  * demos: Accept Q or Escape to quit windowed apps
+  * ntsc: Invoke quadrf-ntsc-demod from PATH
+  * demos: Add Camera Encoder NTSC FM transmitter
+  * demos: Improve Camera Decoder and add controls, dumps, and FPV band hop
+  * soapy: Flush and zero-pad the DSI frame on TX END_BURST
+  * jtag: Treat MAX285x 0x3FF readback as lock-detect, not Main0
+  * demos: Keep nearfield TX tone inside the DSI frame budget
+  * fpga-csi driver improvements to fix glitching in rx data as seen in qradiolink
+  * minor clarity improvements
+
+ -- QuadRF Engineering <contact@ScaleRF.com>  Sun, 13 Sep 2026 16:49:52 -0700
+
 quadrf (1.0.24) trixie; urgency=medium
 
   * debian: Require the pinned quadrf-mesh version
