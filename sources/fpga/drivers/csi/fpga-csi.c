@@ -2,24 +2,26 @@
 //
 // Policy / high-level behavior:
 //
-//  ? Geometry is fixed at probe from DT/driver defaults:
+//  - Geometry is fixed at probe from DT/driver defaults:
 //      - acme,bytes-per-line
 //      - acme,lines
 //    If missing/invalid, we fall back to 1024x1024.
 //    CSI_IOC_SET_GEOMETRY is kept only for ABI compatibility and is a no-op.
-//  ? RAW8 vs RAW10 is inferred from:
+//  - RAW8 vs RAW10 is inferred from:
 //      - DT overlay (acme,raw-bits / acme,dt), or
 //      - userspace DT filter (CSI_IOC_SET_FILTER).
 //    RAW8 enables CH_CTRL_PACK_BYTES; RAW10 leaves it clear.
-//  ? CSI2-DMA runs as a single channel:
+//  - CSI2-DMA runs as a single channel with explicit buffer ownership:
 //
-//      - Per-span DMA into coherent buffers (DMA_BUF_COUNT).
-//      - Each FE/FE_ACK event pushes one span into a userspace byte ring,
-//        then immediately re-arms the next buffer.
-//      - Discard/overflow conditions trigger channel recovery + re-arm,
-//        even if FE never arrives.
-//  ? No explicit STOPSTATE wait or watchdog.
-//  ? Userspace typically reads from /dev/csi_stream0 via read(), poll(), or
+//      - Two DMA addresses are always posted: the current span and a shadow
+//        address for the immediately following span.
+//      - FE_ACK (or the next FS if FE_ACK coalesced) retires the completed
+//        buffer to an ordered high-priority copy workqueue.
+//      - DMA buffers move through FREE -> QUEUED -> ACTIVE -> COPY_PENDING.
+//      - With the default policy a full userspace ring drops the incoming
+//        complete span; a continuous CSI source cannot be backpressured.
+//  - No explicit STOPSTATE wait or watchdog.
+//  - Userspace typically reads from /dev/csi_stream0 via read(), poll(), or
 //    can mmap() the ring and use the ring IOCTLs defined in fpga_csi.h.
 //
 // Copyright (C) 2025
@@ -49,6 +51,7 @@
 #include <linux/kernel.h>
 #include <linux/delay.h>
 #include <linux/gpio/consumer.h>
+#include <linux/workqueue.h>
 
 #include "fpga_csi.h"
 
@@ -60,11 +63,12 @@
 static bool drop_oldest;
 module_param(drop_oldest, bool, 0444);
 MODULE_PARM_DESC(drop_oldest,
-                 "Drop oldest data when ring is full (default: 0=block)");
+                 "Overwrite oldest ring data when full "
+                 "(default: 0=drop incoming span)");
 
 /* -------- Userspace byte ring -------- */
 
-#define RING_ORDER   9      /* 2 MiB */
+#define RING_ORDER   9      /* 512 pages: 8 MiB with Pi 5's 16 KiB pages */
 #define RING_PAGES   (1u << RING_ORDER)
 #define RING_SIZE    (RING_PAGES << PAGE_SHIFT)
 
@@ -79,7 +83,6 @@ struct byte_ring {
     size_t       wpos;                 /* modulo size */
     spinlock_t   lock;
     wait_queue_head_t wq_read;         /* readers wait for data */
-    wait_queue_head_t wq_space;        /* producer waits for space */
 };
 
 static inline size_t r_used(const struct byte_ring *r)
@@ -92,45 +95,15 @@ static inline size_t r_space(const struct byte_ring *r)
     return r->size - 1 - r_used(r);
 }
 
-/*
- * Internal helper: copy from src into the ring, honoring drop_oldest.
- *
- * When drop_oldest==false:
- *   - May block until enough contiguous space is available for @len bytes.
- *   - Returns number of bytes actually written (==len unless interrupted).
- *
- * When drop_oldest==true:
- *   - On full ring, discards half the ring (amortizes wakeups) and
- *     increments *overflows.
- */
-static size_t r_write(struct byte_ring *r, const u8 *src, size_t len, bool allow_drop, u64 *overflows)
+/* Copy a complete span at wpos without publishing it to readers yet. */
+static void r_copy_in(struct byte_ring *r, size_t wpos,
+                      const u8 *src, size_t len)
 {
-    size_t written = 0;
-    while (len) {
-        size_t space = r_space(r);
-        if (!space) {
-            if (allow_drop) {
-                size_t give = r->size >> 1;      /* amortize wakeups */
-                r->rpos = (r->rpos + give) & (r->size - 1);
-                if (overflows) (*overflows)++;
-                continue;
-            }
-            break;
-        }
+    size_t first = min(len, r->size - wpos);
 
-        size_t mask = r->size - 1;
-        size_t wpos = r->wpos;
-        size_t chunk = min(len, min(space, r->size - (wpos & mask)));
-
-        memcpy(r->data + (wpos & mask), src, chunk);
-        src    += chunk;
-        len    -= chunk;
-        written += chunk;
-        r->wpos = (wpos + chunk) & mask;
-    }
-    if (written)
-        wake_up_interruptible(&r->wq_read);
-    return written;
+    memcpy(r->data + wpos, src, first);
+    if (first != len)
+        memcpy(r->data, src + first, len - first);
 }
 
 /* -------- RP1 CSI2-DMA / D-PHY / MIPIC -------- */
@@ -185,7 +158,7 @@ static inline void __iomem *ch_base(void __iomem *csi2, u32 ch)
 #define MIPIC_INTR           0x028 /* Raw interrupt status */
 #define MIPIC_INTE           0x02c /* Interrupt Enable */
 #define MIPIC_INTF           0x030 /* Interrupt Force */
-#define MIPIC_INTS           0x034 /* Masked Status (R) / Clear (W1C) */
+#define MIPIC_INTS           0x034 /* Masked interrupt status */
 #define  MIPIC_INT_CSI_DMA   BIT(0)
 #define  MIPIC_INT_CSI_HOST  BIT(2)
 #define  MIPIC_INT_PISP_FE   BIT(4)
@@ -228,12 +201,27 @@ static inline void __iomem *ch_base(void __iomem *csi2, u32 ch)
 #define CSI2_MODE_FE_STREAMING 3
 
 #define CSI_DMA_CHANNEL 0
-#define DMA_BUF_COUNT   4
+#define DMA_BUF_COUNT   16
+#define DMA_BUF_NONE    DMA_BUF_COUNT
 
-struct dma_buf {
-    void   *cpu;
+enum dma_buf_state {
+    DMA_BUF_FREE = 0,
+    DMA_BUF_QUEUED,
+    DMA_BUF_ACTIVE,
+    DMA_BUF_COPY_PENDING,
+};
+
+struct fpga_csi_dev;
+
+struct csi_dma_buffer {
+    void       *cpu;
     dma_addr_t dma;
-    size_t  size;
+    size_t      size;
+
+    struct work_struct copy_work;
+    struct fpga_csi_dev *cd;
+    u32          index;
+    enum dma_buf_state state;
 };
 
 struct fpga_csi_dev {
@@ -250,9 +238,18 @@ struct fpga_csi_dev {
     struct mutex         read_lock;
     atomic_t             stopping;
 
-    struct dma_buf       dbuf[DMA_BUF_COUNT];
-    u32                  cur_idx;
+    struct csi_dma_buffer dbuf[DMA_BUF_COUNT];
+    spinlock_t           dma_lock;
+    struct workqueue_struct *copy_wq;
+    u32                  active_idx;
+    u32                  next_idx;
+    u32                  alloc_cursor;
+    bool                 fs_seen;
+    bool                 streaming;
     size_t               dma_span;     /* bytes pushed to ring per FE span */
+
+    /* Complete-span losses in the software DMA/ring pipeline. */
+    atomic64_t           software_drops;
 
     struct csi_filter_cfg filter;      /* current VC/DT filter */
     struct csi_geometry   geom;        /* current geometry */
@@ -262,7 +259,6 @@ struct fpga_csi_dev {
     u32                  ov_dt;        /* 0x2A/0x2B when provided, else 0 */
 
     struct csi_stats      stats;
-    u32                   last_frame_id;
 
     /* Diagnostics */
     u64                   mipic_irq_total;
@@ -270,7 +266,13 @@ struct fpga_csi_dev {
     u64                   mipic_irq_host;
     u64                   mipic_irq_other;
     u64                   ch_irq_total;
+    u64                   ch_irq_fs;
     u64                   ch_irq_fe;
+    u64                   ch_irq_both;
+    u64                   inferred_fe;
+    u64                   recovery_count;
+    u64                   no_buffer_count;
+    u64                   inactive_irq_count;
 
     /* JTAG / FPGA register access via ECP5 USER1 (ER1) */
     struct gpio_desc     *jtag_tck;
@@ -395,7 +397,8 @@ static int dphy_init(struct fpga_csi_dev *cd)
 {
     void __iomem *d = cd->regs.dphy;
     u32 nlanes = 1;
-    u32 mbps = 640; /* default lane rate */
+    /* 640 selects the stable HSFREQRANGE bucket for this 350 MHz source. */
+    u32 mbps = 640;
     u32 nlanes_reg;
 
     if (!d)
@@ -453,7 +456,7 @@ static int dphy_init(struct fpga_csi_dev *cd)
         {1249, 0b101011 }, {1299, 0b111011 }, {1349, 0b001100 },
         {1399, 0b011100 }, {1449, 0b101100 }, {1500, 0b111100 },
     };
-    u8 code = 0b001000; /* ~640 Mbps default */
+    u8 code = 0b001000; /* 640 Mbps default */
 
     for (size_t i = 0; i < ARRAY_SIZE(htab) - 1; ++i) {
         if (mbps <= htab[i][0]) {
@@ -565,8 +568,10 @@ static void csi_start_channel(struct fpga_csi_dev *cd, u32 ch)
 
     /*
      * IRQs: FS + FE_ACK
-     *  - FE/FE_ACK used as span boundary and frame counter.
-     *  - PACK_LINE groups by line; AUTO_ARM advances automatically.
+     *  - The current and shadow addresses are posted before they are needed.
+     *  - FE_ACK retires current, promotes shadow, and posts a new shadow.
+     *  - AUTO_ARM remains disabled for direct CSI2-DMA operation.
+     *  - PACK_LINE groups the received payload by line.
      */
     ctrl = CH_CTRL_IRQ_FS_EN | CH_CTRL_IRQ_FE_ACK_EN |
            CH_CTRL_PACK_LINE; // | CH_CTRL_AUTO_ARM;
@@ -626,31 +631,19 @@ static void csi_dma_program_addr(struct fpga_csi_dev *cd, u32 ch, u32 buf_idx)
     wmb();
 }
 
-static void csi_dma_arm(struct fpga_csi_dev *cd, u32 ch, u32 buf_idx)
+static u32 csi_ack_status(struct fpga_csi_dev *cd)
 {
-    void __iomem *base = ch_base(cd->regs.csi2, ch);
+    u32 status = rd(cd, CSI2_STATUS);
 
-    csi_dma_program_addr(cd, ch, buf_idx);
-
-    /* Make sure DMA_EN stays asserted */
-    {
-        u32 ctrl = readl(base + CH_CTRL);
-
-        if (!(ctrl & CH_CTRL_DMA_EN))
-            writel(ctrl | CH_CTRL_DMA_EN, base + CH_CTRL);
-    }
+    /* Clearing the CSI2 source deasserts the MIPIC summary. */
+    if (status)
+        wr(cd, CSI2_STATUS, status);
+    return status;
 }
 
 static void csi_clear_pending_irqs(struct fpga_csi_dev *cd)
 {
-    u32 ints = rd_mipic(cd, MIPIC_INTR);
-    u32 status = rd(cd, CSI2_STATUS);
-
-    /* Both clear registers are W1C. */
-    if (ints)
-        wr_mipic(cd, MIPIC_INTS, ints);
-    if (status)
-        wr(cd, CSI2_STATUS, status);
+    csi_ack_status(cd);
     wmb();
 }
 
@@ -673,106 +666,394 @@ static void csi_hw_quiesce(struct fpga_csi_dev *cd)
     csi_clear_pending_irqs(cd);
 }
 
-static void csi_enable_streaming(struct fpga_csi_dev *cd)
+/* dma_lock must be held. */
+static u32 csi_find_free_buffer_locked(struct fpga_csi_dev *cd)
+{
+    u32 n;
+
+    for (n = 0; n < DMA_BUF_COUNT; n++) {
+        u32 idx = (cd->alloc_cursor + n) % DMA_BUF_COUNT;
+
+        if (cd->dbuf[idx].state == DMA_BUF_FREE) {
+            cd->alloc_cursor = (idx + 1) % DMA_BUF_COUNT;
+            return idx;
+        }
+    }
+
+    return DMA_BUF_NONE;
+}
+
+/* dma_lock must be held.  Post the front/current hardware queue entry. */
+static bool csi_queue_current_buffer_locked(struct fpga_csi_dev *cd)
+{
+    u32 idx;
+
+    if (!cd->streaming || cd->active_idx != DMA_BUF_NONE)
+        return cd->active_idx != DMA_BUF_NONE;
+
+    idx = csi_find_free_buffer_locked(cd);
+    if (idx == DMA_BUF_NONE) {
+        cd->no_buffer_count++;
+        return false;
+    }
+
+    cd->dbuf[idx].state = DMA_BUF_ACTIVE;
+    cd->active_idx = idx;
+    csi_dma_program_addr(cd, CSI_DMA_CHANNEL, idx);
+    return true;
+}
+
+/* dma_lock must be held.  Post the shadow entry for the following frame. */
+static bool csi_queue_next_buffer_locked(struct fpga_csi_dev *cd)
+{
+    u32 idx;
+
+    if (!cd->streaming || cd->next_idx != DMA_BUF_NONE)
+        return cd->next_idx != DMA_BUF_NONE;
+
+    idx = csi_find_free_buffer_locked(cd);
+    if (idx == DMA_BUF_NONE) {
+        cd->no_buffer_count++;
+        return false;
+    }
+
+    cd->dbuf[idx].state = DMA_BUF_QUEUED;
+    cd->next_idx = idx;
+    csi_dma_program_addr(cd, CSI_DMA_CHANNEL, idx);
+    return true;
+}
+
+static void csi_process_frame_events(struct fpga_csi_dev *cd,
+                                     bool fs_event, bool fe_event);
+
+static int csi_enable_streaming(struct fpga_csi_dev *cd)
 {
     void __iomem *ch = ch_base(cd->regs.csi2, CSI_DMA_CHANNEL);
+    unsigned long flags;
     u32 ctrl;
+    u32 i;
+    u32 status;
+    bool primed;
 
-    /* Begin from a clean status state.  All DMA buffers are valid now. */
+    /* Keep global CSI2 and MIPIC delivery masked until an address is valid. */
     csi_clear_pending_irqs(cd);
-    wr(cd, CSI2_IRQ_MASK, 0x00000000);
+    wr(cd, CSI2_DISCARDS_OVERFLOW, 0);
+    wr(cd, CSI2_DISCARDS_INACTIVE, 0);
+    wr(cd, CSI2_DISCARDS_UNMATCHED, 0);
+    wr(cd, CSI2_DISCARDS_LEN_LIMIT, 0);
 
-    /* CH_CTRL changes latch on CH_ADDR0.  Set DMA_EN, then latch it together
-     * with the first valid buffer and queue the second buffer. */
+    spin_lock_irqsave(&cd->dma_lock, flags);
+    for (i = 0; i < DMA_BUF_COUNT; i++)
+        cd->dbuf[i].state = DMA_BUF_FREE;
+    cd->active_idx = DMA_BUF_NONE;
+    cd->next_idx = DMA_BUF_NONE;
+    cd->alloc_cursor = 0;
+    cd->fs_seen = false;
+    cd->streaming = true;
+    spin_unlock_irqrestore(&cd->dma_lock, flags);
+
+    /* RP1 has a front address and a shadow address.  Both must be posted
+     * before IRQ delivery is enabled: waiting until FS/FE to post the second
+     * address leaves a frame-boundary race when IRQ service is delayed. */
     ctrl = readl(ch + CH_CTRL);
     writel(ctrl | CH_CTRL_DMA_EN, ch + CH_CTRL);
-    csi_dma_program_addr(cd, CSI_DMA_CHANNEL, 0);
-    csi_dma_program_addr(cd, CSI_DMA_CHANNEL, 1);
 
-    /* Enable delivery to Linux last; any pending event is now safe. */
+    spin_lock_irqsave(&cd->dma_lock, flags);
+    primed = csi_queue_current_buffer_locked(cd) &&
+             csi_queue_next_buffer_locked(cd);
+    spin_unlock_irqrestore(&cd->dma_lock, flags);
+
+    if (!primed) {
+        spin_lock_irqsave(&cd->dma_lock, flags);
+        cd->streaming = false;
+        spin_unlock_irqrestore(&cd->dma_lock, flags);
+        csi_hw_quiesce(cd);
+        return -ENOBUFS;
+    }
+
+    /* Process any frame event that arrived after the address became valid,
+     * then enable interrupt delivery.  This closes the startup FS race. */
+    status = csi_ack_status(cd);
+    csi_process_frame_events(cd,
+                             status & CSI2_STATUS_IRQ_FS(CSI_DMA_CHANNEL),
+                             status & CSI2_STATUS_IRQ_FE_ACK(CSI_DMA_CHANNEL));
+    wr(cd, CSI2_IRQ_MASK, 0x00000000);
     wr_mipic(cd, MIPIC_INTE,
              rd_mipic(cd, MIPIC_INTE) | MIPIC_INT_CSI_DMA);
     wmb();
+    return 0;
 }
 
-/* Push current DMA span to userspace ring */
-
-static void push_dma_to_ring(struct fpga_csi_dev *cd, u32 buf_idx, size_t nbytes)
+/*
+ * Publish one complete DMA span to userspace.  There is one ordered producer,
+ * so the memcpy can run without holding ring.lock: wpos is advanced only after
+ * the complete span is present.  This also avoids disabling or delaying the
+ * frame-start hard IRQ during a 128 KiB copy.
+ */
+static bool push_dma_to_ring(struct fpga_csi_dev *cd, u32 buf_idx,
+                             size_t nbytes)
 {
+    struct byte_ring *r = &cd->ring;
     const u8 *src = cd->dbuf[buf_idx].cpu;
+    unsigned long flags;
+    size_t wpos;
+    u64 lost_spans = 0;
 
     if (atomic_read(&cd->stopping))
-        return;
+        return false;
 
-    spin_lock(&cd->ring.lock);
-    if (!drop_oldest) {
-        while (r_space(&cd->ring) < nbytes) {
-            spin_unlock(&cd->ring.lock);
-            if (atomic_read(&cd->stopping))
-                return;
-            if (wait_event_interruptible(cd->ring.wq_space,
-                                         atomic_read(&cd->stopping) ||
-                                         r_space(&cd->ring) >= nbytes))
-                return; /* interrupted or stopping */
-            if (atomic_read(&cd->stopping))
-                return;
-            spin_lock(&cd->ring.lock);
+    spin_lock_irqsave(&r->lock, flags);
+    if (r_space(r) < nbytes) {
+        if (!drop_oldest) {
+            spin_unlock_irqrestore(&r->lock, flags);
+            atomic64_inc(&cd->software_drops);
+            return false;
+        }
+
+        /* Free at least one span and normally half the ring. */
+        {
+            size_t used = r_used(r);
+            size_t discard = min(used, max(nbytes, r->size >> 1));
+
+            r->rpos = (r->rpos + discard) & (r->size - 1);
+            lost_spans = DIV_ROUND_UP(discard, nbytes);
         }
     }
+
+    if (WARN_ON_ONCE(r_space(r) < nbytes)) {
+        spin_unlock_irqrestore(&r->lock, flags);
+        atomic64_add(lost_spans + 1, &cd->software_drops);
+        return false;
+    }
+
+    wpos = r->wpos;
+    spin_unlock_irqrestore(&r->lock, flags);
+
+    r_copy_in(r, wpos, src, nbytes);
+
+    spin_lock_irqsave(&r->lock, flags);
     if (atomic_read(&cd->stopping)) {
-        spin_unlock(&cd->ring.lock);
+        spin_unlock_irqrestore(&r->lock, flags);
+        if (lost_spans)
+            atomic64_add(lost_spans, &cd->software_drops);
+        return false;
+    }
+    if (WARN_ON_ONCE(r->wpos != wpos)) {
+        spin_unlock_irqrestore(&r->lock, flags);
+        atomic64_add(lost_spans + 1, &cd->software_drops);
+        return false;
+    }
+    r->wpos = (wpos + nbytes) & (r->size - 1);
+    spin_unlock_irqrestore(&r->lock, flags);
+
+    if (lost_spans)
+        atomic64_add(lost_spans, &cd->software_drops);
+    wake_up_interruptible(&r->wq_read);
+    return true;
+}
+
+static void csi_copy_work(struct work_struct *work)
+{
+    struct csi_dma_buffer *db =
+        container_of(work, struct csi_dma_buffer, copy_work);
+    struct fpga_csi_dev *cd = db->cd;
+    unsigned long flags;
+    size_t nbytes = min(cd->dma_span, db->size);
+
+    if (!atomic_read(&cd->stopping) &&
+        push_dma_to_ring(cd, db->index, nbytes))
+        cd->stats.dma_bytes += nbytes;
+
+    spin_lock_irqsave(&cd->dma_lock, flags);
+    if (WARN_ON_ONCE(db->state != DMA_BUF_COPY_PENDING)) {
+        spin_unlock_irqrestore(&cd->dma_lock, flags);
         return;
     }
-    /* Track ring drops (if enabled) separately from CSI overflows. */
-    r_write(&cd->ring, src, nbytes, drop_oldest,
-            drop_oldest ? &cd->stats.overflows_ring : NULL);
-    spin_unlock(&cd->ring.lock);
+
+    db->state = DMA_BUF_FREE;
+    if (!atomic_read(&cd->stopping) && cd->streaming) {
+        /* Normally only the shadow can be absent.  If staging was completely
+         * exhausted, the first worker to return also restarts the front slot. */
+        if (cd->active_idx == DMA_BUF_NONE)
+            csi_queue_current_buffer_locked(cd);
+        if (cd->active_idx != DMA_BUF_NONE &&
+            cd->next_idx == DMA_BUF_NONE)
+            csi_queue_next_buffer_locked(cd);
+    }
+    spin_unlock_irqrestore(&cd->dma_lock, flags);
 }
 
-/* ---- Channel recovery (no FE) ---- */
-
-static void csi_channel_recover(struct fpga_csi_dev *cd, u32 ch)
+/* dma_lock must be held. */
+static bool csi_promote_next_buffer_locked(struct fpga_csi_dev *cd)
 {
-    void __iomem *base = ch_base(cd->regs.csi2, ch);
-    u32 ctrl = readl(base + CH_CTRL);
+    u32 idx = cd->next_idx;
 
-    if (atomic_read(&cd->stopping))
+    if (idx == DMA_BUF_NONE)
+        return false;
+
+    cd->next_idx = DMA_BUF_NONE;
+    if (WARN_ON_ONCE(cd->dbuf[idx].state != DMA_BUF_QUEUED))
+        return false;
+
+    cd->dbuf[idx].state = DMA_BUF_ACTIVE;
+    cd->active_idx = idx;
+    return true;
+}
+
+/* dma_lock must be held. */
+static void csi_handle_fs_locked(struct fpga_csi_dev *cd)
+{
+    /* Current and shadow were posted ahead of time.  FS is therefore only an
+     * ordering marker; doing MMIO here would recreate the IRQ-latency race. */
+    if (cd->active_idx == DMA_BUF_NONE) {
+        cd->no_buffer_count++;
+        atomic64_inc(&cd->software_drops);
+    }
+    cd->fs_seen = true;
+}
+
+/* dma_lock must be held. */
+static void csi_handle_fe_locked(struct fpga_csi_dev *cd)
+{
+    u32 idx;
+
+    idx = cd->active_idx;
+    cd->active_idx = DMA_BUF_NONE;
+    cd->fs_seen = false;
+
+    /* No current entry means this frame was already counted lost at FS.
+     * Refill both hardware queue positions for the following frame. */
+    if (idx == DMA_BUF_NONE) {
+        csi_queue_current_buffer_locked(cd);
+        if (cd->active_idx != DMA_BUF_NONE)
+            csi_queue_next_buffer_locked(cd);
+        return;
+    }
+
+    if (WARN_ON_ONCE(cd->dbuf[idx].state != DMA_BUF_ACTIVE)) {
+        atomic64_inc(&cd->software_drops);
+        cd->no_buffer_count++;
+        csi_queue_current_buffer_locked(cd);
+        if (cd->active_idx != DMA_BUF_NONE)
+            csi_queue_next_buffer_locked(cd);
+        return;
+    }
+
+    cd->stats.frame_count++;
+    cd->dbuf[idx].state = DMA_BUF_COPY_PENDING;
+
+    /* The shadow is already armed in hardware.  Promote it first, then post
+     * its replacement before scheduling any lower-priority copy activity. */
+    if (!csi_promote_next_buffer_locked(cd)) {
+        cd->no_buffer_count++;
+        atomic64_inc(&cd->software_drops);
+        csi_queue_current_buffer_locked(cd);
+    }
+    if (cd->active_idx != DMA_BUF_NONE)
+        csi_queue_next_buffer_locked(cd);
+
+    if (WARN_ON_ONCE(!queue_work(cd->copy_wq,
+                                 &cd->dbuf[idx].copy_work))) {
+        atomic64_inc(&cd->software_drops);
+    }
+}
+
+static void csi_process_frame_events(struct fpga_csi_dev *cd,
+                                     bool fs_event, bool fe_event)
+{
+    unsigned long flags;
+
+    if (atomic_read(&cd->stopping) || (!fs_event && !fe_event))
         return;
 
-    /*
-     * Nudge HW to realign to an FE boundary and ensure DMA stays on.
-     * FLUSH_FE drops current in-flight frame; FORCE kicks the state
-     * machine to restart.
-     */
-    writel(ctrl | CH_CTRL_FLUSH_FE | CH_CTRL_FORCE, base + CH_CTRL);
-    wmb();
+    spin_lock_irqsave(&cd->dma_lock, flags);
 
-    /* Re-assert DMA_EN if it dropped */
-    ctrl = readl(base + CH_CTRL);
-    if (!(ctrl & CH_CTRL_DMA_EN))
-        writel(ctrl | CH_CTRL_DMA_EN, base + CH_CTRL);
+    if (!cd->streaming) {
+        spin_unlock_irqrestore(&cd->dma_lock, flags);
+        return;
+    }
 
-    /* Re-post the current buffer so HW is armed again */
-    csi_dma_arm(cd, ch, cd->cur_idx);
+    /* If both bits accumulated before service, their order depends on whether
+     * software had already observed the preceding FS. */
+    if (fs_event && fe_event && !cd->fs_seen) {
+        csi_handle_fs_locked(cd);
+        csi_handle_fe_locked(cd);
+    } else {
+        if (fe_event)
+            csi_handle_fe_locked(cd);
+        if (fs_event) {
+            /* A new FS proves the prior DMA span has ended.  RP1's reference
+             * driver retires that buffer when the prior FE IRQ was missed. */
+            if (cd->fs_seen) {
+                cd->inferred_fe++;
+                csi_handle_fe_locked(cd);
+            }
+            csi_handle_fs_locked(cd);
+        }
+    }
+
+    spin_unlock_irqrestore(&cd->dma_lock, flags);
 }
 
-/* ---- IRQs ---- */
+/* A fatal discard without FE can leave the direct-DMA channel unarmed.  Drop
+ * only the incomplete front span, flush the hardware queue, and restore the
+ * same current+shadow invariant used at startup. */
+static void csi_reprime_after_error(struct fpga_csi_dev *cd)
+{
+    void __iomem *ch = ch_base(cd->regs.csi2, CSI_DMA_CHANNEL);
+    unsigned long flags;
+    u32 ctrl;
+    u32 i;
 
-static irqreturn_t fpga_csi_irq_thread(int irq, void *data)
+    spin_lock_irqsave(&cd->dma_lock, flags);
+    if (!cd->streaming || atomic_read(&cd->stopping)) {
+        spin_unlock_irqrestore(&cd->dma_lock, flags);
+        return;
+    }
+
+    ctrl = readl(ch + CH_CTRL);
+    writel(ctrl | CH_CTRL_FORCE | CH_CTRL_FLUSH_FE, ch + CH_CTRL);
+    writel(0, ch + CH_ADDR0);
+    writel(0, ch + CH_ADDR0);
+    wmb();
+
+    if (cd->active_idx != DMA_BUF_NONE)
+        atomic64_inc(&cd->software_drops);
+
+    for (i = 0; i < DMA_BUF_COUNT; i++) {
+        if (cd->dbuf[i].state == DMA_BUF_ACTIVE ||
+            cd->dbuf[i].state == DMA_BUF_QUEUED)
+            cd->dbuf[i].state = DMA_BUF_FREE;
+    }
+    cd->active_idx = DMA_BUF_NONE;
+    cd->next_idx = DMA_BUF_NONE;
+    cd->fs_seen = false;
+    cd->recovery_count++;
+
+    /* CH_CTRL is latched by the following CH_ADDR0 write. */
+    ctrl &= ~(CH_CTRL_FORCE | CH_CTRL_FLUSH_FE);
+    writel(ctrl | CH_CTRL_DMA_EN, ch + CH_CTRL);
+    csi_queue_current_buffer_locked(cd);
+    if (cd->active_idx != DMA_BUF_NONE)
+        csi_queue_next_buffer_locked(cd);
+
+    spin_unlock_irqrestore(&cd->dma_lock, flags);
+}
+
+/* Hard IRQ: acknowledge quickly, update ownership, and defer only the copy. */
+static irqreturn_t fpga_csi_irq(int irq, void *data)
 {
     struct fpga_csi_dev *cd = data;
-    void __iomem *ch_reg_base = ch_base(cd->regs.csi2, CSI_DMA_CHANNEL);
-    u32 ints;
-    u32 status;
+    u32 ints = rd_mipic(cd, MIPIC_INTS);
+    u32 status = csi_ack_status(cd);
+    bool fs_event;
     bool fe_event;
-    bool fatal_err;
+    bool recover_event;
 
-    cd->mipic_irq_total++;
-
-    ints = rd_mipic(cd, MIPIC_INTS);
-    if (!ints)
+    if (!ints && !status)
         return IRQ_NONE;
 
+    cd->mipic_irq_total++;
     if (ints & MIPIC_INT_CSI_DMA)
         cd->mipic_irq_dma++;
     if (ints & MIPIC_INT_CSI_HOST)
@@ -780,28 +1061,9 @@ static irqreturn_t fpga_csi_irq_thread(int irq, void *data)
     if (ints & ~(MIPIC_INT_CSI_DMA | MIPIC_INT_CSI_HOST))
         cd->mipic_irq_other++;
 
-    /* Clear summary first (W1C) */
-    wr_mipic(cd, MIPIC_INTS, ints);
-
-    if (atomic_read(&cd->stopping)) {
-        status = rd(cd, CSI2_STATUS);
-        if (status)
-            wr(cd, CSI2_STATUS, status);
-        return IRQ_HANDLED;
-    }
-
-    /* If no CSI-DMA summary, still try to recover on HOST events */
-    if (!(ints & MIPIC_INT_CSI_DMA)) {
-        if (ints & MIPIC_INT_CSI_HOST)
-            csi_channel_recover(cd, CSI_DMA_CHANNEL);
-        return IRQ_HANDLED;
-    }
-
-    /* Read CSI2 status and clear (W1C) */
-    status = rd(cd, CSI2_STATUS);
+    /* CSI2_STATUS was cleared above, deasserting the MIPIC summary. */
     if (status)
         cd->ch_irq_total++;
-    wr(cd, CSI2_STATUS, status);
 
     /* Error/discard accounting */
     if (status & CSI2_STATUS_IRQ_OVERFLOW)
@@ -812,65 +1074,31 @@ static irqreturn_t fpga_csi_irq_thread(int irq, void *data)
         stats_add_discard(cd, CSI2_DISCARDS_LEN_LIMIT);
     if (status & CSI2_STATUS_IRQ_DISCARD_UNMATCHED)
         stats_add_discard(cd, CSI2_DISCARDS_UNMATCHED);
-    if (status & CSI2_STATUS_IRQ_DISCARD_INACTIVE)
+    if (status & CSI2_STATUS_IRQ_DISCARD_INACTIVE) {
+        cd->inactive_irq_count++;
         stats_add_discard(cd, CSI2_DISCARDS_INACTIVE);
-
-    fe_event = status & (CSI2_STATUS_IRQ_FE_ACK(CSI_DMA_CHANNEL)); // | CSI2_STATUS_IRQ_FE(CSI_DMA_CHANNEL));
-    fatal_err = status & (CSI2_STATUS_IRQ_OVERFLOW |
-                          CSI2_STATUS_IRQ_DISCARD_OVERFLOW |
-                          CSI2_STATUS_IRQ_DISCARD_LEN_LIMIT |
-                          CSI2_STATUS_IRQ_DISCARD_UNMATCHED |
-                          CSI2_STATUS_IRQ_DISCARD_INACTIVE);
-
-    if (fe_event) {
-        /* Update frame count from FE_FRAME_ID */
-        u32 fid = readl(ch_reg_base + CH_FE_FRAME_ID);
-
-        if (fid != cd->last_frame_id) {
-            cd->stats.frame_count++;
-            cd->last_frame_id = fid;
-        }
-        cd->ch_irq_fe++;
-
-        /* Transfer current DMA span and arm next */
-        {
-            u32 idx = cd->cur_idx;
-            size_t n = cd->dma_span;
-
-            if (n > cd->dbuf[idx].size)
-                n = cd->dbuf[idx].size;
-
-            push_dma_to_ring(cd, idx, n);
-            cd->stats.dma_bytes += n;
-
-            if (atomic_read(&cd->stopping))
-                return IRQ_HANDLED;
-
-            /* Advance the tracker to the currently active buffer */
-            cd->cur_idx = (idx + 1) % DMA_BUF_COUNT;
-            
-            /* Queue the NEXT buffer into the shadow register */
-            u32 shadow_idx = (cd->cur_idx + 1) % DMA_BUF_COUNT;
-            csi_dma_arm(cd, CSI_DMA_CHANNEL, shadow_idx);
-        }
-
-        /*
-         * If it was both FE and fatal, we've already advanced and
-         * re-armed; nothing else to do.
-         */
-        return IRQ_HANDLED;
     }
 
-    /* No FE, but fatal errors latched: recover and re-arm */
-    if (fatal_err)
-        csi_channel_recover(cd, CSI_DMA_CHANNEL);
+    fs_event = status & CSI2_STATUS_IRQ_FS(CSI_DMA_CHANNEL);
+    fe_event = status & CSI2_STATUS_IRQ_FE_ACK(CSI_DMA_CHANNEL);
+    recover_event = status & (CSI2_STATUS_IRQ_OVERFLOW |
+                              CSI2_STATUS_IRQ_DISCARD_OVERFLOW |
+                              CSI2_STATUS_IRQ_DISCARD_INACTIVE);
+
+    if (fs_event)
+        cd->ch_irq_fs++;
+    if (fe_event)
+        cd->ch_irq_fe++;
+    if (fs_event && fe_event)
+        cd->ch_irq_both++;
+
+    csi_process_frame_events(cd, fs_event, fe_event);
+
+    /* A valid FE already advances and refills the two-entry queue. */
+    if (recover_event && !fe_event)
+        csi_reprime_after_error(cd);
 
     return IRQ_HANDLED;
-}
-
-static irqreturn_t fpga_csi_irq_top(int irq, void *data)
-{
-    return IRQ_WAKE_THREAD;
 }
 
 /* -------- Char device ops -------- */
@@ -939,7 +1167,6 @@ static ssize_t csi_read(struct file *f, char __user *ubuf, size_t len, loff_t *p
 
             ubuf += to; len -= to; ret += to;
             cd->stats.bytes_out += to;
-            wake_up_interruptible(&cd->ring.wq_space);
         }
     }
 
@@ -953,8 +1180,10 @@ static __poll_t csi_poll(struct file *f, poll_table *wait)
     __poll_t mask = 0;
 
     poll_wait(f, &cd->ring.wq_read, wait);
+    spin_lock_irq(&cd->ring.lock);
     if (r_used(&cd->ring) > 0)
         mask |= POLLIN | POLLRDNORM;
+    spin_unlock_irq(&cd->ring.lock);
 
     return mask;
 }
@@ -994,6 +1223,10 @@ static int alloc_dma_buffers(struct fpga_csi_dev *cd, size_t span)
     }
 
     for (i = 0; i < DMA_BUF_COUNT; ++i) {
+        cd->dbuf[i].cd = cd;
+        cd->dbuf[i].index = i;
+        cd->dbuf[i].state = DMA_BUF_FREE;
+        INIT_WORK(&cd->dbuf[i].copy_work, csi_copy_work);
         cd->dbuf[i].size = alloc_sz;
         cd->dbuf[i].cpu = dma_alloc_coherent(cd->dev, alloc_sz,
                                              &cd->dbuf[i].dma, GFP_KERNEL);
@@ -1027,15 +1260,20 @@ static void free_dma_buffers(struct fpga_csi_dev *cd)
 
 static void csi_stop(struct fpga_csi_dev *cd)
 {
+    unsigned long flags;
+
     atomic_set(&cd->stopping, 1);
+
+    spin_lock_irqsave(&cd->dma_lock, flags);
+    cd->streaming = false;
+    spin_unlock_irqrestore(&cd->dma_lock, flags);
 
     if (!cd->regs.csi2)
         return;
 
     csi_hw_quiesce(cd);
 
-    /* Unblock any IRQ thread waiting on space or userspace reader */
-    wake_up_all(&cd->ring.wq_space);
+    /* Unblock userspace readers during teardown. */
     wake_up_all(&cd->ring.wq_read);
 }
 
@@ -1428,6 +1666,7 @@ static int csi_apply_geometry(struct fpga_csi_dev *cd,
 {
     struct csi_geometry geom = *g;
     size_t span;
+    int ret;
 
     if (geom.bytes_per_line < 64)
         return -EINVAL;
@@ -1475,10 +1714,10 @@ static int csi_apply_geometry(struct fpga_csi_dev *cd,
         cd->geom     = geom;
         cd->dma_span = span;
 
-        if (alloc_dma_buffers(cd, cd->dma_span))
-            return -ENOMEM;
+        ret = alloc_dma_buffers(cd, cd->dma_span);
+        if (ret)
+            return ret;
 
-        cd->cur_idx = 0;
         csi_start_channel(cd, CSI_DMA_CHANNEL);
 
     } else {
@@ -1518,7 +1757,26 @@ static long csi_ioctl(struct file *f, unsigned int cmd, unsigned long arg)
     }
     case CSI_IOC_GET_STATS: {
         struct csi_stats st = cd->stats;
+
+        st.ch_irq_total = cd->ch_irq_total;
+        st.ch_irq_fe = cd->ch_irq_fe;
+        st.overflows_ring = atomic64_read(&cd->software_drops);
         if (copy_to_user((void __user *)arg, &st, sizeof(st))) return -EFAULT;
+        return 0;
+    }
+    case CSI_IOC_GET_EVENTS: {
+        struct csi_event_stats ev = {
+            .irq_fs = cd->ch_irq_fs,
+            .irq_fe = cd->ch_irq_fe,
+            .irq_both = cd->ch_irq_both,
+            .inferred_fe = cd->inferred_fe,
+            .recoveries = cd->recovery_count,
+            .no_buffer = cd->no_buffer_count,
+            .inactive_irqs = cd->inactive_irq_count,
+        };
+
+        if (copy_to_user((void __user *)arg, &ev, sizeof(ev)))
+            return -EFAULT;
         return 0;
     }
     case CSI_IOC_DBG_PHY: {
@@ -1546,6 +1804,10 @@ static long csi_ioctl(struct file *f, unsigned int cmd, unsigned long arg)
             info.dphy_stopstate = readl(d + 0x04c);
         }
         info.csi2_status        = rd(cd, CSI2_STATUS);
+        info.csi2_discards_overflow  = rd(cd, CSI2_DISCARDS_OVERFLOW);
+        info.csi2_discards_inactive  = rd(cd, CSI2_DISCARDS_INACTIVE);
+        info.csi2_discards_unmatched = rd(cd, CSI2_DISCARDS_UNMATCHED);
+        info.csi2_discards_len_limit = rd(cd, CSI2_DISCARDS_LEN_LIMIT);
         info.mipic_cfg          = rd_mipic(cd, MIPIC_CFG);
         info.mipic_intr         = rd_mipic(cd, MIPIC_INTR);
         info.mipic_inte         = rd_mipic(cd, MIPIC_INTE);
@@ -1591,11 +1853,10 @@ static long csi_ioctl(struct file *f, unsigned int cmd, unsigned long arg)
             size_t used = r_used(&cd->ring);
             if (n > used) { spin_unlock_irq(&cd->ring.lock); return -EINVAL; }
             cd->ring.rpos = (cd->ring.rpos + n) & (cd->ring.size - 1);
+            cd->stats.bytes_out += n;
         }
         spin_unlock_irq(&cd->ring.lock);
 
-        /* Unblock producer if it was space-limited */
-        wake_up_interruptible(&cd->ring.wq_space);
         return 0;
     }
 
@@ -1629,7 +1890,7 @@ case CSI_IOC_JTAG_SETUP: {
             return -EFAULT;
 
         mutex_lock(&cd->jtag_lock);
-        
+
         /* THE MISSING LINK: Fail if someone else holds the lease */
         if (cd->jtag_owner && cd->jtag_owner != csi_ctx(f)) {
             ret = -EBUSY;
@@ -1638,7 +1899,7 @@ case CSI_IOC_JTAG_SETUP: {
             if (!ret)
                 ret = jtag_reg_write(cd, r.addr, r.value);
         }
-        
+
         mutex_unlock(&cd->jtag_lock);
         return ret;
     }
@@ -1652,7 +1913,7 @@ case CSI_IOC_JTAG_SETUP: {
             return -EFAULT;
 
         mutex_lock(&cd->jtag_lock);
-        
+
         /* THE MISSING LINK: Fail if someone else holds the lease */
         if (cd->jtag_owner && cd->jtag_owner != csi_ctx(f)) {
             ret = -EBUSY;
@@ -1661,7 +1922,7 @@ case CSI_IOC_JTAG_SETUP: {
             if (!ret)
                 ret = jtag_reg_read(cd, r.addr, &val);
         }
-        
+
         mutex_unlock(&cd->jtag_lock);
 
         if (ret)
@@ -1707,7 +1968,8 @@ case CSI_IOC_JTAG_SETUP: {
         struct csi_jtag_reg *regs;
         bool regs_heap = false;
         size_t regs_bytes;
-        int i, ret = 0;
+        u32 i;
+        int ret = 0;
 
         if (copy_from_user(&batch, (void __user *)arg, sizeof(batch)))
             return -EFAULT;
@@ -1803,7 +2065,7 @@ static int csi_release(struct inode *inode, struct file *f)
     cd = ctx->cd;
 
     mutex_lock(&cd->jtag_lock);
-    
+
     /* Drop lease if this process owned it */
     if (cd->jtag_owner == ctx) {
         cd->jtag_owner = NULL;
@@ -1991,11 +2253,22 @@ static int fpga_csi_probe(struct platform_device *pdev)
         return -ENOMEM;
     spin_lock_init(&cd->ring.lock);
     init_waitqueue_head(&cd->ring.wq_read);
-    init_waitqueue_head(&cd->ring.wq_space);
+    spin_lock_init(&cd->dma_lock);
     mutex_init(&cd->read_lock);
     mutex_init(&cd->jtag_lock);
     atomic_set(&cd->jtag_users, 0);
     atomic_set(&cd->stopping, 0);
+    atomic64_set(&cd->software_drops, 0);
+    cd->active_idx = DMA_BUF_NONE;
+    cd->next_idx = DMA_BUF_NONE;
+
+    cd->copy_wq = alloc_ordered_workqueue("%s-copy",
+                                          WQ_HIGHPRI | WQ_MEM_RECLAIM,
+                                          dev_name(cd->dev));
+    if (!cd->copy_wq) {
+        vfree(cd->ring.data);
+        return -ENOMEM;
+    }
 
     /* Defaults */
     cd->filter.enable_vc_filter = 0;
@@ -2036,7 +2309,15 @@ static int fpga_csi_probe(struct platform_device *pdev)
              cd->geom.bytes_per_line, cd->geom.lines, cd->dma_span);
 
     pm_runtime_enable(&pdev->dev);
-    pm_runtime_get_sync(&pdev->dev);
+    ret = pm_runtime_get_sync(&pdev->dev);
+    if (ret < 0) {
+        pm_runtime_put_noidle(&pdev->dev);
+        pm_runtime_disable(&pdev->dev);
+        destroy_workqueue(cd->copy_wq);
+        cd->copy_wq = NULL;
+        vfree(cd->ring.data);
+        return ret;
+    }
 
     /*
      * Auto-apply the overlay/driver default geometry at probe time.
@@ -2046,25 +2327,27 @@ static int fpga_csi_probe(struct platform_device *pdev)
      */
     csi_hw_quiesce(cd);
     ret = csi_apply_geometry(cd, &cd->geom);
-    if (ret && ret != -EBUSY) {
+    if (ret) {
         dev_err(&pdev->dev,
                 "failed to apply default geometry (bytes_per_line=%u, lines=%u): %d\n",
                 cd->geom.bytes_per_line, cd->geom.lines, ret);
         goto err_dma;
     }
 
-    /* request_threaded_irq() may invoke the handler immediately.  At this
-     * point the ring, all DMA buffers, and all handler-visible state are valid. */
-    ret = devm_request_threaded_irq(&pdev->dev, cd->irq,
-                                    fpga_csi_irq_top,
-                                    fpga_csi_irq_thread,
-                                    IRQF_ONESHOT, DRV_NAME, cd);
+    /* The hard handler may run immediately.  The ring, DMA pool, workqueue,
+     * and all ownership state are valid at this point. */
+    ret = devm_request_irq(&pdev->dev, cd->irq, fpga_csi_irq,
+                           0, DRV_NAME, cd);
     if (ret) {
         dev_err(&pdev->dev, "irq request failed: %d", ret);
         goto err_dma;
     }
 
-    csi_enable_streaming(cd);
+    ret = csi_enable_streaming(cd);
+    if (ret) {
+        dev_err(&pdev->dev, "failed to enable streaming: %d", ret);
+        goto err_irq;
+    }
 
     cd->miscdev.minor = MISC_DYNAMIC_MINOR;
     cd->miscdev.name  = DEV_NAME;
@@ -2087,9 +2370,10 @@ static int fpga_csi_probe(struct platform_device *pdev)
 err_irq:
     csi_stop(cd);
     devm_free_irq(&pdev->dev, cd->irq, cd);
-    /* An in-flight thread may have re-armed DMA before observing stopping. */
-    csi_hw_quiesce(cd);
 err_dma:
+    flush_workqueue(cd->copy_wq);
+    destroy_workqueue(cd->copy_wq);
+    cd->copy_wq = NULL;
     free_dma_buffers(cd);
     vfree(cd->ring.data);
     pm_runtime_put_sync(&pdev->dev);
@@ -2101,16 +2385,20 @@ static void fpga_csi_remove(struct platform_device *pdev)
 {
     struct fpga_csi_dev *cd = platform_get_drvdata(pdev);
 
-    /* Quiesce the hardware and wake any blocked IRQ thread before teardown. */
+    /* Prevent new opens before stopping the producer. */
+    misc_deregister(&cd->miscdev);
+
+    /* Quiesce the hardware before synchronizing the hard IRQ. */
     csi_stop(cd);
 
     /* Explicitly synchronize and release the IRQ before freeing DMA/ring memory. */
     devm_free_irq(&pdev->dev, cd->irq, cd);
 
-    /* Ensure an IRQ thread that was already running did not re-arm DMA. */
-    csi_hw_quiesce(cd);
+    /* No new copy work can be queued after free_irq(). */
+    flush_workqueue(cd->copy_wq);
+    destroy_workqueue(cd->copy_wq);
+    cd->copy_wq = NULL;
 
-    misc_deregister(&cd->miscdev);
     free_dma_buffers(cd);
     vfree(cd->ring.data);
     pm_runtime_put_sync(&pdev->dev);
@@ -2137,5 +2425,5 @@ module_platform_driver(fpga_csi_driver);
 
 MODULE_AUTHOR("Martin McCormick, Scale RF Inc.");
 MODULE_DESCRIPTION("RP1 CSI-2 RAW8/RAW10 DMA char device (/dev/csi_stream0) "
-                   "with error recovery and single-geometry setup");
+                   "with two-deep DMA queue and ordered copy pipeline");
 MODULE_LICENSE("GPL");

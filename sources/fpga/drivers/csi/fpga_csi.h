@@ -32,6 +32,7 @@ struct csi_ring_info {
 /* Note: accepted but ignored; geometry is fixed at probe from DT. */
 #define CSI_IOC_RESET        _IO(CSI_IOC_MAGIC,  0x06)
 /* Reserved for future soft-reset semantics; currently a no-op. */
+#define CSI_IOC_GET_EVENTS    _IOR(CSI_IOC_MAGIC, 0x07, struct csi_event_stats)
 
 #define CSI_IOC_GET_RING_INFO   _IOR(CSI_IOC_MAGIC, 0x40, struct csi_ring_info)
 
@@ -79,7 +80,7 @@ struct csi_stats {
     __u64 dma_bytes;         // bytes copied from DMA buffers to user ring
     __u64 bytes_out;         // bytes read() by userspace
     __u64 overflows;         // CSI overflow IRQs (not ring overflows)
-    __u32 frame_count;       // frames completed (FE-ACK observed)
+    __u32 frame_count;       // DMA spans completed (FE-ACK or inferred at next FS)
     __u64 ch_irq_total;      // total channel-related IRQs
     __u64 ch_irq_fe;         // FE-ACK IRQs observed
 
@@ -95,8 +96,22 @@ struct csi_stats {
     __u8  discards_unmatched_dt;
     __u8  discards_inactive_dt;
 
-    // Optional bookkeeping for ring buffer drops when drop_oldest=1
+    // Complete spans lost in the software DMA/ring pipeline
     __u64 overflows_ring;
+};
+
+/* ---- Frame-event / DMA-queue diagnostics (driver -> userspace) ----
+ * This is a separate ioctl so the existing csi_stats ABI and ioctl number
+ * remain unchanged for deployed SoapySDR binaries.
+ */
+struct csi_event_stats {
+    __u64 irq_fs;              // IRQ samples containing FS
+    __u64 irq_fe;              // IRQ samples containing FE_ACK
+    __u64 irq_both;            // IRQ samples containing both FS and FE_ACK
+    __u64 inferred_fe;         // FE completions inferred from the following FS
+    __u64 recoveries;          // channel re-primes after a fatal discard
+    __u64 no_buffer;           // failures to keep current + next addresses posted
+    __u64 inactive_irqs;       // IRQ samples reporting DISCARD_INACTIVE
 };
 
 /* ---- Link snapshot for quick diagnostics ---- */

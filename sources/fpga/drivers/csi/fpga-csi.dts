@@ -5,27 +5,21 @@
 	compatible = "brcm,bcm2712";
 
 	fragment@0 {
-		/* * Target the CSI0 node (CAM0 connector) using its label.
-		 * This is the cleaner, preferred way to do what your
-		 * target-path = "/axi/pcie@1000120000/rp1/csi@128000";
-		 * was doing.
-		 */
+		/* Use the CAM/DISP 1 connector on the Pi 5 */
 		target = <&csi1>;
 
 		__overlay__ {
-			/* * Add your driver's compatible string *first* in the list.
-			 * The kernel will try to bind "acme,fpga-csi-rx" first.
-			 * If that fails, it will fall back to the stock "brcm,rp1-csi" driver.
-			 */
 			compatible = "acme,fpga-csi-rx", "brcm,rp1-csi";
-			
+
 			/* Enable the node */
 			status = "okay";
 
 			/* Parameters */
 			acme,raw-bits = <8>;    /* set to <8> for RAW8 */
-			acme,dt = <0x2a>;    /* set to <8> for RAW8 */
-			acme,mbps   = <640>;  /* 437 lane rate in Mbps */
+			acme,dt = <0x2a>;    /* CSI-2 RAW8 data type */
+			/* D-PHY tuning selector: 640 chooses the stable range for the
+			 * measured 350 MHz DDR source (700 Mbps physical lane rate). */
+			acme,mbps   = <640>;
 			acme,nlanes = <4>;    /* number of data lanes */
 
 			acme,bytes-per-line = <1024>; /* 1024 pixels, RAW8 -> 1024 bytes */
