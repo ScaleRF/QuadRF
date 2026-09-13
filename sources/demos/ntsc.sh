@@ -24,6 +24,7 @@ fi
 demod_pid=""
 cleanup() {
   trap - EXIT INT TERM
+  rm -f /dev/shm/quadrf-ntsc-status* /tmp/quadrf-ntsc-status* /dev/shm/quadrf-ntsc-ctrl* /tmp/quadrf-ntsc-ctrl* 2>/dev/null || true
   if [ -n "$demod_pid" ]; then
     kill "$demod_pid" 2>/dev/null || true
     wait "$demod_pid" 2>/dev/null || true
@@ -34,12 +35,18 @@ trap cleanup EXIT INT TERM
 
 quadrf-jtag --rx autosteer=1,antennas=15,interleave=0,tone_en=0,bw=12.0,agc=-14.0,freq=5806
 
+DEMOD_BIN="quadrf-ntsc-demod"
+if [ -x /usr/bin/quadrf-ntsc-demod ]; then
+  DEMOD_BIN="/usr/bin/quadrf-ntsc-demod"
+elif [ -x /usr/local/bin/quadrf-ntsc-demod ]; then
+  DEMOD_BIN="/usr/local/bin/quadrf-ntsc-demod"
+fi
+
 # Wait for mpv only. q closes the window; SIGPIPE does not reach
 # quadrf-ntsc-demod if it is blocked in SoapySDR::readStream, so a
 # shell pipeline would leave the decoder holding CSI.
-exec {video_fd}< <(exec quadrf-ntsc-demod --bypass_iir true --disc atan2 --no_deemph --read_samps 65536 --flush_frames 1 \
-  --args "numBuffers=2,bufferLength=65536" \
-  --diag_hz 2 --hsync_min 25 --hsync_max 160 --sat 3.0 --hue -3.0)
+exec {video_fd}< <(exec "$DEMOD_BIN" --bypass_iir true --disc atan2 --no_deemph --read_samps 65536 \
+  --diag_hz 2 --sat 1.0 "$@")
 demod_pid=$!
 
 mpv --profile=low-latency --no-cache \

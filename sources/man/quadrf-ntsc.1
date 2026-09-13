@@ -21,21 +21,54 @@ reads IQ from the SoapySDR device, demodulates NTSC and writes raw yuyv422
 frames at 640x480 on standard output. It is usually driven by
 .BR quadrf-ntsc ,
 but the raw stream can equally be redirected to a file or piped into ffmpeg.
+.B --dump_ppm
+.I dir
+writes decoded frames as PPM stills;
+.B --dump_count
+.I n
+stops after
+.I n
+dumped frames (skip
+.B --dump_after
+frames first so lock can settle);
+.B --duration
+.I s
+exits after
+.I s
+seconds.
 .PP
 The launcher starts on Raceband 5 (5806 MHz) and shows a short on-screen
 reminder of the keys. The mpv window must have keyboard focus (click it).
 .SH KEYS
 .TP
 .BR Up ", " Down
-Step Raceband channel R1–R8 and retune the RX LO. The channel name and
-frequency flash on screen for about 1.5 s. Mouse wheel does the same.
+Step channel 1–8 in the current band and retune the RX LO. The channel
+name and frequency flash on screen for about 1.5 s. Mouse wheel does the
+same.
+.TP
+.BR Left ", " Right
+Change FPV band (Race, A, B, E, F). Channel number is kept (e.g. R5 to
+A5). Default band is Race.
+.TP
+.BR s ", " S
+Decrease or increase color saturation in steps of 10%.
+.TP
+.BR c
+Toggle between color and monochrome (grayscale) display.
+.TP
+.BR r
+Reset saturation to 100% color.
+.TP
+.BR ? ", " F1
+Toggle the on-screen command list / keyboard shortcuts reference.
 .TP
 .BR q ", " Escape
 Quit mpv (stops the decoder).
 .SH FILES
 .TP
 .I /usr/share/quadrf/ntsc_ch.lua
-mpv script that maps Up/Down onto
+mpv script that maps Up/Down onto channel and Left/Right onto band, then
+calls
 .BR quadrf-jtag (1)
 .IR freq= .
 .SH BUGS
