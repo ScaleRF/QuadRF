@@ -26,9 +26,28 @@
 #include <sys/mman.h>
 #include <sys/ioctl.h>
 #include <sys/poll.h>
+#include <time.h>
 #include <SDL2/SDL.h>
 
 #include "fpga_csi.h"
+
+#ifndef DSI_IOC_MAGIC
+#define DSI_IOC_MAGIC 'D'
+#endif
+struct dsi_fb_info {
+    uint64_t fb_bytes;
+    uint32_t fb_count;
+    uint32_t head;
+    uint32_t tail;
+    int32_t queued;
+    uint32_t _pad;
+};
+#ifndef DSI_IOC_GET_FB_INFO
+#define DSI_IOC_GET_FB_INFO _IOR(DSI_IOC_MAGIC, 0x10, struct dsi_fb_info)
+#endif
+#ifndef DSI_IOC_QUEUE_NEXT
+#define DSI_IOC_QUEUE_NEXT _IO(DSI_IOC_MAGIC, 0x11)
+#endif
 
 #define MAX2850_REG_ADDR 0x42
 #define MAX2851_REG_ADDR 0x43
@@ -68,15 +87,33 @@ static float g_phasor_q[NUM_CHANNELS][NUM_CHANNELS] = {0};
 // --- Fast DDS Look-Up Table (LUT) ---
 #define LUT_BITS 16
 #define LUT_SIZE (1 << LUT_BITS)
-static double cos_lut[LUT_SIZE];
-static double sin_lut[LUT_SIZE];
+static float cos_lut[LUT_SIZE];
+static float sin_lut[LUT_SIZE];
+static int8_t cos_i8[LUT_SIZE];
+static int8_t sin_i8[LUT_SIZE];
 
 void init_luts() {
     for (int i = 0; i < LUT_SIZE; i++) {
         double angle = (2.0 * M_PI * i) / LUT_SIZE;
-        cos_lut[i] = cos(angle);
-        sin_lut[i] = sin(angle);
+        double c = cos(angle);
+        double s = sin(angle);
+        cos_lut[i] = (float)c;
+        sin_lut[i] = (float)s;
+        cos_i8[i] = (int8_t)lround(127.0 * c);
+        sin_i8[i] = (int8_t)lround(127.0 * s);
     }
+}
+
+static void fill_tone_cs8(int8_t *dst, size_t samples, uint64_t *phase_acc, uint64_t phase_step)
+{
+    uint64_t acc = *phase_acc;
+    for (size_t i = 0; i < samples; i++) {
+        uint32_t idx = (uint32_t)(acc >> 32) >> (32 - LUT_BITS);
+        dst[i * 2 + 0] = cos_i8[idx];
+        dst[i * 2 + 1] = sin_i8[idx];
+        acc += phase_step;
+    }
+    *phase_acc = acc;
 }
 
 static int jtag_write_u16(int fd, uint8_t addr, uint16_t value) {
@@ -253,46 +290,101 @@ static int setup_radio(int fd) {
 }
 
 // --- Thread 1: Continuous TX Generation ---
+// Double-precision LUT + generate-after-poll was ~44 ms/frame under the RX
+// DDC load vs a 19.3 ms DSI frame. The scanout then held the last FB, which
+// is a ~0.13-cycle phase splice and makes the phasors jump/spin. int8 LUT
+// plus mmap/QUEUE_NEXT stays inside the frame budget.
 void* tx_thread_func(void* arg) {
     (void)arg;
     while (g_running && !g_radio_ready)
         usleep(1000);
     if (!g_running) return NULL;
 
-    int fd = open(TX_DEVICE, O_WRONLY | O_NONBLOCK);
+    int fd = open(TX_DEVICE, O_RDWR | O_NONBLOCK);
     if (fd < 0) { perror("TX open"); return NULL; }
 
-    const size_t tx_bytes = TX_PAYLOAD_BYTES; 
-    const size_t tx_samples = tx_bytes / 2; 
-    int8_t* tx_buf = malloc(tx_bytes);
-    
-    double scale_64 = 18446744073709551616.0; 
+    struct dsi_fb_info info = {0};
+    for (int i = 0; i < 200 && g_running; i++) {
+        if (ioctl(fd, DSI_IOC_GET_FB_INFO, &info) == 0 && info.fb_bytes && info.fb_count)
+            break;
+        usleep(5000);
+    }
+    if (!info.fb_bytes || !info.fb_count) {
+        info.fb_bytes = TX_PAYLOAD_BYTES;
+        info.fb_count = 3;
+    }
+
+    const size_t frame_bytes = (size_t)info.fb_bytes;
+    const uint32_t fb_count = info.fb_count;
+    const size_t tx_samples = frame_bytes / 2;
+    long page_size = sysconf(_SC_PAGESIZE);
+    size_t map_len = (size_t)fb_count * frame_bytes;
+    map_len = (map_len + (size_t)page_size - 1) & ~((size_t)page_size - 1);
+
+    int8_t *staging = mmap(NULL, map_len, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    const bool use_mmap = (staging != MAP_FAILED);
+    int8_t *tx_buf = NULL;
+    if (!use_mmap) {
+        perror("TX mmap, falling back to write()");
+        tx_buf = malloc(frame_bytes);
+        if (!tx_buf) { close(fd); return NULL; }
+    }
+
+    double scale_64 = 18446744073709551616.0;
     uint64_t phase_step = (uint64_t)((TONE_FREQ_HZ / EXACT_TX_RATE) * scale_64);
     uint64_t phase_acc = 0;
-    
+
     struct pollfd pfd = { .fd = fd, .events = POLLOUT };
+    struct timespec t_prev;
+    clock_gettime(CLOCK_MONOTONIC, &t_prev);
+    uint64_t queued_frames = 0, late_gaps = 0;
 
     while (g_running) {
-        if (poll(&pfd, 1, 10) > 0) {
-            uint64_t temp_acc = phase_acc;
-            for (size_t i = 0; i < tx_samples; i++) {
-                uint32_t phase_32 = (uint32_t)(temp_acc >> 32);
-                uint32_t idx = phase_32 >> (32 - LUT_BITS);
-                
-                tx_buf[i*2 + 0] = (int8_t)(127.0 * cos_lut[idx]); 
-                tx_buf[i*2 + 1] = (int8_t)(127.0 * sin_lut[idx]); 
-                temp_acc += phase_step; 
-            }
-            
-            ssize_t w = write(fd, tx_buf, tx_bytes);
-            if (w > 0) {
-                phase_acc += (w / 2) * phase_step;
-            } else if (w < 0 && errno != EAGAIN) {
+        if (poll(&pfd, 1, 10) <= 0)
+            continue;
+
+        int8_t *dst = tx_buf;
+        if (use_mmap) {
+            if (ioctl(fd, DSI_IOC_GET_FB_INFO, &info) != 0)
+                continue;
+            dst = staging + (size_t)(info.head % fb_count) * frame_bytes;
+        }
+        fill_tone_cs8(dst, tx_samples, &phase_acc, phase_step);
+
+        int queued_ok = 0;
+        if (use_mmap) {
+            if (ioctl(fd, DSI_IOC_QUEUE_NEXT) == 0)
+                queued_ok = 1;
+            else if (errno != EAGAIN)
                 break;
-            }
+        } else {
+            ssize_t w = write(fd, tx_buf, frame_bytes);
+            if (w == (ssize_t)frame_bytes)
+                queued_ok = 1;
+            else if (w < 0 && errno != EAGAIN)
+                break;
+        }
+        if (!queued_ok)
+            continue;
+
+        queued_frames++;
+        struct timespec t_now;
+        clock_gettime(CLOCK_MONOTONIC, &t_now);
+        double dt_ms = (t_now.tv_sec - t_prev.tv_sec) * 1e3
+                     + (t_now.tv_nsec - t_prev.tv_nsec) * 1e-6;
+        t_prev = t_now;
+        if (dt_ms > 25.0) {
+            late_gaps++;
+            if (late_gaps <= 4 || (late_gaps % 32) == 0)
+                fprintf(stderr, "tx: queue gap %.1f ms (frame %llu, total gaps %llu)\n",
+                        dt_ms, (unsigned long long)queued_frames,
+                        (unsigned long long)late_gaps);
         }
     }
-    free(tx_buf);
+    if (!use_mmap)
+        free(tx_buf);
+    else
+        munmap(staging, map_len);
     close(fd);
     return NULL;
 }
@@ -336,8 +428,8 @@ void* rx_thread_func(void* arg) {
     uint32_t flush_count = 0;
     uint32_t flush_target = FLUSH_SAMPLES; // Dynamic target
     int sample_count = 0;
-    double acc_i[NUM_CHANNELS] = {0};
-    double acc_q[NUM_CHANNELS] = {0};
+    float acc_i[NUM_CHANNELS] = {0};
+    float acc_q[NUM_CHANNELS] = {0};
     
     float local_phasor_i[NUM_CHANNELS][NUM_CHANNELS] = {0};
     float local_phasor_q[NUM_CHANNELS][NUM_CHANNELS] = {0};
@@ -412,16 +504,16 @@ void* rx_thread_func(void* arg) {
                     for (uint32_t n = 0; n < frames_contig; n++) {
                         uint32_t phase_32 = (uint32_t)(phase_acc >> 32);
                         uint32_t idx = phase_32 >> (32 - LUT_BITS);
-                        double ref_c = cos_lut[idx];
-                        double ref_s = sin_lut[idx];
+                        float ref_c = cos_lut[idx];
+                        float ref_s = sin_lut[idx];
 
                         if (!is_flushing) {
                             for (int ch = 0; ch < NUM_CHANNELS; ch++) {
                                 // Skip monostatic self-coupling (saves 25% CPU overhead in inner loop)
                                 if (ch == current_tx) continue;
 
-                                double rx_i = (double)src[n * BYTES_PER_FRAME + ch * 2 + 0] / 127.0;
-                                double rx_q = (double)src[n * BYTES_PER_FRAME + ch * 2 + 1] / 127.0;
+                                float rx_i = (float)src[n * BYTES_PER_FRAME + ch * 2 + 0] / 127.0f;
+                                float rx_q = (float)src[n * BYTES_PER_FRAME + ch * 2 + 1] / 127.0f;
                                 acc_i[ch] += (rx_i * ref_c + rx_q * ref_s);
                                 acc_q[ch] += (rx_q * ref_c - rx_i * ref_s);
                             }
@@ -432,8 +524,8 @@ void* rx_thread_func(void* arg) {
                                 for (int ch = 0; ch < NUM_CHANNELS; ch++) {
                                     if (ch == current_tx) continue;
 
-                                    float norm_i = (float)(acc_i[ch] / INTEGRATION_SAMPLES);
-                                    float norm_q = (float)(acc_q[ch] / INTEGRATION_SAMPLES);
+                                    float norm_i = acc_i[ch] / (float)INTEGRATION_SAMPLES;
+                                    float norm_q = acc_q[ch] / (float)INTEGRATION_SAMPLES;
                                     
                                     local_phasor_i[ch][current_tx] = (1.0f - EMA_ALPHA) * local_phasor_i[ch][current_tx] + EMA_ALPHA * norm_i;
                                     local_phasor_q[ch][current_tx] = (1.0f - EMA_ALPHA) * local_phasor_q[ch][current_tx] + EMA_ALPHA * norm_q;
@@ -441,8 +533,8 @@ void* rx_thread_func(void* arg) {
                                     g_phasor_i[ch][current_tx] = local_phasor_i[ch][current_tx];
                                     g_phasor_q[ch][current_tx] = local_phasor_q[ch][current_tx];
                                     
-                                    acc_i[ch] = 0.0;
-                                    acc_q[ch] = 0.0;
+                                    acc_i[ch] = 0.0f;
+                                    acc_q[ch] = 0.0f;
                                 }
                                 pthread_mutex_unlock(&g_phasor_mutex);
 
