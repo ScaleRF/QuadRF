@@ -118,7 +118,7 @@ flowchart TB
 | `quadrf-gui` | Flask control panel served on port 8080 |
 | `quadrf-network` | Nginx reverse proxy, dnsmasq DHCP/DNS, mDNS responder, and Wi-Fi mode management |
 | `quadrf-dev` | C++ headers (`fpga_csi.h`, `Farrow.hpp`), CMake configuration, and source trees under `/usr/src/` |
-| `quadrf-demos` | Reference apps (Spatial RF Vision, PSD Plot, NTSC decoder, Near-Field Phasors) and source examples |
+| `quadrf-demos` | Reference apps (Spatial RF Vision, PSD Plot, NTSC decoder/encoder, Near-Field Phasors) and source examples |
 | `quadrf-desktop` | KasmVNC desktop environment (`DISPLAY=:1`) with desktop launchers and triggers |
 | `quadrf-gnuradio` | Example GNU Radio Companion flowgraphs |
 | `quadrf-mesh` | QuadRF Mesh (LoRa-compatible PHY, Meshtastic daemon, desktop and control-panel launcher) |

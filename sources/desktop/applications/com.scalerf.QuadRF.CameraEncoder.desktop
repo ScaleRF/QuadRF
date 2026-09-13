@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Camera Encoder
+Comment=Transmit analog NTSC over 5.8 GHz FM
+Exec=xfce4-terminal -e quadrf-ntsc-tx
+TryExec=quadrf-ntsc-tx
+Icon=quadrf-video-encoder
+Terminal=false
+Categories=HamRadio;AudioVideo;
+X-QuadRF-Desktop=true

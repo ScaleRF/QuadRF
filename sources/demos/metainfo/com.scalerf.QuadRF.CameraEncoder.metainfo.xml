@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.scalerf.QuadRF.CameraEncoder</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <name>Camera Encoder</name>
+  <summary>Transmit analog NTSC video through QuadRF</summary>
+  <description>
+    <p>Camera Encoder builds a composite NTSC baseband from a still image, an MP4, or a built-in test card, FM-modulates it, and transmits on analog 5.8 GHz FPV channels. The matching Camera Decoder recovers the picture.</p>
+  </description>
+  <launchable type="desktop-id">com.scalerf.QuadRF.CameraEncoder.desktop</launchable>
+  <provides>
+    <binary>quadrf-ntsc-tx</binary>
+  </provides>
+  <url type="homepage">https://quadrf.com/</url>
+  <developer id="com.scalerf">
+    <name>Scale RF</name>
+  </developer>
+  <content_rating type="oars-1.1"/>
+</component>

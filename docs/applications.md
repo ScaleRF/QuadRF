@@ -21,6 +21,7 @@ The complete `quadrf` package ships with the following built-in applications:
 | --- | --- | --- |
 | **Spatial RF Vision** | Swept-LO phase scatter of the RF scene (30 fps) | Browser AR view at `/AR/` |
 | **Camera Decoder** | Real-time NTSC demodulation of analog FPV video | Remote desktop |
+| **Camera Encoder** | Analog NTSC FM transmit from a still, MP4, or test card | Remote desktop |
 | **PSD Plot** | Live FFT power spectral density (1 to 4 channels) | Remote desktop |
 | **Near-Field Phasors** | Coherent 4x4 MIMO near-field phasors with TDM TX cycling | Remote desktop |
 | **QuadRF Mesh** | Experimental Meshtastic daemon and LoRa-compatible PHY | Control panel + remote desktop (`:9443`) |
@@ -31,7 +32,7 @@ The complete `quadrf` package ships with the following built-in applications:
 | **Text Editor** | Mousepad editor | Remote desktop |
 | **Software Install** | DietPi package management interface | Remote desktop |
 
-The `quadrf-headless` package excludes the desktop environment and bundled graphical tools. To remove only the four hardware demonstration programs from a standard install:
+The `quadrf-headless` package excludes the desktop environment and bundled graphical tools. To remove only the hardware demonstration programs from a standard install:
 
 ```bash
 sudo apt remove quadrf-demos

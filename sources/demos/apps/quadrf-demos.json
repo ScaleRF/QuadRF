@@ -18,6 +18,14 @@
       "open": "desktop"
     },
     {
+      "id": "ntsc-tx",
+      "desktop_entry": "com.scalerf.QuadRF.CameraEncoder.desktop",
+      "service": "quadrf-ntsc-tx.service",
+      "binaries": ["quadrf-ntsc-tx", "quadrf-ntsc-mod"],
+      "exclusive": true,
+      "open": "desktop"
+    },
+    {
       "id": "psd",
       "desktop_entry": "com.scalerf.QuadRF.PSDPlot.desktop",
       "service": "quadrf-psd.service",

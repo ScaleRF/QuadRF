@@ -34,6 +34,10 @@ add_executable(quadrf-ntsc-demod ntsc_demod.cpp)
 target_compile_options(quadrf-ntsc-demod PRIVATE -ffast-math)
 target_link_libraries(quadrf-ntsc-demod PRIVATE QuadRF::quadrf)
 
+add_executable(quadrf-ntsc-mod ntsc_mod.cpp)
+target_compile_options(quadrf-ntsc-mod PRIVATE -ffast-math)
+target_link_libraries(quadrf-ntsc-mod PRIVATE QuadRF::quadrf)
+
 add_executable(quadrf-nearfield nearfield.c)
 target_link_libraries(quadrf-nearfield PRIVATE QuadRF::quadrf ${SDL2_LIBRARIES} m pthread)
 target_include_directories(quadrf-nearfield PRIVATE ${SDL2_INCLUDE_DIRS})

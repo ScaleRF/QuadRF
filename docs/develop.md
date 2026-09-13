@@ -44,6 +44,7 @@ make hello       # Sanity test: verifies CSI header and SoapySDR driver detectio
 make psd         # Live spectrum display using FFTW and SDL2
 make rf-vision   # 30 fps swept-LO phase scatter display
 make ntsc-demod  # Low-latency NTSC analog video demodulator
+make ntsc-mod    # NTSC FM transmitter (still, MP4, or test card)
 make nearfield   # 4x4 MIMO near-field phasor display
 ```
 
@@ -82,6 +83,15 @@ quadrf-jtag --rx autosteer=1,antennas=15,interleave=0,tone_en=0,bw=12.0,agc=-14.
   --script=/usr/share/quadrf/ntsc_ch.lua --osd-font-size=40 --osd-duration=1500 \
   --vo=x11 -
 ```
+
+To transmit a matching analog NTSC signal from another unit, tune the MAX2850 and run the modulator:
+
+```bash
+quadrf-jtag --tx antennas=15,bw=20,freq=5806,gain=20
+./quadrf-ntsc-mod --pattern bars --ch R5 --gain 20
+```
+
+`--input photo.png` or `--input clip.mp4` (ffmpeg) replace the built-in test card. Keep TX gain at or below 25 for close-range tests.
 
 ### Alternative: Building with CMake
 

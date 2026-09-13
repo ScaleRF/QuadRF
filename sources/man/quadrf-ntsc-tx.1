@@ -1,0 +1,74 @@
+.TH QUADRF-NTSC-TX 1 "September 2026" "QuadRF" "QuadRF"
+.SH NAME
+quadrf-ntsc-tx \- transmit analogue NTSC video
+.br
+quadrf-ntsc-mod \- NTSC FM modulator
+.SH SYNOPSIS
+.B quadrf-ntsc-tx
+.br
+.B quadrf-ntsc-mod
+.RI [ options ]
+.SH DESCRIPTION
+.B quadrf-ntsc-tx
+is the Camera Encoder launcher. It programmes the MAX2850 with
+.BR quadrf-jtag (1)
+and runs the modulator. The default picture is a built-in colour-bar still
+on Raceband 5 (5806 MHz). A small identification is burned into the
+lower-right corner:
+.B CALLSIGN
+from
+.IR /etc/quadrf/quadrf.conf ,
+or
+.B NOCALL
+when that field is unset (the factory default).
+.PP
+.B quadrf-ntsc-mod
+builds composite NTSC (sync, burst, luma and chroma) from a test pattern, a
+still image, or a video file, FM-modulates it at 8 times the colour subcarrier,
+and writes CS8 IQ to the SoapySDR TX stream. The waveform is meant to be
+decoded by
+.BR quadrf-ntsc-demod .
+.PP
+Environment for the launcher:
+.BR QUADRF_NTSC_TX_INPUT
+(image or MP4 path),
+.BR QUADRF_NTSC_TX_PATTERN
+(bars, smpte, grid, checker, white, black, red, green, blue),
+.BR QUADRF_NTSC_TX_CH
+(R1–R8),
+.BR QUADRF_NTSC_TX_GAIN
+(0–63; keep at or below 25 for close-range tests).
+.SH OPTIONS
+.TP
+.BI --pattern " name"
+Built-in still (default
+.BR bars ).
+.TP
+.BI --input " path"
+Image (looped) or video/MP4. A trailing
+.B .ppm
+is loaded without ffmpeg. Use
+.B --still
+to force a video file to a single frame.
+.TP
+.BI --ch " Rn"
+Raceband channel R1–R8 (default R5).
+.TP
+.BI --gain " n"
+TX gain 0–63 (default 20).
+.TP
+.BI --callsign " id"
+Override the burned-in identification. Default is
+.B CALLSIGN
+from
+.IR /etc/quadrf/quadrf.conf
+(factory default
+.BR NOCALL ).
+.TP
+.BI --duration " s"
+Stop after
+.I s
+seconds.
+.SH SEE ALSO
+.BR quadrf-ntsc (1),
+.BR quadrf-jtag (1)

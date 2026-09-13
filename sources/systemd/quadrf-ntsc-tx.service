@@ -1,0 +1,17 @@
+[Unit]
+Description=QuadRF Camera Encoder
+Wants=load-quadrf.service quadrf-desktop.service
+After=load-quadrf.service quadrf-desktop.service
+
+[Service]
+Type=simple
+# User, Group and HOME come from /etc/systemd/system/quadrf-ntsc-tx.service.d/
+User=root
+Environment=DISPLAY=:1
+ExecStart=/usr/bin/quadrf-ntsc-tx
+ExecStopPost=/usr/bin/quadrf-jtag --tx off
+TimeoutStopSec=8
+Restart=no
+
+[Install]
+WantedBy=multi-user.target
