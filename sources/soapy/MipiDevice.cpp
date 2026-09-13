@@ -1425,7 +1425,29 @@ int MipiDevice::writeStream(
         }
         
         txFloatBuf_.commitWrite(acceptPairs * 2);
-        txProduceToRing_(0);
+        txProduceToRing_(timeoutUs);
+
+        if (flags & SOAPY_SDR_END_BURST) {
+            txRingFlush_(timeoutUs);
+            if (txStaging_ && txFbBytes_ && txHeadOff_ > 0) {
+                uint8_t *dst = static_cast<uint8_t*>(txStaging_)
+                             + (size_t(txHeadIndex_) % size_t(txFbCount_)) * txFbBytes_
+                             + txHeadOff_;
+                const size_t padBytes = txFbBytes_ - txHeadOff_;
+                std::memset(dst, 0, padBytes);
+                std::atomic_thread_fence(std::memory_order_seq_cst);
+                if (fdTx_ >= 0) {
+                    ::ioctl(fdTx_, DSI_IOC_QUEUE_NEXT);
+                    SoapySDR::logf(SOAPY_SDR_INFO, "DSI_IOC_QUEUE_NEXT: burst end flushed %zu payload bytes, padded %zu zeros",
+                                   txHeadOff_, padBytes);
+                }
+                txHeadIndex_ = (txHeadIndex_ + 1) % txFbCount_;
+                txHeadOff_   = 0;
+                txFloatBuf_.reset();
+                txRing_.reset();
+            }
+        }
+
         return (int)acceptPairs;
     }
 
@@ -1455,7 +1477,27 @@ int MipiDevice::writeStream(
             if (wrote != reqBytes) return SOAPY_SDR_TIMEOUT;
         }
 
-        txRingFlush_(0);
+        txRingFlush_(timeoutUs);
+
+        if (flags & SOAPY_SDR_END_BURST) {
+            if (txStaging_ && txFbBytes_ && txHeadOff_ > 0) {
+                uint8_t *dst = static_cast<uint8_t*>(txStaging_)
+                             + (size_t(txHeadIndex_) % size_t(txFbCount_)) * txFbBytes_
+                             + txHeadOff_;
+                const size_t padBytes = txFbBytes_ - txHeadOff_;
+                std::memset(dst, 0, padBytes);
+                std::atomic_thread_fence(std::memory_order_seq_cst);
+                if (fdTx_ >= 0) {
+                    ::ioctl(fdTx_, DSI_IOC_QUEUE_NEXT);
+                    SoapySDR::logf(SOAPY_SDR_INFO, "DSI_IOC_QUEUE_NEXT (native): burst end flushed %zu payload bytes, padded %zu zeros",
+                                   txHeadOff_, padBytes);
+                }
+                txHeadIndex_ = (txHeadIndex_ + 1) % txFbCount_;
+                txHeadOff_   = 0;
+                txRing_.reset();
+            }
+        }
+
         return (int)reqElems;
     }
 }
@@ -1616,7 +1658,7 @@ ssize_t MipiDevice::tx_write_staging(const void *src, size_t bytes, long timeout
     const uint8_t *p = static_cast<const uint8_t*>(src);
     size_t remaining = bytes;
     size_t written   = 0;
-    int timeoutMs = (timeoutUs > 0) ? std::max<int>(1, int(timeoutUs / 1000)) : 0;
+    int timeoutMs = (timeoutUs > 0) ? std::max<int>(50, int(timeoutUs / 1000)) : 50;
 
     while (remaining)
     {
@@ -1775,7 +1817,7 @@ void MipiDevice::txProduceToRing_(long timeoutUs)
         }
     }
 
-    txRingFlush_(0);
+    txRingFlush_(timeoutUs);
 }
 
 void MipiDevice::txFlush_(long timeoutUs)
