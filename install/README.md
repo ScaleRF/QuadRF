@@ -94,12 +94,16 @@ echo "deb [signed-by=/etc/apt/keyrings/quadrf.gpg] https://scalerf.github.io/Qua
 sudo apt update
 sudo apt install quadrf
 
-# Required once after installation
-# quadrf-boot updates config.txt and the device-tree overlays.
+```
+Then reboot,
+```
+# Needed because quadrf-boot updates config.txt and the device-tree overlays.
 sudo reboot
 ```
 
-After the reboot, run the following command to check the services, CSI/DSI drivers, SoapySDR devices, and interface addresses:
+⚠️Note: After the reboot, the hostname is `quadrf.local`. 
+
+Run the following command to check the services, CSI/DSI drivers, SoapySDR devices, and interface addresses:
 
 ```bash
 quadrf status
@@ -109,7 +113,7 @@ quadrf status
 
 You now have an up-to-date QuadRF microSD image and can get started with the many QuadRF applications. See [scalerf.com/docs](https://scalerf.com/docs/) for more information.
 
-After the reboot, the hostname is `quadrf.local`. Open:
+Open:
 
 ```text
 http://quadrf.local/setup/security/
