@@ -122,6 +122,19 @@ static uint16_t max2851_lna_band_reg2_for_freq(double mhz)
     return 0x1E0;                    /* 11: 5.8ù5.9 GHz */
 }
 
+/* Main0 D0 is M/L_SEL. PLL lock-detect on DOUT is 0xFFFF; a leaked SPI
+ * read looks like payload 0x3FF (D0 set). Writing that parks the chip
+ * on the local map so later Main14/15ù17 accesses miss the synth. */
+static uint16_t main0_select_main_map(uint16_t r)
+{
+    return (uint16_t)(r & (uint16_t)~1u);
+}
+
+static bool spi_lock_detect_payload(uint16_t payload)
+{
+    return (payload & 0x3FFu) == 0x3FFu;
+}
+
 static uint16_t main0_force_mode_bw(uint16_t reg0_template, uint16_t mode_bits, int bw_mhz)
 {
     /* Main0: D[4:2]=MODE, D1=RFBW. Preserve other bits from template. */
@@ -135,7 +148,7 @@ static uint16_t main0_force_mode_bw(uint16_t reg0_template, uint16_t mode_bits, 
     r &= (uint16_t)~(1u << 1);
     if (bw_mhz == 40) r |= (uint16_t)(1u << 1);
 
-    return r;
+    return main0_select_main_map(r);
 }
 
 
@@ -274,6 +287,8 @@ static int max2851_read_main(int fd, uint16_t main_addr, uint16_t *out)
 
     if (max2851_word(fd, 14, orig_reg14) != 0) return -1;
     *out = val & 0x3FFu;
+    /* Main0 is never 0x3FF (reserved D[9:5] stay 0). All-ones is lock-detect. */
+    if (main_addr == 0 && spi_lock_detect_payload(*out)) return -1;
     return 0;
 }
 
@@ -289,12 +304,15 @@ int max2851_set_analog_bw(int fd, int bw_mhz)
     if (bw_mhz != 20) bw_mhz = 40;
 
     uint16_t r0 = 0;
-    if (max2851_read_main(fd, 0, &r0) != 0) return -1;
+    bool have_r0 = (max2851_read_main(fd, 0, &r0) == 0);
+    if (!have_r0)
+        r0 = (uint16_t)(max2851_base_regs[0] | (0x2u << 2)); /* MODE=RX */
 
+    r0 = main0_select_main_map(r0);
     uint16_t want = r0;
     want &= (uint16_t)~(1u << 1);
     if (bw_mhz == 40) want |= (uint16_t)(1u << 1);
-    if (want == r0) return 0;
+    if (have_r0 && want == r0) return 0;
 
     if (max2851_write_main(fd, 0, want) != 0) return -1;
     return max2851_restrobe_fpga_gain(fd);
@@ -317,7 +335,7 @@ int max2851_rx_on(int fd,
 
     uint16_t r0 = 0;
     bool have_r0 = (max2851_read_main(fd, 0, &r0) == 0);
-    uint16_t want = have_r0 ? r0 : 0;
+    uint16_t want = have_r0 ? main0_select_main_map(r0) : 0;
     want &= (uint16_t)~(0x7u << 2);
     want |= (uint16_t)(0x2u << 2); /* MODE=RX */
     if (bw_mhz == 20 || bw_mhz == 40) {
@@ -467,6 +485,9 @@ int max2850_tx_on(int fd,
     /* --- MODIFY STATE --- */
     // Strip down to the 10-bit payload
     current_reg0 &= 0x3FF;
+    if (spi_lock_detect_payload(current_reg0))
+        current_reg0 = (uint16_t)max2850_base_regs[0];
+    current_reg0 = main0_select_main_map(current_reg0);
 
     // Clear MODE (bits 4:2) and BW (bit 1)
     current_reg0 &= (uint16_t)~((0x7u << 2) | (1u << 1));
@@ -662,6 +683,9 @@ int max2850_status(int fd)
     uint32_t fdiv = ((r16 & 0x3FF) << 10) | (r17 & 0x3FF);
     double ratio = (double)idiv + ((double)fdiv / (double)(1<<20));
     double freq_mhz = ratio * 80.0;
+    bool spi_rb_dead = spi_lock_detect_payload(r15) &&
+                       spi_lock_detect_payload(r16) &&
+                       spi_lock_detect_payload(r17);
 
     // Gain (Main9 D9:D4)
     uint16_t tx_gain = (r9 >> 4) & 0x3F;
@@ -669,11 +693,18 @@ int max2850_status(int fd)
     printf("Tx:\n");
     printf("- PLL Lock: %s\n", pll_locked ? "LOCKED" : "UNLOCKED");
     printf("- Tx is %s\n", tx_on ? "ON" : "OFF");
-    printf("- LO Frequency: %.2f MHz\n", freq_mhz);
-    printf("- Gain: %d dB\n", tx_gain);
+    if (spi_rb_dead) {
+        printf("- LO Frequency: (SPI readback failed)\n");
+        printf("- Gain: (SPI readback failed)\n");
+    } else {
+        printf("- LO Frequency: %.2f MHz\n", freq_mhz);
+        printf("- Gain: %d dB\n", tx_gain);
+    }
     
     printf("- Antennas enabled: ");
-    if (e_tx == 0) {
+    if (spi_rb_dead) {
+        printf("(SPI readback failed)\n");
+    } else if (e_tx == 0) {
         printf("None\n");
     } else {
         bool first = true;
@@ -755,6 +786,10 @@ int max2851_status(int fd)
     uint32_t fdiv = ((r16 & 0x3FF) << 10) | (r17 & 0x3FF);
     double ratio = (double)idiv + ((double)fdiv / (double)(1<<20));
     double freq_mhz = ratio * 80.0;
+    /* 0x3FF in 15/16/17 is lock-detect on DOUT, not N=127 F=2^20-1 (10240 MHz). */
+    bool spi_rb_dead = spi_lock_detect_payload(r15) &&
+                       spi_lock_detect_payload(r16) &&
+                       spi_lock_detect_payload(r17);
 
     int bw = (r0 & (1 << 1)) ? 40 : 20;
 
@@ -784,9 +819,15 @@ int max2851_status(int fd)
 
     printf("Rx:\n");
     printf("- PLL Lock: %s\n", pll_locked ? "LOCKED" : "UNLOCKED");
-    printf("- LO Frequency: %.2f MHz\n", freq_mhz);
-    printf("- Gain: %d dB\n", report_gain_db);
-    printf("- Analog Bandwidth: %d MHz\n", bw);
+    if (spi_rb_dead) {
+        printf("- LO Frequency: (SPI readback failed)\n");
+        printf("- Gain: (SPI readback failed)\n");
+        printf("- Analog Bandwidth: (SPI readback failed)\n");
+    } else {
+        printf("- LO Frequency: %.2f MHz\n", freq_mhz);
+        printf("- Gain: %d dB\n", report_gain_db);
+        printf("- Analog Bandwidth: %d MHz\n", bw);
+    }
     
     if (digital_bw_k > 0) {
         printf("- Digital Bandwidth (k): %u (actual %.2f MHz)\n", digital_bw_k, 240.0 / digital_bw_k);
@@ -800,7 +841,9 @@ int max2851_status(int fd)
 
     uint16_t e_rx = regs[6] & 0xF;
     printf("- Antennas enabled: ");
-    if (e_rx == 0) {
+    if (spi_rb_dead) {
+        printf("(SPI readback failed)\n");
+    } else if (e_rx == 0) {
         printf("None\n");
     } else {
         bool first = true;
