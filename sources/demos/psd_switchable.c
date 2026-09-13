@@ -358,7 +358,7 @@ int main(void)
             if (ev.type == SDL_QUIT) quit = true;
             else if (ev.type == SDL_KEYDOWN)
             {
-                if (ev.key.keysym.sym == SDLK_ESCAPE) quit = true;
+                if (ev.key.keysym.sym == SDLK_ESCAPE || ev.key.keysym.sym == SDLK_q) quit = true;
 
                 // Toggle between 1-channel and 4-channel
                 if (ev.key.keysym.sym == SDLK_SPACE) {

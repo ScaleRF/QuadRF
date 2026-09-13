@@ -200,7 +200,7 @@ local function welcome()
     mp.osd_message(string.format(
         "Analog 5.8 GHz FPV · NTSC\n" ..
         "Up/Down: Channel   Left/Right: Band\n" ..
-        "s/S: Saturation    c: Mono/Color    ?: Help   q: Quit\n" ..
+        "s/S: Saturation    c: Mono/Color    ?: Help   q/Esc: Quit\n" ..
         "Current: %s  %d MHz", c.n, c.f), 5)
     apply_video_controls()
 end

@@ -39,6 +39,16 @@ Camera frame rate. Default: 30.
 .TP
 .BI \-\-cam_cmd " command"
 Replace the capture command. It must write raw I420 frames on standard output.
+.SH KEYS
+The SDL window must have keyboard focus (click it). Ignored in
+.B \-\-headless
+mode.
+.TP
+.BR Up ", " Down
+Raise or lower the plotted output fraction.
+.TP
+.BR q ", " Escape
+Quit.
 .SH FILES
 .TP
 .I /var/lib/quadrf/demos/ar_settings.json

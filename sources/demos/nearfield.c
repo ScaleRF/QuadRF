@@ -644,7 +644,8 @@ int main(void) {
     
     while (g_running) {
         while (SDL_PollEvent(&ev)) {
-            if (ev.type == SDL_QUIT || (ev.type == SDL_KEYDOWN && ev.key.keysym.sym == SDLK_ESCAPE)) {
+            if (ev.type == SDL_QUIT || (ev.type == SDL_KEYDOWN &&
+                (ev.key.keysym.sym == SDLK_ESCAPE || ev.key.keysym.sym == SDLK_q))) {
                 g_running = 0;
             }
             else if (ev.type == SDL_KEYDOWN) {

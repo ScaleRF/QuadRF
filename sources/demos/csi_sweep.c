@@ -2689,7 +2689,7 @@ int main(int argc, char **argv)
             {
                 if (e.type == SDL_QUIT) quit = true;
                 if (e.type == SDL_KEYDOWN) {
-                    if (e.key.keysym.sym == SDLK_ESCAPE) quit = true;
+                    if (e.key.keysym.sym == SDLK_ESCAPE || e.key.keysym.sym == SDLK_q) quit = true;
                     
                     // Fraction scaling
                     if (e.key.keysym.sym == SDLK_UP) {
