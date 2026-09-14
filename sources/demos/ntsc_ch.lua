@@ -99,10 +99,32 @@ local function show_ch()
     mp.osd_message(string.format("%s    %d MHz", c.n, c.f), 1.5)
 end
 
+-- Ask the decoder process that owns the active SoapySDR stream to retune.
+-- Starting quadrf-jtag here used to create a second, concurrent owner of the
+-- receiver and could deadlock both processes until they were killed.
+local function request_tune(freq_mhz)
+    local tmp_path = "/dev/shm/quadrf-ntsc-tune.tmp"
+    local final_path = "/dev/shm/quadrf-ntsc-tune"
+    local f = io.open(tmp_path, "w")
+    if not f then
+        tmp_path = "/tmp/quadrf-ntsc-tune.tmp"
+        final_path = "/tmp/quadrf-ntsc-tune"
+        f = io.open(tmp_path, "w")
+    end
+    if not f then return false end
+
+    f:write(string.format("freq=%d\n", freq_mhz))
+    f:close()
+    return os.rename(tmp_path, final_path) and true or false
+end
+
 local function apply_ch()
     local c = cur()
-    os.execute(string.format("quadrf-jtag --rx freq=%d >/dev/null 2>&1 &", c.f))
-    show_ch()
+    if request_tune(c.f) then
+        show_ch()
+    else
+        mp.osd_message("Tune request failed: cannot write control file", 2.5)
+    end
 end
 
 local function ch_up()

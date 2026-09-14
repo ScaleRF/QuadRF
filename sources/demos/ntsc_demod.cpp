@@ -1,6 +1,7 @@
 // ntsc_demod.cpp
 // apt-get install ffmpeg
-// g++ -O3 -march=native -ffast-math -std=c++17 ntsc_demod.cpp -o ntsc_demod -lSoapySDR
+// Build: g++ -O3 -march=native -mtune=native -ffast-math -flto -DNDEBUG
+//        -std=c++17 -pthread ntsc_demod.cpp -o quadrf-ntsc-demod -lSoapySDR
 // Efficient NTSC (composite) over FM demodulator using SoapySDR IQ input.
 // Focus: simple, robust steady-state decode on Raspberry Pi 5 (ARMv8 + NEON).
 
@@ -25,6 +26,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <memory>
+#include <mutex>
 #include <csignal>
 
 #if defined(__ARM_NEON) || defined(__ARM_NEON__)
@@ -134,11 +136,20 @@ public:
         : buffer(cap_power_of_two), capacity(cap_power_of_two), mask(cap_power_of_two - 1) {}
 
     size_t write_available() const {
-        return capacity - (head.load(std::memory_order_acquire) - tail.load(std::memory_order_relaxed));
+        // Producer owns head; acquire the consumer-owned tail before reusing slots.
+        return capacity - (head.load(std::memory_order_relaxed) - tail.load(std::memory_order_acquire));
     }
 
     size_t read_available() const {
-        return head.load(std::memory_order_relaxed) - tail.load(std::memory_order_acquire);
+        // Consumer owns tail; acquire the producer-owned head before reading data.
+        return head.load(std::memory_order_acquire) - tail.load(std::memory_order_relaxed);
+    }
+
+    bool empty_for_producer() const {
+        // Producer owns head; acquire the consumer-owned tail when waiting for
+        // old samples to drain during a stopped-stream retune.
+        return head.load(std::memory_order_relaxed) ==
+               tail.load(std::memory_order_acquire);
     }
 
     void push(const T* data, size_t count) {
@@ -331,11 +342,11 @@ struct Diag {
     std::atomic<uint64_t> read_calls{0}, read_samps{0}, read_timeouts{0}, read_errors{0};
     std::atomic<uint64_t> overflow_flags{0}, underflow_flags{0};
     std::atomic<uint64_t> lines_out{0}, hsync_ok{0}, hsync_bad{0}, vsync_like{0}, frames_out{0};
-    std::atomic<uint64_t> lock_drops{0}, forced_frames{0}, color_killed_lines{0};
+    std::atomic<uint64_t> lock_drops{0}, phase_snaps{0}, level_rejects{0};
+    std::atomic<uint64_t> forced_frames{0}, short_fields{0}, color_killed_lines{0};
     
     // Thread Health
     std::atomic<uint64_t> queue_full_stalls{0}, queue_empty_stalls{0};
-    std::atomic<uint64_t> iq_queue_full_stalls{0}, iq_queue_empty_stalls{0};
 
     float burst_amp = 0.0f, avg_burst_amp = 0.0f;
     float sync_mag = 0.0f, blank_level = 0.0f, sync_level = -0.5f;
@@ -344,7 +355,7 @@ struct Diag {
     float dpll_n_est = 0.0f, dpll_err = 0.0f, sync_thr = 0.0f;
     float dpll_tip = 0.0f, dpll_peak = 0.0f; 
     int   hsync_w = 0, lock = 0, color_locked = 0;
-    int   sync_locked = 0, is_mono = 0;
+    int   sync_locked = 0, vertical_trusted = 0, is_mono = 0;
     float curr_sat = 1.0f, curr_hue = 0.0f;
 
     float iq_mag_min = 1e9f;
@@ -354,43 +365,86 @@ struct Diag {
 
     uint32_t current_dropout_len = 0;
     uint32_t max_dropout_len = 0;
+    std::mutex rf_metrics_mutex;
     
     std::atomic<size_t> current_q_level{0};
     std::atomic<uint64_t> dropped_frames{0};
+    std::atomic<uint32_t> display_q_level{0}, display_q_high_water{0};
+    std::atomic<uint64_t> retune_count{0}, retune_failures{0}, last_retune_ns{0};
 
     // Signal Quality Metrics
     float subcarrier_err_hz = 0.0f, noise_floor = 0.0f;
+    float hsync_quality = 0.0f;
     float snr_db = 0.0f, fm_peak = 0.0f, chroma_jitter = 0.0f;
 
-    double t_rx = 0.0, t_fm = 0.0, t_decim = 0.0, t_pre = 0.0, t_ntsc = 0.0;
+    std::atomic<uint64_t> t_rx_ns{0}, t_fm_ns{0}, t_decim_ns{0}, t_pre_ns{0}, t_ntsc_ns{0};
 
-    void print(double fs_iq, double fs_vid, double wall_s, double proc_samps_per_s) {
-        float mean_fm = (fm_count > 0) ? (fm_acc / fm_count) : 0.0f;
-        float mean_mag = (fm_count > 0) ? (iq_mag_acc / fm_count) : 0.0f;
-        float freq_offset_hz = mean_fm * (fs_iq / (2.0f * (float)M_PI));
+    void print(double fs_iq, double wall_s, double interval_s,
+               double proc_samps_per_s) {
+        float snap_fm_peak = 0.0f;
+        float snap_iq_mag_min = 1e9f;
+        float snap_iq_mag_acc = 0.0f;
+        float snap_fm_acc = 0.0f;
+        uint64_t snap_fm_count = 0;
+        uint32_t snap_max_dropout_len = 0;
+        {
+            std::lock_guard<std::mutex> metrics_guard(rf_metrics_mutex);
+            snap_fm_peak = fm_peak;
+            snap_iq_mag_min = iq_mag_min;
+            snap_iq_mag_acc = iq_mag_acc;
+            snap_fm_acc = fm_acc;
+            snap_fm_count = fm_count;
+            snap_max_dropout_len = max_dropout_len;
+            fm_peak = 0.0f;
+            iq_mag_min = 1e9f;
+            iq_mag_acc = 0.0f;
+            fm_acc = 0.0f;
+            fm_count = 0;
+            max_dropout_len = 0;
+        }
+        float mean_fm = (snap_fm_count > 0) ?
+            (snap_fm_acc / (float)snap_fm_count) : 0.0f;
+        float mean_mag = (snap_fm_count > 0) ?
+            (snap_iq_mag_acc / (float)snap_fm_count) : 0.0f;
+        double freq_offset_hz = (double)mean_fm *
+            (fs_iq / (2.0 * M_PI));
+        const double ns_to_pct = (interval_s > 0.0) ? (100.0e-9 / interval_s) : 0.0;
+        const double rx_pct = (double)t_rx_ns.exchange(0, std::memory_order_relaxed) * ns_to_pct;
+        const double fm_pct = (double)t_fm_ns.exchange(0, std::memory_order_relaxed) * ns_to_pct;
+        const double decim_pct = (double)t_decim_ns.exchange(0, std::memory_order_relaxed) * ns_to_pct;
+        const double pre_pct = (double)t_pre_ns.exchange(0, std::memory_order_relaxed) * ns_to_pct;
+        const double ntsc_pct = (double)t_ntsc_ns.exchange(0, std::memory_order_relaxed) * ns_to_pct;
+        const uint32_t display_level = display_q_level.load(std::memory_order_relaxed);
+        const uint32_t display_high = display_q_high_water.exchange(display_level, std::memory_order_relaxed);
+        const uint64_t retunes = retune_count.exchange(0, std::memory_order_relaxed);
+        const uint64_t retune_errors = retune_failures.exchange(0, std::memory_order_relaxed);
+        const double retune_ms = (double)last_retune_ns.load(std::memory_order_relaxed) * 1.0e-6;
 
         std::cerr
             << "[diag] wall=" << wall_s << "s  proc=" << proc_samps_per_s / 1e6 << " Msps  "
-            << "iq_full=" << iq_queue_full_stalls.exchange(0) << "  vid_full=" << queue_full_stalls.exchange(0)
-            << "  q_empty=" << queue_empty_stalls.exchange(0) << "\n"
+            << "vid_full=" << queue_full_stalls.exchange(0)
+            << "  q_empty=" << queue_empty_stalls.exchange(0)
+            << "  video_q=" << current_q_level.load(std::memory_order_relaxed) << "\n"
+            << "       load: producer=" << (fm_pct + decim_pct) << "% (fm=" << fm_pct
+            << " decim=" << decim_pct << ")  consumer=" << (pre_pct + ntsc_pct)
+            << "% (pre=" << pre_pct << " ntsc=" << ntsc_pct << ")  read=" << rx_pct << "%\n"
             << "       lines=" << lines_out.load() << "  frames=" << frames_out.load() 
-            << " (" << forced_frames.load() << " forced, " << dropped_frames.load() << " dropped)  v_sync=" << vsync_like.load() << "\n"
+            << " (" << forced_frames.load() << " forced, " << short_fields.load()
+            << " short rejected, " << dropped_frames.load() << " dropped)"
+            << "  display_q=" << display_level << "/" << display_high << "  v_sync=" << vsync_like.load() << "\n"
+            << "       retune+=" << retunes << "  retune_err+=" << retune_errors
+            << "  last_retune=" << retune_ms << " ms\n"
             << "       h_ok=" << hsync_ok.load() << "  h_bad=" << hsync_bad.load()
-            << "  drops=" << lock_drops.load() << "  dpllE=" << dpll_err << "\n"
-            << "       FM_peak=" << fm_peak << "  FM_DC=" << mean_fm << " (" << freq_offset_hz / 1e6 << " MHz)\n"
-            << "       IQ_mag_min=" << iq_mag_min << "  IQ_mag_avg=" << mean_mag 
-            << "  max_drop_samps=" << max_dropout_len << "\n"
+            << "  h_q=" << hsync_quality << "  v_trust=" << vertical_trusted
+            << "  drops=" << lock_drops.load() << "  snaps=" << phase_snaps.load()
+            << "  dpllE=" << dpll_err << "  level_rej=" << level_rejects.load()
+            << "  conceal=" << color_killed_lines.load() << "\n"
+            << "       FM_peak=" << snap_fm_peak << "  FM_DC=" << mean_fm << " (" << freq_offset_hz / 1e6 << " MHz)\n"
+            << "       IQ_mag_min=" << snap_iq_mag_min << "  IQ_mag_avg=" << mean_mag
+            << "  max_drop_samps=" << snap_max_dropout_len << "\n"
             << "       SNR=" << snr_db << " dB  white=" << white_lvl << "  sync=" << sync_level << "\n"
             << "       c_lock=" << color_locked << "  fsc_err=" << subcarrier_err_hz << " Hz  c_jitter=" << chroma_jitter << "\n";
         
-        t_rx = t_fm = t_decim = t_pre = t_ntsc = 0.0;
-        fm_peak = 0.0f; 
-        iq_mag_min = 1e9f;
-        iq_mag_acc = 0.0f;
-        fm_acc = 0.0f;
-        fm_count = 0;
-        max_dropout_len = 0; // Reset max for the next period
-
         // Export telemetry to status file for mpv Diagnostic HUD
         FILE* sf = std::fopen("/dev/shm/quadrf-ntsc-status.tmp", "w");
         const char* final_path = "/dev/shm/quadrf-ntsc-status";
@@ -402,15 +456,21 @@ struct Diag {
             float clean_snr = (sync_locked && snr_db > 2.0f && snr_db < 55.0f) ? snr_db : 0.0f;
             std::fprintf(sf,
                 "sync_locked=%d\n"
+                "vertical_trusted=%d\n"
                 "color_locked=%d\n"
                 "snr=%.1f\n"
                 "freq_offset=%.3f\n"
                 "h_ok=%lu\n"
                 "h_bad=%lu\n"
+                "h_quality=%.3f\n"
                 "dpll_err=%.2f\n"
                 "fsc_err=%.1f\n"
                 "c_jitter=%.3f\n"
                 "drops=%lu\n"
+                "phase_snaps=%lu\n"
+                "level_rejects=%lu\n"
+                "concealed_lines=%lu\n"
+                "short_fields=%lu\n"
                 "lines=%lu\n"
                 "frames=%lu\n"
                 "sat=%.2f\n"
@@ -418,15 +478,21 @@ struct Diag {
                 "mono=%d\n"
                 "wall=%.1f\n",
                 sync_locked,
+                vertical_trusted,
                 color_locked,
                 clean_snr,
                 freq_offset_hz / 1e6f,
                 (unsigned long)hsync_ok.load(),
                 (unsigned long)hsync_bad.load(),
+                hsync_quality,
                 dpll_err,
                 subcarrier_err_hz,
                 chroma_jitter,
                 (unsigned long)lock_drops.load(),
+                (unsigned long)phase_snaps.load(),
+                (unsigned long)level_rejects.load(),
+                (unsigned long)color_killed_lines.load(),
+                (unsigned long)short_fields.load(),
                 (unsigned long)lines_out.load(),
                 (unsigned long)frames_out.load(),
                 curr_sat,
@@ -603,6 +669,8 @@ struct FastDecim2 {
 
     FastDecim2() { std::memset(hist, 0, sizeof(hist)); buf.reserve(131072); }
 
+    void reset() { std::memset(hist, 0, sizeof(hist)); }
+
     int process_block(const float* in, int n, float* out) {
         if (n == 0) return 0;
         buf.resize(n + HIST + 32);
@@ -686,28 +754,38 @@ struct LineDpll {
     int hsync_max = 100;
     float falling_phi = 0.0f;
 
-    float Kp = 0.015f;
-    float Ki = 0.00005f;
+    // The known-good fast decoder's conservative loop gains. Large phase
+    // discontinuities are handled by the qualified reacquisition path below,
+    // so the ordinary flywheel need not chase them (or active-video edges).
+    float Kp = 0.005f;
+    float Ki = 0.00001f;
 
     float N_est;
     float N_min;
     float N_max;
 
-    float phi = 0.0f; 
+    float phi = 0.0f;
+    float phase_inc = 0.0f;
     IIR1 lp_signal;
     float boxcar[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+    float boxcar_sum = 0.0f;
+    uint32_t boxcar_rebase = 0;
     int box_idx = 0;
 
     float sync_tip = -0.5f;
     float blank_level = 0.0f;
     float white_peak = 0.7f;
+    float slice_thr = -0.25f;
+    float slice_hyst = 0.05f;
     float min_pulse_s = 0.0f;
     bool initial_dc_set = false;
     int back_porch_samps = 0;
     float back_porch_acc = 0.0f;
+    bool back_porch_active = false;
 
     uint64_t total_samples = 0;
-    uint64_t last_hsync_falling_sample = 0;
+    uint64_t last_hsync_candidate_sample = 0;
+    int hsync_period_run = 0;
 
     bool in_sync = false;
     int sync_width = 0, last_sync_width = 0;
@@ -715,8 +793,13 @@ struct LineDpll {
     
     int missed_syncs = 0;
     bool sync_seen_this_line = false;
+    int hsync_events_this_line = 0;
     bool is_locked = false;
     int lines_locked = 0;
+    float hsync_quality = 0.0f;
+    bool precise_hsync_this_line = false;
+    bool last_line_phase_good = false;
+    int phase_recovery_lines = 0;
 
     int cur_frame_h_ok = 0;
     int cur_frame_h_bad = 0;
@@ -730,16 +813,78 @@ struct LineDpll {
 
     LineDpll(Diag* d, const VideoTiming& timing, float fs_vid_hz)
         : diag(d), t(timing) {
-        N_est = (float)t.samp_per_line;
-        N_min = N_est * 0.95f;
-        N_max = N_est * 1.05f;
+        N_min = (float)t.samp_per_line * 0.95f;
+        N_max = (float)t.samp_per_line * 1.05f;
 
         const float fs = (fs_vid_hz > 1.0f) ? fs_vid_hz : (float)FS_VID_DEFAULT;
         lp_signal.set_a(1.0f - std::exp(-2.0f * (float)M_PI * 500.0e3f / fs));
-        std::memset(buf, 0, sizeof(buf));
+        reset_signal();
     }
 
     inline void set_gains(float kp, float ki) { Kp = kp; Ki = ki; }
+
+    inline void update_slice_levels() {
+        float sync_depth = std::clamp(blank_level - sync_tip, 0.20f, 0.70f);
+        slice_thr = sync_tip + sync_depth * 0.50f;
+        slice_hyst = sync_depth * 0.12f;
+    }
+
+    void reset_signal() {
+        falling_phi = 0.0f;
+        N_est = (float)t.samp_per_line;
+        phase_inc = 1.0f / N_est;
+        phi = 0.0f;
+        lp_signal.y = 0.0f;
+        std::memset(boxcar, 0, sizeof(boxcar));
+        boxcar_sum = 0.0f;
+        boxcar_rebase = 0;
+        box_idx = 0;
+
+        sync_tip = -0.5f;
+        blank_level = 0.0f;
+        white_peak = 0.7f;
+        min_pulse_s = 0.0f;
+        initial_dc_set = false;
+        back_porch_samps = 0;
+        back_porch_acc = 0.0f;
+        back_porch_active = false;
+        update_slice_levels();
+
+        total_samples = 0;
+        last_hsync_candidate_sample = 0;
+        hsync_period_run = 0;
+        in_sync = false;
+        sync_width = 0;
+        last_sync_width = 0;
+        samples_in_line = 0;
+        bad_syncs_in_a_row = 0;
+        vsync_integrator = 0;
+        missed_syncs = 0;
+        sync_seen_this_line = false;
+        hsync_events_this_line = 0;
+        is_locked = false;
+        lines_locked = 0;
+        hsync_quality = 0.0f;
+        precise_hsync_this_line = false;
+        last_line_phase_good = false;
+        phase_recovery_lines = 0;
+        cur_frame_h_ok = 0;
+        cur_frame_h_bad = 0;
+        cur_frame_missed = 0;
+        cur_frame_v_half = 0;
+        head = 0;
+        write_idx = 0;
+        std::memset(buf, 0, sizeof(buf));
+
+        if (diag) {
+            diag->lock = 0;
+            diag->sync_locked = 0;
+            diag->vertical_trusted = 0;
+            diag->color_locked = 0;
+            diag->dpll_err = 0.0f;
+            diag->hsync_quality = 0.0f;
+        }
+    }
 
     inline bool push(float x_in, float* out_line, bool& is_vsync, int& orig_len) {
         is_vsync = false;
@@ -750,10 +895,16 @@ struct LineDpll {
         write_idx = (write_idx + 1) & BUF_MASK;
         samples_in_line++; 
 
-        // 4-sample boxcar filter: exact null at 3.579545 MHz (fs / 4) to eliminate color burst
+        // 4-sample boxcar filter: exact null at 3.579545 MHz (fs / 4) to eliminate color burst.
+        // Maintain a running sum instead of loading and summing all four taps for every sample.
+        boxcar_sum += x_in - boxcar[box_idx];
         boxcar[box_idx] = x_in;
         box_idx = (box_idx + 1) & 3;
-        float x_notch = 0.25f * (boxcar[0] + boxcar[1] + boxcar[2] + boxcar[3]);
+        // Periodic rebasing prevents an indefinitely accumulated floating-point error.
+        if ((++boxcar_rebase & 4095u) == 0u) {
+            boxcar_sum = boxcar[0] + boxcar[1] + boxcar[2] + boxcar[3];
+        }
+        float x_notch = 0.25f * boxcar_sum;
         float s = lp_signal.step(x_notch);
 
         if (!initial_dc_set) {
@@ -771,8 +922,9 @@ struct LineDpll {
                 sync_tip = std::clamp(sync_tip, -1.40f, 0.00f);
                 blank_level = std::clamp(blank_level, sync_tip + 0.20f, 0.50f);
                 white_peak = std::clamp(white_peak, 0.40f, 1.80f);
+                update_slice_levels();
             }
-            phi += (1.0f / N_est);
+            phi += phase_inc;
             if (phi >= 1.0f) {
                 phi -= 1.0f;
                 emit = true;
@@ -790,133 +942,168 @@ struct LineDpll {
         // Standard EIA-170 NTSC 50% sync-to-blanking slicing:
         // Sync tip = -40 IRE, Blanking = 0 IRE. Slicing at 50% = -20 IRE.
         // Independent of scene video content / active video brightness.
-        float sync_depth = std::clamp(blank_level - sync_tip, 0.20f, 0.70f);
-        float slice_thr = sync_tip + sync_depth * 0.50f;
-        float hyst = sync_depth * 0.12f;
-
-        if (!in_sync && s < (slice_thr - hyst)) {
+        if (!in_sync && s < (slice_thr - slice_hyst)) {
             in_sync = true;
             sync_width = 0;
             falling_phi = phi; 
             min_pulse_s = s;
+            // A new threshold crossing invalidates any unfinished porch
+            // measurement. Only a subsequently accepted H-sync may restart it.
+            back_porch_active = false;
         } else if (in_sync) {
             if (s < min_pulse_s) min_pulse_s = s;
-            if (s > (slice_thr + hyst) || sync_width > 450) {
+            if (s > (slice_thr + slice_hyst) || sync_width > 450) {
                 in_sync = false;
                 last_sync_width = sync_width;
-
-                // Robust sync_tip tracking: only update from validated sync pulse bottoms (width >= 20).
-                if (last_sync_width >= 20) {
-                    float clamped_tip = std::clamp(min_pulse_s, -1.40f, 0.10f);
-                    sync_tip = 0.95f * sync_tip + 0.05f * clamped_tip;
-                }
-                back_porch_samps = 0;
-                back_porch_acc = 0.0f;
-
-                // EIA-170 sync pulse widths at 14.318 MHz:
-                // Equalizing pulse: 2.3 us = 33 samples (range 18..45)
-                // Horizontal sync: 4.7 us = 67 samples (range 48..95)
-                if (last_sync_width >= hsync_min && last_sync_width <= hsync_max) {
-                    uint64_t falling_edge_sample = total_samples - (uint64_t)last_sync_width;
-
-                    // Direct line period measurement between consecutive genuine H-sync pulses (48..85):
-                    if (last_sync_width >= 48 && last_sync_width <= 85) {
-                        if (last_hsync_falling_sample > 0) {
-                            uint64_t delta_s = falling_edge_sample - last_hsync_falling_sample;
-                            if (delta_s >= 880 && delta_s <= 940) {
-                                if (!is_locked) {
-                                    N_est = 0.85f * N_est + 0.15f * (float)delta_s;
-                                } else {
-                                    N_est += 0.002f * ((float)delta_s - N_est);
-                                }
-                            }
-                        }
-                        last_hsync_falling_sample = falling_edge_sample;
-                    }
-
-                    float phase_err = falling_phi;
-                    if (phase_err > 0.5f) phase_err -= 1.0f; 
-                    float samp_err = phase_err * N_est;
-
-                    float phase_half_err = falling_phi - 0.5f;
-                    if (phase_half_err > 0.5f) phase_half_err -= 1.0f;
-                    else if (phase_half_err < -0.5f) phase_half_err += 1.0f;
-                    float samp_half_err = phase_half_err * N_est;
-
-                    if (!is_locked) {
-                        // ACQUISITION: When unlocked, genuine H-sync (48..85) snaps phase
-                        if (last_sync_width >= 48 && last_sync_width <= 85) {
-                            phi = (float)last_sync_width / N_est;
-                            bad_syncs_in_a_row = 0;
-                            missed_syncs = 0;
-                            sync_seen_this_line = true;
-                            lines_locked++;
-                            if (lines_locked >= 5) is_locked = true;
-                            cur_frame_h_ok++;
-                            if (diag) { diag->hsync_ok++; diag->lock = is_locked ? 1 : 0; diag->dpll_err = 0.0f; }
-                        }
-                    } else {
-                        // TRACKING: Adaptive flywheel PLL
-                        // When well-locked (>100 lines), widen tracking window to absorb thermal drift
-                        float track_window = (lines_locked > 100) ? 200.0f : 140.0f;
-                        // Adaptive Ki: increase when drift is consistently in one direction
-                        float adaptive_ki = Ki;
-                        if (lines_locked > 50) {
-                            adaptive_ki = Ki * 4.0f; // Faster integral tracking when stably locked
-                        }
-                        if (std::fabs(samp_err) < track_window) {
-                            N_est += (adaptive_ki * samp_err); 
-                            N_est = std::clamp(N_est, N_min, N_max);
-                            phi -= (Kp * phase_err); 
-                            bad_syncs_in_a_row = 0; 
-                            missed_syncs = 0;
-                            sync_seen_this_line = true;
-                            lines_locked++;
-                            cur_frame_h_ok++;
-                            if (diag) { diag->hsync_ok++; diag->lock = 1; diag->dpll_err = samp_err; }
-                        } else if (std::fabs(samp_half_err) < track_window) {
-                            // Mid-line equalizing pulse during VBI
-                            sync_seen_this_line = true;
-                            bad_syncs_in_a_row = 0;
-                            cur_frame_v_half++;
-                        } else if (std::fabs(samp_err) < 300.0f && last_sync_width >= 48 && last_sync_width <= 85) {
-                            // Soft snap: phase error is large but still plausible for a genuine H-sync.
-                            // Apply a strong proportional correction to pull back without full snap-reset.
-                            phi -= 0.5f * phase_err;
-                            N_est += 0.01f * ((phase_err * N_est > 0 ? 1.0f : -1.0f) * std::fabs(samp_err) * 0.001f);
-                            N_est = std::clamp(N_est, N_min, N_max);
-                            bad_syncs_in_a_row = 0;
-                            missed_syncs = 0;
-                            sync_seen_this_line = true;
-                            cur_frame_h_ok++;
-                            if (diag) { diag->hsync_ok++; diag->lock = 1; diag->dpll_err = samp_err; }
-                        } else {
-                            cur_frame_h_bad++;
-                            if (diag) diag->hsync_bad++;
-                            if (last_sync_width >= 48 && last_sync_width <= 85) {
-                                bad_syncs_in_a_row++;
-                                if (bad_syncs_in_a_row >= 2) {
-                                    // Phase slipped — snap-reset after just 2 bad syncs (was 3)
-                                    phi = (float)last_sync_width / N_est;
-                                    bad_syncs_in_a_row = 0;
-                                    sync_seen_this_line = true;
-                                    missed_syncs = 0;
-                                    cur_frame_h_ok++;
-                                    if (diag) { diag->hsync_ok++; diag->lock = 1; diag->dpll_err = 0.0f; }
-                                }
-                            }
-                        }
-                    }
-                }
-
                 const int vs_min = std::max(3 * t.sync_samp, 50);
                 const int vs_max = std::max(10 * t.sync_samp, vs_min + 1);
+                const bool is_vertical_pulse =
+                    last_sync_width >= vs_min && last_sync_width <= vs_max;
 
-                if (last_sync_width >= vs_min && last_sync_width <= vs_max) {
+                // Pulse classes scale with the selected video sample rate. The
+                // user bounds remain an additional constraint, but equalizing
+                // pulses and dark active picture may never steer the line PLL.
+                const int genuine_h_min = std::max(
+                    hsync_min, (int)std::llround(0.70 * (double)t.sync_samp));
+                const int genuine_h_max = std::min(
+                    hsync_max, (int)std::llround(1.42 * (double)t.sync_samp));
+                const int equalizing_min = std::max(
+                    1, (int)std::llround(0.27 * (double)t.sync_samp));
+                const int equalizing_max = std::max(
+                    equalizing_min, (int)std::llround(0.70 * (double)t.sync_samp));
+                const bool is_genuine_hsync = genuine_h_min <= genuine_h_max &&
+                    last_sync_width >= genuine_h_min && last_sync_width <= genuine_h_max;
+                const bool is_equalizing = last_sync_width >= equalizing_min &&
+                    last_sync_width < genuine_h_min && last_sync_width <= equalizing_max;
+
+                bool accepted_hsync = false;
+                bool phase_snap = false;
+                float samp_err = 0.0f;
+
+                if (is_genuine_hsync) {
+                    const uint64_t falling_edge_sample =
+                        total_samples - (uint64_t)last_sync_width;
+                    bool period_consistent = false;
+                    if (last_hsync_candidate_sample > 0) {
+                        const uint64_t delta_s =
+                            falling_edge_sample - last_hsync_candidate_sample;
+                        const float period_lo = N_est * 0.96f;
+                        const float period_hi = N_est * 1.04f;
+                        period_consistent = (float)delta_s >= period_lo &&
+                                            (float)delta_s <= period_hi;
+                        if (period_consistent) {
+                            hsync_period_run = std::min(hsync_period_run + 1, 1000);
+                            if (!is_locked) {
+                                N_est = 0.85f * N_est + 0.15f * (float)delta_s;
+                            } else {
+                                N_est += 0.002f * ((float)delta_s - N_est);
+                            }
+                            N_est = std::clamp(N_est, N_min, N_max);
+                        } else {
+                            hsync_period_run = 1;
+                        }
+                    } else {
+                        hsync_period_run = 1;
+                    }
+                    last_hsync_candidate_sample = falling_edge_sample;
+
+                    float phase_err = falling_phi;
+                    if (phase_err > 0.5f) phase_err -= 1.0f;
+                    samp_err = phase_err * N_est;
+
+                    if (!is_locked) {
+                        // Two line-period-consistent pulses establish cadence;
+                        // then phase acquisition takes only a few more lines.
+                        if (hsync_period_run >= 2) {
+                            phi = (float)last_sync_width / N_est;
+                            accepted_hsync = true;
+                            phase_snap = true;
+                            lines_locked = std::min(lines_locked + 1, 1000000);
+                            if (lines_locked >= 5) is_locked = true;
+                        }
+                    } else if (std::fabs(samp_err) < 40.0f) {
+                        // Normal tracking uses the conservative known-good
+                        // gains. The integral term never gets silently boosted.
+                        N_est += Ki * samp_err;
+                        N_est = std::clamp(N_est, N_min, N_max);
+                        phi -= Kp * phase_err;
+                        accepted_hsync = true;
+                        precise_hsync_this_line = true;
+                        lines_locked = std::min(lines_locked + 1, 1000000);
+                    } else if (period_consistent && hsync_period_run >= 3) {
+                        // A real input sample insertion/deletion shifts all
+                        // following H-sync edges. Require two good periods after
+                        // the shift before snapping to that new phase; an
+                        // isolated picture edge cannot pull the raster sideways.
+                        phi = (float)last_sync_width / N_est;
+                        accepted_hsync = true;
+                        phase_snap = true;
+                        phase_recovery_lines = 1;
+                        if (diag) diag->phase_snaps++;
+                    } else {
+                        bad_syncs_in_a_row++;
+                        cur_frame_h_bad++;
+                        if (diag) {
+                            diag->hsync_bad++;
+                            diag->dpll_err = samp_err;
+                        }
+                    }
+
+                    if (accepted_hsync) {
+                        bad_syncs_in_a_row = 0;
+                        missed_syncs = 0;
+                        sync_seen_this_line = true;
+                        hsync_events_this_line++;
+                        cur_frame_h_ok++;
+                        if (phase_snap) {
+                            // Acquisition and recovery output may contain the
+                            // old buffer boundary for a few lines. Keep those
+                            // lines out of video-level and chroma tracking.
+                            phase_recovery_lines = std::max(phase_recovery_lines, 1);
+                        }
+                        if (diag) {
+                            diag->hsync_ok++;
+                            diag->lock = is_locked ? 1 : 0;
+                            diag->dpll_err = samp_err;
+                        }
+
+                        // Only a phase-credible horizontal pulse owns the sync
+                        // tip and the following back-porch measurement.
+                        const float clamped_tip =
+                            std::clamp(min_pulse_s, -1.40f, 0.10f);
+                        sync_tip = 0.98f * sync_tip + 0.02f * clamped_tip;
+                        back_porch_samps = 0;
+                        back_porch_acc = 0.0f;
+                        back_porch_active = true;
+                        update_slice_levels();
+                    }
+                } else if (is_equalizing && is_locked) {
+                    // Equalizing pulses maintain the flywheel through VBI but
+                    // never change phase or adaptive slicing levels.
+                    float phase_err = falling_phi;
+                    if (phase_err > 0.5f) phase_err -= 1.0f;
+                    float half_err = falling_phi - 0.5f;
+                    if (half_err > 0.5f) half_err -= 1.0f;
+                    else if (half_err < -0.5f) half_err += 1.0f;
+                    if (std::fabs(phase_err * N_est) < 100.0f ||
+                        std::fabs(half_err * N_est) < 100.0f) {
+                        sync_seen_this_line = true;
+                        bad_syncs_in_a_row = 0;
+                        cur_frame_v_half++;
+                    }
+                }
+
+                if (is_vertical_pulse) {
                     // Vertical serration pulse: mark sync seen!
                     sync_seen_this_line = true;
                     bad_syncs_in_a_row = 0;
                     vsync_integrator++;
+                    // A broad vertical pulse is also safe evidence for the
+                    // bottom of sync, but there is no horizontal back porch.
+                    const float clamped_tip =
+                        std::clamp(min_pulse_s, -1.40f, 0.10f);
+                    sync_tip = 0.99f * sync_tip + 0.01f * clamped_tip;
+                    update_slice_levels();
                 } else {
                     vsync_integrator = 0; 
                 }
@@ -926,28 +1113,35 @@ struct LineDpll {
                     vsync_integrator = 3; 
                     if (diag) diag->vsync_like++;
                 }
+
+                // N_est can only change while handling a completed sync pulse.
+                // Cache its reciprocal so the 14.3 Msps hot path does no division.
+                phase_inc = 1.0f / N_est;
             }
         }
 
         if (in_sync) {
             sync_width++;
-        } else {
+        } else if (back_porch_active) {
             // Measure blanking level on the back porch (breezeway, 10..30 samples after sync rising edge)
             back_porch_samps++;
             if (back_porch_samps >= 10 && back_porch_samps <= 30) {
                 back_porch_acc += s;
                 if (back_porch_samps == 30) {
                     float bp_mean = back_porch_acc * (1.0f / 21.0f);
-                    blank_level = 0.95f * blank_level + 0.05f * bp_mean;
+                    blank_level = 0.98f * blank_level + 0.02f * bp_mean;
+                    back_porch_active = false;
+                    update_slice_levels();
                 }
             }
+        } else {
             if (s > white_peak) {
                 float clamped_white = std::min(s, 2.00f);
                 white_peak = 0.98f * white_peak + 0.02f * clamped_white;
             }
         }
 
-        phi += (1.0f / N_est);
+        phi += phase_inc;
 
         if (phi >= 1.0f) {
             phi -= 1.0f;
@@ -960,22 +1154,47 @@ struct LineDpll {
             sync_tip = std::clamp(sync_tip, -1.40f, 0.00f);
             blank_level = std::clamp(blank_level, -0.70f, 0.50f);
             white_peak = std::clamp(white_peak, 0.20f, 2.00f);
+            update_slice_levels();
             
             if (!sync_seen_this_line) {
                 missed_syncs++;
                 cur_frame_missed++;
-                // More flywheel tolerance: 60 missed syncs before unlock (was 40)
-                // This helps during VBI and brief interference
-                if (missed_syncs > 60) {
+                // NTSC's equalizing/vertical interval fits inside this
+                // flywheel. A longer absence should reacquire from qualified
+                // periodic H-sync instead of preserving a false phase.
+                if (missed_syncs > 20) {
                     missed_syncs = 0;
                     is_locked = false;
                     lines_locked = 0;
-                    if (diag) { diag->lock = 0; diag->lock_drops++; }
+                    hsync_period_run = 0;
+                    last_hsync_candidate_sample = 0;
+                    phase_recovery_lines = 1;
+                    if (diag) {
+                        diag->lock = 0;
+                        diag->lock_drops++;
+                        diag->dpll_err = 0.0f;
+                    }
                 }
             } else {
                 missed_syncs = 0;
             }
             sync_seen_this_line = false;
+
+            // A real NTSC signal supplies one phase-consistent horizontal sync
+            // per generated line (apart from the short vertical interval).
+            // Random FM/static can satisfy the pulse-width slicer often enough
+            // to set is_locked, but only on a minority of lines.  This leaky
+            // confidence therefore distinguishes usable timing from noise
+            // without imposing an RF-amplitude or SNR threshold.
+            constexpr float HSYNC_QUALITY_ALPHA = 1.0f / 64.0f;
+            const float quality_sample = (hsync_events_this_line == 1) ? 1.0f : 0.0f;
+            hsync_quality += HSYNC_QUALITY_ALPHA * (quality_sample - hsync_quality);
+            last_line_phase_good = is_locked && hsync_events_this_line == 1 &&
+                                   precise_hsync_this_line && phase_recovery_lines == 0;
+            hsync_events_this_line = 0;
+            precise_hsync_this_line = false;
+            if (phase_recovery_lines > 0) phase_recovery_lines--;
+            if (diag) diag->hsync_quality = hsync_quality;
 
             emit = true;
             orig_len = samples_in_line;
@@ -1008,8 +1227,10 @@ struct LineDpll {
 // Decoupled Non-blocking Display Worker
 // --------------------------
 struct DisplayWorker {
-    std::vector<uint8_t> buf;
-    std::atomic<bool> ready{false};
+    static constexpr uint64_t QUEUE_CAP = 4;
+    std::vector<uint8_t> bufs[QUEUE_CAP];
+    alignas(64) std::atomic<uint64_t> head{0};
+    alignas(64) std::atomic<uint64_t> tail{0};
     std::atomic<bool> running{true};
     std::thread th;
     int flush_frames = 0;
@@ -1017,22 +1238,46 @@ struct DisplayWorker {
     Diag* diag = nullptr;
 
     DisplayWorker(int flushN, Diag* d) : flush_frames(flushN), diag(d) {
-        buf.resize((size_t)OUT_W * OUT_H * 2);
+        for (auto& buf : bufs) {
+            buf.resize((size_t)OUT_W * OUT_H * 2);
+            // Studio-range YUV black is a safe initial owner after the first
+            // zero-copy swap, even if a future caller submits it before every
+            // row has been replaced.
+            for (size_t i = 0; i < buf.size(); i += 4) {
+                buf[i + 0] = 16;
+                buf[i + 1] = 128;
+                buf[i + 2] = 16;
+                buf[i + 3] = 128;
+            }
+        }
         th = std::thread([this]() {
-            while (running.load(std::memory_order_relaxed)) {
-                if (!ready.load(std::memory_order_acquire)) {
+            while (running.load(std::memory_order_relaxed) ||
+                   head.load(std::memory_order_acquire) != tail.load(std::memory_order_relaxed)) {
+                uint64_t current_tail = tail.load(std::memory_order_relaxed);
+                uint64_t current_head = head.load(std::memory_order_acquire);
+                if (current_tail == current_head) {
                     std::this_thread::sleep_for(std::chrono::microseconds(200));
                     continue;
                 }
-                size_t written = std::fwrite(buf.data(), 1, buf.size(), stdout);
-                ready.store(false, std::memory_order_release);
-                if (written == buf.size()) {
+
+                auto& buf = bufs[current_tail & (QUEUE_CAP - 1)];
+                const size_t frame_size = buf.size();
+                size_t written = std::fwrite(buf.data(), 1, frame_size, stdout);
+                if (written == frame_size) {
                     frames_since_flush++;
                     if (flush_frames > 0 && frames_since_flush >= flush_frames) {
                         std::fflush(stdout);
                         frames_since_flush = 0;
                     }
                     if (diag) diag->frames_out++;
+                }
+
+                const uint64_t next_tail = current_tail + 1;
+                tail.store(next_tail, std::memory_order_release);
+                if (diag) {
+                    uint64_t newest_head = head.load(std::memory_order_acquire);
+                    diag->display_q_level.store((uint32_t)(newest_head - next_tail),
+                                                std::memory_order_relaxed);
                 }
             }
         });
@@ -1043,15 +1288,30 @@ struct DisplayWorker {
         if (th.joinable()) th.join();
     }
 
-    inline void submit(const uint8_t* yuv) {
-        if (ready.load(std::memory_order_relaxed)) {
+    inline void submit(std::vector<uint8_t>& yuv) {
+        uint64_t current_head = head.load(std::memory_order_relaxed);
+        uint64_t current_tail = tail.load(std::memory_order_acquire);
+        if (current_head - current_tail >= QUEUE_CAP) {
             // Downstream display consumer (mpv/pipe) is lagging behind real-time.
             // Drop this display frame to guarantee the real-time DSP consumer thread NEVER stalls!
             if (diag) diag->dropped_frames++;
             return;
         }
-        std::memcpy(buf.data(), yuv, buf.size());
-        ready.store(true, std::memory_order_release);
+
+        // All vectors have the same fixed size. Swapping ownership avoids a
+        // 614,400-byte copy while four slots absorb short X11 scheduling stalls.
+        bufs[current_head & (QUEUE_CAP - 1)].swap(yuv);
+        const uint64_t next_head = current_head + 1;
+        head.store(next_head, std::memory_order_release);
+
+        if (diag) {
+            uint32_t level = (uint32_t)(next_head - current_tail);
+            diag->display_q_level.store(level, std::memory_order_relaxed);
+            uint32_t high = diag->display_q_high_water.load(std::memory_order_relaxed);
+            while (high < level &&
+                   !diag->display_q_high_water.compare_exchange_weak(
+                       high, level, std::memory_order_relaxed, std::memory_order_relaxed)) {}
+        }
     }
 };
 
@@ -1067,6 +1327,8 @@ struct NtscDecoder {
     float white_level = 0.7f, hue_rad = 0.0f, saturation = 1.0f;
     float hue_deg = 0.0f;
     int ctrl_check_countdown = 0;
+    std::atomic<int>* tune_request_mhz = nullptr;
+    int last_tune_request_mhz = 0;
     VideoTiming t;
     float fsc_norm = 0.25f, fs_vid_rate = 14318180.0f;
     float fsc_phase = 0.0f, fsc_dp = 0.0f;
@@ -1076,6 +1338,9 @@ struct NtscDecoder {
 
     std::vector<uint8_t> frame_yuv;
     int out_line = 0, lines_since_v = 0;
+    uint64_t samples_since_v = 0;
+    uint64_t nominal_field_samples = 0;
+    uint64_t sync_timeout_samples = 0;
     bool vsync_locked = false;
     int flush_frames = 0, frames_since_flush = 0;
     float avg_burst_amp = 0.0f;
@@ -1107,7 +1372,9 @@ struct NtscDecoder {
 
     void update_controls() {
         if (--ctrl_check_countdown > 0) return;
-        ctrl_check_countdown = 30; // Check every ~30 lines (~1.9 ms)
+        // About 61 checks/s at the 15.734 kHz NTSC line rate. This remains
+        // responsive to key controls without opening/parsing a file ~524 times/s.
+        ctrl_check_countdown = 256;
 
         FILE* cf = std::fopen("/dev/shm/quadrf-ntsc-ctrl", "r");
         if (!cf) cf = std::fopen("/tmp/quadrf-ntsc-ctrl", "r");
@@ -1130,16 +1397,44 @@ struct NtscDecoder {
             hue_rad = hue_deg * (float)M_PI / 180.0f;
             no_color = (m_val == 1) || (saturation <= 0.001f);
         }
+
+        FILE* tf = std::fopen("/dev/shm/quadrf-ntsc-tune", "r");
+        if (!tf) tf = std::fopen("/tmp/quadrf-ntsc-tune", "r");
+        if (tf) {
+            char line[128];
+            int requested_mhz = 0;
+            while (std::fgets(line, sizeof(line), tf)) {
+                int iv = 0;
+                if (std::sscanf(line, "freq=%d", &iv) == 1) requested_mhz = iv;
+            }
+            std::fclose(tf);
+
+            if (requested_mhz >= 4900 && requested_mhz <= 6000 &&
+                requested_mhz != last_tune_request_mhz) {
+                last_tune_request_mhz = requested_mhz;
+                if (tune_request_mhz) {
+                    // Coalesce repeated key presses; the producer applies only
+                    // the newest request at a safe point between SDR reads.
+                    tune_request_mhz->store(requested_mhz, std::memory_order_release);
+                }
+            }
+        }
     }
 
     NtscDecoder(bool grayscale, Diag* d, int flushN, float h_deg, float sat, double fs_vid)
-        : no_color(grayscale), diag(d), t(fs_vid), flush_frames(flushN), saturation(sat), hue_deg(h_deg) {
+        : no_color(grayscale), diag(d), saturation(sat), hue_deg(h_deg),
+          t(fs_vid), flush_frames(flushN) {
         
         fs_vid_rate = (float)fs_vid;
         hue_rad = h_deg * (float)M_PI / 180.0f;
         fsc_norm = (float)(FSC / fs_vid);
         noise_variance = 0.005f;
         frame_yuv.resize((size_t)OUT_W * OUT_H * 2);
+        // NTSC has exactly 525 lines per two interlaced fields.  Accumulating
+        // samples (rather than noisy DPLL line counts) gives a stable 59.94 Hz
+        // best-effort output cadence when vertical sync is unusable.
+        nominal_field_samples = ((uint64_t)t.samp_per_line * 525u) / 2u;
+        sync_timeout_samples = (uint64_t)t.samp_per_line * 280u;
 
         std::memset(U_prev_raw, 0, sizeof(U_prev_raw));
         std::memset(V_prev_raw, 0, sizeof(V_prev_raw));
@@ -1152,6 +1447,48 @@ struct NtscDecoder {
         for (int x = 0; x < OUT_W; x++) {
             int si = a0 + (int)((long long)x * active_len / OUT_W);
             xmap[x] = std::clamp(si, 0, t.samp_per_line - 1);
+        }
+        reset_signal();
+    }
+
+    void reset_signal() {
+        blank_level = 0.0f;
+        sync_level = -0.5f;
+        white_level = 0.7f;
+        fsc_phase = 0.0f;
+        fsc_dp = 0.0f;
+        last_phase_err = 0.0f;
+        noise_variance = 0.005f;
+        notch_z1 = 0.0f;
+        notch_z2 = 0.0f;
+        out_line = 0;
+        lines_since_v = 0;
+        samples_since_v = 0;
+        vsync_locked = false;
+        avg_burst_amp = 0.0f;
+        std::memset(Y_line, 0, sizeof(Y_line));
+        std::memset(U_line, 0, sizeof(U_line));
+        std::memset(V_line, 0, sizeof(V_line));
+        std::memset(U_prev_raw, 0, sizeof(U_prev_raw));
+        std::memset(V_prev_raw, 0, sizeof(V_prev_raw));
+        std::memset(C_prev_raw, 0, sizeof(C_prev_raw));
+        std::memset(prev_comp_line, 0, sizeof(prev_comp_line));
+
+        // Black studio-range YUYV prevents a partially old raster after retune.
+        for (size_t i = 0; i < frame_yuv.size(); i += 4) {
+            frame_yuv[i + 0] = 16;
+            frame_yuv[i + 1] = 128;
+            frame_yuv[i + 2] = 16;
+            frame_yuv[i + 3] = 128;
+        }
+
+        if (diag) {
+            diag->sync_locked = 0;
+            diag->vertical_trusted = 0;
+            diag->color_locked = 0;
+            diag->snr_db = 0.0f;
+            diag->chroma_jitter = 0.0f;
+            diag->subcarrier_err_hz = 0.0f;
         }
     }
 
@@ -1218,21 +1555,67 @@ struct NtscDecoder {
         }
 
         if (write_stdout && display) {
-            display->submit(frame_yuv.data());
+            display->submit(frame_yuv);
         }
     }
 
     inline void process_line(const float* ln, bool is_vsync, int orig_len) {
-        update_controls();
-        bool valid_vsync = is_vsync || (lines_since_v >= 275);
+        // Qualify vertical sync with hysteresis. A real NTSC vertical interval
+        // intentionally replaces ordinary H-sync with equalizing/serration
+        // pulses, briefly lowering hsync_quality every field. A single 0.75
+        // threshold therefore chattered between detected and forced timing.
+        // Static cannot enter trusted mode, while a real signal survives its
+        // normal VBI and only releases after a substantial cadence loss.
+        constexpr float VSYNC_ACQUIRE_QUALITY = 0.85f;
+        constexpr float VSYNC_RELEASE_QUALITY = 0.45f;
+        const float h_quality = dpll ? dpll->hsync_quality : 0.0f;
+        if (vsync_locked) {
+            if (h_quality < VSYNC_RELEASE_QUALITY) vsync_locked = false;
+        } else if (h_quality >= VSYNC_ACQUIRE_QUALITY) {
+            vsync_locked = true;
+        }
+        const bool reliable_hsync = vsync_locked;
+        if (diag) {
+            diag->vertical_trusted = reliable_hsync ? 1 : 0;
+            diag->sync_locked = (reliable_hsync && h_quality >= 0.70f) ? 1 : 0;
+        }
+        if (!ln && (!is_vsync || !reliable_hsync)) return;
 
-        if (valid_vsync) {
-            // Emits the completed raster if sufficient lines have been drawn
-            if (out_line >= 200) {
+        update_controls();
+
+        if (ln) {
+            const int accounted = (orig_len > 0) ? orig_len : t.samp_per_line;
+            samples_since_v += (uint64_t)std::max(1, accounted);
+        }
+
+        const bool valid_vsync = is_vsync && reliable_hsync;
+        const bool raster_complete = out_line >= OUT_H;
+        const bool best_effort_boundary = !reliable_hsync && raster_complete &&
+                                          samples_since_v >= nominal_field_samples;
+        const bool sync_timeout = samples_since_v >= sync_timeout_samples;
+        const bool forced_boundary = best_effort_boundary || sync_timeout;
+
+        if (valid_vsync || forced_boundary) {
+            // A zero-copy submit swaps in an older backing buffer. Publishing
+            // fewer than 480 newly written rows would splice that old raster
+            // below the new one: the horizontal black/stale "tear" seen during
+            // acquisition. An early vertical candidate may still realign field
+            // timing, but the incomplete raster is never exposed.
+            if (raster_complete) {
+                if (forced_boundary && diag) diag->forced_frames++;
                 emit_frame();
+            } else if (out_line > 0 && diag) {
+                diag->short_fields++;
             }
             out_line = 0;
             lines_since_v = 0;
+            if (best_effort_boundary && !sync_timeout) {
+                // Preserve sub-line overshoot. This naturally alternates the
+                // 262- and 263-line fields needed for the 262.5-line cadence.
+                samples_since_v -= nominal_field_samples;
+            } else {
+                samples_since_v = 0;
+            }
             // 2-line comb must not average field 2 against field 1's last line.
             std::memset(U_prev_raw, 0, sizeof(U_prev_raw));
             std::memset(V_prev_raw, 0, sizeof(V_prev_raw));
@@ -1243,39 +1626,81 @@ struct NtscDecoder {
 
         const int lineN = t.samp_per_line;
 
-        // Guard AGC tracking: only update levels when DPLL is locked.
-        // When unlocked, garbled line data would contaminate the level estimates.
-        bool dpll_locked = dpll ? dpll->is_locked : true;
+        lines_since_v++;
+        if (lines_since_v <= 17 || out_line >= OUT_H) return;
+
+        // Do not let a transient line-lock indication contaminate video levels.
+        // The field log showed sync_level moving from about -0.9 to -0.1 during
+        // brief cadence failures even though RF SNR remained above 20 dB. Keep
+        // the last trustworthy levels until horizontal timing is stable again.
+        const bool timing_stable = !dpll ||
+                                   (reliable_hsync && h_quality >= 0.70f &&
+                                    dpll->last_line_phase_good);
+
+        // Once a signal has genuinely acquired, a phase-recovery line is more
+        // objectionable as a sideways band than as a repeated scanline. Reuse
+        // the preceding row pair for only those few untrustworthy lines. This
+        // is deliberately disabled in acquisition/static mode so weak or
+        // absent channels continue to show fresh best-effort video/noise.
+        if (reliable_hsync && !timing_stable && out_line < OUT_H) {
+            const size_t row_bytes = (size_t)OUT_W * 2u;
+            uint8_t* dst = frame_yuv.data();
+            if (out_line >= 2) {
+                const uint8_t* previous = dst + (size_t)(out_line - 2) * row_bytes;
+                std::memcpy(dst + (size_t)out_line * row_bytes, previous, row_bytes);
+                std::memcpy(dst + (size_t)(out_line + 1) * row_bytes, previous, row_bytes);
+            }
+            out_line += 2;
+
+            const int actual_len = (orig_len > 0) ? orig_len : lineN;
+            const float skipped_d_phi =
+                2.0f * (float)M_PI * fsc_norm + fsc_dp;
+            fsc_phase = wrap_pm_pi(fsc_phase + (float)actual_len * skipped_d_phi);
+            std::memset(C_prev_raw, 0, sizeof(C_prev_raw));
+            if (diag) {
+                diag->color_locked = 0;
+                diag->color_killed_lines++;
+            }
+            return;
+        }
 
         // Sample breezeway (after sync tip, before burst) for clean blanking level
         int bz0 = t.sync_samp + 2;
         int bz1 = std::min(lineN, t.burst_start - 2);
-        if (bz1 > bz0 && dpll_locked) {
-            float bz_acc = 0.0f;
-            float bz_sq_acc = 0.0f;
-            for (int i = bz0; i < bz1; i++) {
-                bz_acc += ln[i];
-                bz_sq_acc += ln[i] * ln[i];
-            }
-            float bz_n = (float)(bz1 - bz0);
-            float bz_mean = bz_acc / bz_n;
-            float cur_noise = std::max(0.0f, (bz_sq_acc / bz_n) - (bz_mean * bz_mean));
-            noise_variance = 0.98f * noise_variance + 0.02f * cur_noise;
-            blank_level = 0.90f * blank_level + 0.10f * bz_mean;
+        float bz_acc = 0.0f;
+        float bz_sq_acc = 0.0f;
+        for (int i = bz0; i < bz1; i++) {
+            bz_acc += ln[i];
+            bz_sq_acc += ln[i] * ln[i];
         }
+        const float bz_n = (float)std::max(1, bz1 - bz0);
+        const float bz_mean = bz_acc / bz_n;
 
         const int sN = std::min(t.sync_samp, lineN);
-        if (dpll_locked) {
-            float s_mean = 0.0f;
-            for (int i = 0; i < sN; i++) s_mean += ln[i];
-            s_mean /= (float)std::max(1, sN);
-            sync_level  = 0.90f * sync_level + 0.10f * s_mean;
+        float s_mean = 0.0f;
+        for (int i = 0; i < sN; i++) s_mean += ln[i];
+        s_mean /= (float)std::max(1, sN);
+
+        // Treat blank and sync as one validated observation. In v5 a pulse
+        // could count toward high hsync_quality while still being 150 samples
+        // out of phase, poisoning both levels on a strong RF signal. The
+        // per-line phase flag above closes that hole; the amplitude bounds are
+        // a second guard against malformed/static lines.
+        const float measured_sync_depth = bz_mean - s_mean;
+        const bool sane_levels = std::isfinite(bz_mean) && std::isfinite(s_mean) &&
+                                 measured_sync_depth >= 0.12f &&
+                                 measured_sync_depth <= 1.20f;
+        if (timing_stable && sane_levels) {
+            const float cur_noise = std::max(
+                0.0f, (bz_sq_acc / bz_n) - (bz_mean * bz_mean));
+            noise_variance = 0.98f * noise_variance + 0.02f * cur_noise;
+            blank_level = 0.98f * blank_level + 0.02f * bz_mean;
+            sync_level = 0.98f * sync_level + 0.02f * s_mean;
+        } else if (timing_stable && diag) {
+            diag->level_rejects++;
         }
 
         float current_blank = blank_level; 
-
-        lines_since_v++;
-        if (lines_since_v <= 17 || out_line >= OUT_H) return; 
 
         // 100 IRE = 2.5 * (blank - sync)
         float sync_amp = std::clamp(current_blank - sync_level, 0.10f, 0.60f);
@@ -1285,7 +1710,7 @@ struct NtscDecoder {
         float line_peak = current_blank;
         int p0 = std::clamp(t.active_start, 0, lineN);
         int p1 = std::clamp(p0 + t.active_samp, 0, lineN);
-        if (dpll_locked) {
+        if (timing_stable) {
             for (int i = p0; i < p1; i += 4) {
                 if (ln[i] > line_peak) line_peak = ln[i];
             }
@@ -1308,7 +1733,6 @@ struct NtscDecoder {
         float gain_sat = saturation * y_scale;
 
         if (diag) {
-            diag->sync_locked = dpll_locked ? 1 : 0;
             diag->curr_sat = saturation;
             diag->curr_hue = hue_deg;
             diag->is_mono = no_color ? 1 : 0;
@@ -1348,11 +1772,15 @@ struct NtscDecoder {
             }
 
             burst_amp = (2.0f * std::sqrt(u_acc*u_acc + v_acc*v_acc)) / (float)b_len;
-            avg_burst_amp = 0.95f * avg_burst_amp + 0.05f * burst_amp;
-            color_valid = (avg_burst_amp > 0.015f); 
+            if (timing_stable) {
+                avg_burst_amp = 0.95f * avg_burst_amp + 0.05f * burst_amp;
+            }
+            // During a timing disturbance, preserve the chroma PLL state and
+            // render best-effort monochrome lines instead of turning phase
+            // errors into large colored bands.
+            color_valid = timing_stable && (avg_burst_amp > 0.015f);
 
-            bool in_vbi = (lines_since_v <= 10);
-            if (color_valid && !in_vbi) {
+            if (color_valid) {
                 float measured_phase = std::atan2(v_acc, u_acc);
                 float phase_err = wrap_pm_pi(measured_phase - (float)M_PI);
 
@@ -1380,7 +1808,7 @@ struct NtscDecoder {
                 float v_pp = std::max(0.1f, white_level - sync_level);
                 float rms_noise = std::sqrt(std::max(1e-6f, noise_variance));
                 float current_snr = 20.0f * std::log10(v_pp / rms_noise);
-                if (dpll_locked && current_snr > 2.0f && current_snr < 55.0f) {
+                if (timing_stable && current_snr > 2.0f && current_snr < 55.0f) {
                     diag->snr_db = 0.98f * diag->snr_db + 0.02f * current_snr;
                 }
             }
@@ -1680,8 +2108,8 @@ int main(int argc, char** argv) {
     int hsync_min = (int)get_i64(argc, argv, "--hsync_min", 20);
     int hsync_max = (int)get_i64(argc, argv, "--hsync_max", 100);
     
-    float dpll_kp = (float)get_dbl(argc, argv, "--dpll_kp", 0.015);
-    float dpll_ki = (float)get_dbl(argc, argv, "--dpll_ki", 0.00005);
+    float dpll_kp = (float)get_dbl(argc, argv, "--dpll_kp", 0.005);
+    float dpll_ki = (float)get_dbl(argc, argv, "--dpll_ki", 0.00001);
     float hue_deg    = (float)get_dbl(argc, argv, "--hue", 0.0);
     float saturation = (float)get_dbl(argc, argv, "--sat", 1.0);
 
@@ -1743,7 +2171,14 @@ int main(int argc, char** argv) {
             return 1;
         }
 
-        dev->activateStream(stream);
+        int activate_rc = dev->activateStream(stream);
+        if (activate_rc != 0) {
+            std::cerr << "activateStream failed: " << activate_rc << "\n";
+            dev->closeStream(stream);
+            SoapySDR::Device::unmake(dev);
+            return 1;
+        }
+        bool stream_active = true;
 
         double fs_vid = rate / 2.0;
         VideoTiming timing(fs_vid);
@@ -1759,7 +2194,10 @@ int main(int argc, char** argv) {
         FastDecim2 hb;
         DeemphasisCCIR405 deemph(fs_vid);
         MedianFilter3 fm_med;
+        std::atomic<int> tune_request_mhz{0};
+        std::atomic<uint64_t> signal_generation{0};
         NtscDecoder ntsc(no_color, &diag, flush_frames, hue_deg, saturation, fs_vid);
+        ntsc.tune_request_mhz = &tune_request_mhz;
         bool write_stdout = has_arg(argc, argv, "--stdout") || 
             (!has_arg(argc, argv, "--no_stdout") && dump_ppm_dir.empty() && !isatty(fileno(stdout)));
         ntsc.write_stdout = write_stdout;
@@ -1794,10 +2232,10 @@ int main(int argc, char** argv) {
         std::vector<float> dembuf(read_samps);
         std::vector<float> vidbuf(read_samps); 
 
-        // Queues:
-        // iq_queue: 262,144 complex floats (2MB) - holds ~9.15ms of SDR samples
-        // video_queue: 524,288 floats (2MB) - holds ~36.6ms of decimated video samples
-        SpscQueue<std::complex<float>> iq_queue(262144);
+        // One queue crosses the producer/consumer boundary. Keep raw IQ in the
+        // Soapy read buffer and demodulate it in place on the producer side;
+        // queueing IQ added two 229 MB/s memory copies with no useful feature.
+        // video_queue holds ~36.6 ms of decimated composite samples.
         SpscQueue<float> video_queue(524288);
         std::atomic<bool> running{true};
         g_stop_ptr = &running;
@@ -1851,18 +2289,31 @@ int main(int argc, char** argv) {
         bool use_deemph = !has_arg(argc, argv, "--no_deemph");
 
         // ---------------------------------------------------------
-        // THREAD 3: THE CONSUMER (De-emphasis & NTSC Demodulator)
+        // THREAD 2: CONSUMER (de-emphasis, DPLL, and NTSC decoder)
         // ---------------------------------------------------------
         std::thread consumer_thread([&]() {
             alignas(64) float consumer_buf[8192];
             alignas(64) float line_fixed[MAX_LINE_SAMPS];
+            alignas(64) float fixed_line[MAX_LINE_SAMPS];
+            int fixed_line_pos = 0;
             
             auto t0 = std::chrono::steady_clock::now();
             auto t_last = t0;
             double diag_period = 1.0 / diag_hz;
             uint64_t samps_since = 0;
+            uint64_t seen_signal_generation = signal_generation.load(std::memory_order_acquire);
 
             while (running.load(std::memory_order_relaxed) || video_queue.read_available() > 0) {
+                uint64_t generation = signal_generation.load(std::memory_order_acquire);
+                if (generation != seen_signal_generation) {
+                    dpll.reset_signal();
+                    ntsc.reset_signal();
+                    deemph.x1 = 0.0f;
+                    deemph.y1 = 0.0f;
+                    fixed_line_pos = 0;
+                    seen_signal_generation = generation;
+                }
+
                 size_t available = video_queue.read_available();
                 diag.current_q_level.store(available, std::memory_order_relaxed);
                 if (available == 0) {
@@ -1883,18 +2334,17 @@ int main(int argc, char** argv) {
                     }
                 }
                 auto t_op_end = std::chrono::steady_clock::now();
-                diag.t_pre += std::chrono::duration<double>(t_op_end - t_op_start).count();
+                diag.t_pre_ns.fetch_add((uint64_t)std::chrono::duration_cast<std::chrono::nanoseconds>(
+                    t_op_end - t_op_start).count(), std::memory_order_relaxed);
 
                 // 5. DPLL & NTSC DEMODULATION
                 t_op_start = std::chrono::steady_clock::now();
                 if (no_dpll) {
-                    static float tmp[MAX_LINE_SAMPS];
-                    static int tp = 0;
                     for (size_t i = 0; i < chunk; i++) {
-                        tmp[tp++] = consumer_buf[i];
-                        if (tp == timing.samp_per_line) {
-                            ntsc.process_line(tmp, false, timing.samp_per_line);
-                            tp = 0;
+                        fixed_line[fixed_line_pos++] = consumer_buf[i];
+                        if (fixed_line_pos == timing.samp_per_line) {
+                            ntsc.process_line(fixed_line, false, timing.samp_per_line);
+                            fixed_line_pos = 0;
                             diag.lines_out++;
                         }
                     }
@@ -1919,7 +2369,8 @@ int main(int argc, char** argv) {
                     }
                 }
                 t_op_end = std::chrono::steady_clock::now();
-                diag.t_ntsc += std::chrono::duration<double>(t_op_end - t_op_start).count();
+                diag.t_ntsc_ns.fetch_add((uint64_t)std::chrono::duration_cast<std::chrono::nanoseconds>(
+                    t_op_end - t_op_start).count(), std::memory_order_relaxed);
 
                 // Print Diagnostics from the Consumer Thread
                 auto now = std::chrono::steady_clock::now();
@@ -1929,177 +2380,232 @@ int main(int argc, char** argv) {
                     double proc_sps = ((double)samps_since * 2.0) / since;
                     samps_since = 0;
                     t_last = now;
-                    diag.print(rate, fs_vid, wall, proc_sps);
+                    diag.print(rate, wall, since, proc_sps);
                 }
             }
         });
 
         // ---------------------------------------------------------
-        // THREAD 2: FM DEMODULATOR & DECIMATOR WORKER
+        // THREAD 1 / MAIN: SDR read, FM discriminator, and decimator
         // ---------------------------------------------------------
-        std::thread fm_worker_thread([&]() {
-            std::complex<float> fm_prev(1.0f, 0.0f);
-            alignas(64) std::complex<float> local_iq[8192];
-            alignas(64) float dembuf[8192];
-            alignas(64) float vidbuf[4096];
-            FastDecim2 hb;
-
-            while (running.load(std::memory_order_relaxed) || iq_queue.read_available() > 0) {
-                size_t avail = iq_queue.read_available();
-                if (avail == 0) {
-                    diag.iq_queue_empty_stalls.fetch_add(1, std::memory_order_relaxed);
-                    std::this_thread::sleep_for(std::chrono::microseconds(50));
-                    continue;
-                }
-                size_t chunk = std::min(avail, (size_t)8192);
-                iq_queue.pop(local_iq, chunk);
-
-                // 2. FM DISCRIMINATOR
-                auto t_op_start = std::chrono::steady_clock::now();
-                fm_disc_block(fm_prev, local_iq, (int)chunk, dembuf, disc);
-
-                // Fast diagnostic telemetry tracking
-                float local_fm_peak = 0.0f;
-                float local_fm_acc = 0.0f;
-                float local_mag_min = diag.iq_mag_min;
-                float local_mag_acc = 0.0f;
-                uint32_t local_current_drop = diag.current_dropout_len;
-                uint32_t local_max_drop = diag.max_dropout_len;
-                constexpr float DROP_THR_SQ = 0.05f * 0.05f;
-
-                for (size_t i = 0; i < chunk; i += 8) {
-                    float abs_v = std::fabs(dembuf[i]);
-                    if (abs_v > local_fm_peak) local_fm_peak = abs_v;
-                    local_fm_acc += dembuf[i] * 8.0f;
-
-                    float I = local_iq[i].real();
-                    float Q = local_iq[i].imag();
-                    float mag_sq = I * I + Q * Q;
-
-                    // Continuous dropout tracker
-                    if (mag_sq < DROP_THR_SQ) {
-                        local_current_drop += 8;
-                        if (local_current_drop > local_max_drop) local_max_drop = local_current_drop;
-                    } else {
-                        local_current_drop = 0;
-                    }
-
-                    // Downsampled magnitude average & min (3.58 Msps telemetry rate)
-                    float mag = std::sqrt(mag_sq);
-                    if (mag < local_mag_min) local_mag_min = mag;
-                    local_mag_acc += mag * 8.0f;
-                }
-
-                if (local_fm_peak > diag.fm_peak) diag.fm_peak = local_fm_peak;
-                diag.iq_mag_min = local_mag_min;
-                diag.iq_mag_acc += local_mag_acc;
-                diag.fm_acc += local_fm_acc;
-                diag.fm_count += chunk;
-                diag.current_dropout_len = local_current_drop;
-                diag.max_dropout_len = local_max_drop;
-
-                auto t_op_end = std::chrono::steady_clock::now();
-                diag.t_fm += std::chrono::duration<double>(t_op_end - t_op_start).count();
-
-                // 3. DECIMATION
-                t_op_start = std::chrono::steady_clock::now();
-                int nv = hb.process_block(dembuf, (int)chunk, vidbuf);
-                t_op_end = std::chrono::steady_clock::now();
-                diag.t_decim += std::chrono::duration<double>(t_op_end - t_op_start).count();
-
-                if (dump_fm_f && fm_left > 0 && nv > 0) {
-                    long long take = std::min<long long>(fm_left, nv);
-                    std::fwrite(vidbuf, sizeof(float), (size_t)take, dump_fm_f);
-                    fm_left -= take;
-                    if (fm_left <= 0) {
-                        finish_dump(&dump_fm_f);
-                        if (dump_stop && dumps_pending.load(std::memory_order_relaxed) == 0)
-                            running.store(false, std::memory_order_release);
-                    }
-                }
-
-                // Push to video queue for Consumer Thread
-                size_t can_write = video_queue.write_available();
-                if (can_write < (size_t)nv) {
-                    diag.queue_full_stalls.fetch_add(1, std::memory_order_relaxed);
-                    int keep = (int)can_write;
-                    if (keep > 0) video_queue.push(vidbuf, (size_t)keep);
-                } else {
-                    video_queue.push(vidbuf, (size_t)nv);
-                }
-            }
-        });
-
-        // ---------------------------------------------------------
-        // THREAD 1: SDR READ PRODUCER
-        // ---------------------------------------------------------
-        std::thread sdr_reader_thread([&]() {
-            std::vector<std::complex<float>> rxbuf(read_samps);
-            while (running.load(std::memory_order_relaxed)) {
-                auto t_op_start = std::chrono::steady_clock::now();
-
-                void* buffs[] = {rxbuf.data()};
-                int flags = 0;
-                long long timeNs = 0;
-                int n = dev->readStream(stream, buffs, (int)read_samps, flags, timeNs, 100000);
-                diag.read_calls++;
-
-                auto t_op_end = std::chrono::steady_clock::now();
-                diag.t_rx += std::chrono::duration<double>(t_op_end - t_op_start).count();
-
-                if (n == SOAPY_SDR_TIMEOUT) { diag.read_timeouts++; continue; }
-                if (n < 0) {
-                    diag.read_errors++;
-                    std::cerr << "readStream error: " << n << "\n";
-                    running.store(false, std::memory_order_release);
-                    break;
-                }
-                if (n == 0) continue;
-
-                diag.read_samps += (uint64_t)n;
-
-                if (dump_iq_f && iq_left > 0) {
-                    long long take = std::min<long long>(iq_left, n);
-                    std::fwrite(rxbuf.data(), sizeof(std::complex<float>), (size_t)take, dump_iq_f);
-                    iq_left -= take;
-                    if (iq_left <= 0) {
-                        finish_dump(&dump_iq_f);
-                        if (dump_stop && dumps_pending.load(std::memory_order_relaxed) == 0)
-                            running.store(false, std::memory_order_release);
-                    }
-                }
-
-                // Push raw IQ to FM Worker Thread
-                size_t can_write = iq_queue.write_available();
-                if (can_write < (size_t)n) {
-                    diag.iq_queue_full_stalls.fetch_add(1, std::memory_order_relaxed);
-                    int keep = (int)can_write;
-                    if (keep > 0) iq_queue.push(rxbuf.data(), (size_t)keep);
-                } else {
-                    iq_queue.push(rxbuf.data(), (size_t)n);
-                }
-            }
-        });
-
-        // ---------------------------------------------------------
-        // MAIN THREAD: COORDINATOR & SUPERVISOR
-        // ---------------------------------------------------------
+        std::complex<float> fm_prev(1.0f, 0.0f);
+        bool reset_fm_on_next_read = false;
+        int applied_freq_mhz = (freq > 0.0) ? (int)std::llround(freq / 1.0e6) : 0;
         auto t_start = std::chrono::steady_clock::now();
         while (running.load(std::memory_order_relaxed)) {
             if (duration > 0.0) {
                 double wall = std::chrono::duration<double>(std::chrono::steady_clock::now() - t_start).count();
                 if (wall >= duration) break;
             }
-            if (dump_stop && dumps_pending.load(std::memory_order_relaxed) == 0 &&
-                (dump_iq_f != nullptr || dump_fm_f != nullptr || dump_lines_f != nullptr)) {
+
+            // Retune only here, between readStream calls, using the same device
+            // handle that owns the stream. This replaces the old Lua-spawned
+            // quadrf-jtag process, which could contend with SoapySDR and hang.
+            int requested_mhz = tune_request_mhz.exchange(0, std::memory_order_acq_rel);
+            if (requested_mhz >= 4900 && requested_mhz <= 6000 &&
+                requested_mhz != applied_freq_mhz) {
+                auto retune_start = std::chrono::steady_clock::now();
+                bool frequency_set = false;
+                bool retune_ok = false;
+                std::string retune_error;
+
+                try {
+                    int rc = dev->deactivateStream(stream);
+                    if (rc != 0) {
+                        retune_error = "deactivateStream returned " + std::to_string(rc);
+                    } else {
+                        stream_active = false;
+
+                        // The queue holds at most 36.6 ms. Let the consumer
+                        // finish old-frequency samples before resetting lock
+                        // state and publishing samples from the new channel.
+                        for (int wait = 0;
+                             wait < 500 && !video_queue.empty_for_producer();
+                             ++wait) {
+                            std::this_thread::sleep_for(std::chrono::microseconds(100));
+                        }
+
+                        dev->setFrequency(SOAPY_SDR_RX, chan,
+                                          (double)requested_mhz * 1.0e6);
+                        frequency_set = true;
+                        rc = dev->activateStream(stream);
+                        if (rc == 0) {
+                            stream_active = true;
+                            retune_ok = true;
+                        } else {
+                            retune_error = "activateStream returned " + std::to_string(rc);
+                        }
+                    }
+                } catch (const std::exception& ex) {
+                    retune_error = ex.what();
+                }
+
+                // One retry keeps a transient activation error from leaving
+                // the receiver stopped. If frequency programming completed,
+                // a successful retry also completes the requested retune.
+                if (!stream_active) {
+                    try {
+                        int rc = dev->activateStream(stream);
+                        if (rc == 0) {
+                            stream_active = true;
+                            if (frequency_set) retune_ok = true;
+                        } else {
+                            if (!retune_error.empty()) retune_error += "; ";
+                            retune_error += "reactivateStream returned " + std::to_string(rc);
+                        }
+                    } catch (const std::exception& ex) {
+                        if (!retune_error.empty()) retune_error += "; ";
+                        retune_error += std::string("reactivateStream: ") + ex.what();
+                    }
+                }
+
+                const uint64_t elapsed_ns = (uint64_t)
+                    std::chrono::duration_cast<std::chrono::nanoseconds>(
+                        std::chrono::steady_clock::now() - retune_start).count();
+                diag.last_retune_ns.store(elapsed_ns, std::memory_order_relaxed);
+
+                if (retune_ok) {
+                    applied_freq_mhz = requested_mhz;
+                    hb.reset();
+                    reset_fm_on_next_read = true;
+                    signal_generation.fetch_add(1, std::memory_order_release);
+                    diag.retune_count.fetch_add(1, std::memory_order_relaxed);
+                    std::cerr << "[tune] " << requested_mhz << " MHz in "
+                              << (double)elapsed_ns * 1.0e-6 << " ms\n";
+                } else {
+                    diag.retune_failures.fetch_add(1, std::memory_order_relaxed);
+                    std::cerr << "[tune] " << requested_mhz << " MHz failed: "
+                              << (retune_error.empty() ? "unknown error" : retune_error) << "\n";
+                    if (!stream_active) {
+                        std::cerr << "[tune] receiver could not be restarted; stopping cleanly\n";
+                        running.store(false, std::memory_order_release);
+                        break;
+                    }
+                }
+            }
+
+            auto t_op_start = std::chrono::steady_clock::now();
+            void* buffs[] = {rxbuf.data()};
+            int flags = 0;
+            long long timeNs = 0;
+            int n = dev->readStream(stream, buffs, (int)read_samps, flags, timeNs, 100000);
+            diag.read_calls++;
+            auto t_op_end = std::chrono::steady_clock::now();
+            diag.t_rx_ns.fetch_add((uint64_t)std::chrono::duration_cast<std::chrono::nanoseconds>(
+                t_op_end - t_op_start).count(), std::memory_order_relaxed);
+
+            if (n == SOAPY_SDR_TIMEOUT) { diag.read_timeouts++; continue; }
+            if (n < 0) {
+                diag.read_errors++;
+                std::cerr << "readStream error: " << n << "\n";
                 break;
             }
-            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+            if (n == 0) continue;
+            diag.read_samps += (uint64_t)n;
+
+            if (reset_fm_on_next_read) {
+                // Avoid a discriminator impulse between the last sample from
+                // the old RF channel and the first sample from the new one.
+                fm_prev = rxbuf[0];
+                reset_fm_on_next_read = false;
+            }
+
+            if (dump_iq_f && iq_left > 0) {
+                long long take = std::min<long long>(iq_left, n);
+                std::fwrite(rxbuf.data(), sizeof(std::complex<float>), (size_t)take, dump_iq_f);
+                iq_left -= take;
+                if (iq_left <= 0) {
+                    finish_dump(&dump_iq_f);
+                    if (dump_stop && dumps_pending.load(std::memory_order_relaxed) == 0)
+                        running.store(false, std::memory_order_release);
+                }
+            }
+
+            // FM discriminator and downsampled diagnostic telemetry.
+            t_op_start = std::chrono::steady_clock::now();
+            fm_disc_block(fm_prev, rxbuf.data(), n, dembuf.data(), disc);
+
+            float local_fm_peak = 0.0f;
+            float local_fm_acc = 0.0f;
+            float local_mag_min = 1e9f;
+            float local_mag_acc = 0.0f;
+            uint32_t local_current_drop = 0;
+            {
+                std::lock_guard<std::mutex> lock(diag.rf_metrics_mutex);
+                local_current_drop = diag.current_dropout_len;
+            }
+            uint32_t local_max_drop = local_current_drop;
+            constexpr float DROP_THR_SQ = 0.05f * 0.05f;
+
+            for (int i = 0; i < n; i += 8) {
+                float abs_v = std::fabs(dembuf[(size_t)i]);
+                if (abs_v > local_fm_peak) local_fm_peak = abs_v;
+                local_fm_acc += dembuf[(size_t)i] * 8.0f;
+
+                float I = rxbuf[(size_t)i].real();
+                float Q = rxbuf[(size_t)i].imag();
+                float mag_sq = I * I + Q * Q;
+                if (mag_sq < DROP_THR_SQ) {
+                    local_current_drop += 8;
+                    if (local_current_drop > local_max_drop) local_max_drop = local_current_drop;
+                } else {
+                    local_current_drop = 0;
+                }
+
+                // Magnitude is HUD-only telemetry. Sampling it at 0.895 Msps
+                // retains ample resolution while avoiding 2.68 million scalar
+                // square roots per second. Dropout width still uses the 8-sample grid.
+                if ((i & 31) == 0) {
+                    float mag = std::sqrt(mag_sq);
+                    if (mag < local_mag_min) local_mag_min = mag;
+                    local_mag_acc += mag * 32.0f;
+                }
+            }
+
+            {
+                std::lock_guard<std::mutex> lock(diag.rf_metrics_mutex);
+                if (local_fm_peak > diag.fm_peak) diag.fm_peak = local_fm_peak;
+                if (local_mag_min < diag.iq_mag_min) diag.iq_mag_min = local_mag_min;
+                diag.iq_mag_acc += local_mag_acc;
+                diag.fm_acc += local_fm_acc;
+                diag.fm_count += (uint64_t)n;
+                diag.current_dropout_len = local_current_drop;
+                if (local_max_drop > diag.max_dropout_len) diag.max_dropout_len = local_max_drop;
+            }
+
+            t_op_end = std::chrono::steady_clock::now();
+            diag.t_fm_ns.fetch_add((uint64_t)std::chrono::duration_cast<std::chrono::nanoseconds>(
+                t_op_end - t_op_start).count(), std::memory_order_relaxed);
+
+            // Half-band decimation to the 4*fSC composite-video rate.
+            t_op_start = std::chrono::steady_clock::now();
+            int nv = hb.process_block(dembuf.data(), n, vidbuf.data());
+            t_op_end = std::chrono::steady_clock::now();
+            diag.t_decim_ns.fetch_add((uint64_t)std::chrono::duration_cast<std::chrono::nanoseconds>(
+                t_op_end - t_op_start).count(), std::memory_order_relaxed);
+
+            if (dump_fm_f && fm_left > 0 && nv > 0) {
+                long long take = std::min<long long>(fm_left, nv);
+                std::fwrite(vidbuf.data(), sizeof(float), (size_t)take, dump_fm_f);
+                fm_left -= take;
+                if (fm_left <= 0) {
+                    finish_dump(&dump_fm_f);
+                    if (dump_stop && dumps_pending.load(std::memory_order_relaxed) == 0)
+                        running.store(false, std::memory_order_release);
+                }
+            }
+
+            size_t can_write = video_queue.write_available();
+            if (can_write < (size_t)nv) {
+                diag.queue_full_stalls.fetch_add(1, std::memory_order_relaxed);
+                int keep = (int)can_write;
+                if (keep > 0) video_queue.push(vidbuf.data(), (size_t)keep);
+            } else {
+                video_queue.push(vidbuf.data(), (size_t)nv);
+            }
         }
 
         running.store(false, std::memory_order_release);
-        if (sdr_reader_thread.joinable()) sdr_reader_thread.join();
-        if (fm_worker_thread.joinable()) fm_worker_thread.join();
         if (consumer_thread.joinable()) consumer_thread.join();
         finish_dump(&dump_iq_f);
         finish_dump(&dump_fm_f);
@@ -2109,7 +2615,7 @@ int main(int argc, char** argv) {
             frame_log_f = nullptr;
         }
         
-        dev->deactivateStream(stream);
+        if (stream_active) dev->deactivateStream(stream);
         dev->closeStream(stream);
         SoapySDR::Device::unmake(dev);
         return 0;
