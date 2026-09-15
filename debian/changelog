@@ -1,3 +1,9 @@
+quadrf (1.0.27) trixie; urgency=medium
+
+  * demos: Add 802.11 Data Link tunnel
+
+ -- QuadRF Engineering <contact@ScaleRF.com>  Tue, 15 Sep 2026 15:38:56 -0700
+
 quadrf (1.0.26) trixie; urgency=medium
 
   * improved NTSC video decoder stability
