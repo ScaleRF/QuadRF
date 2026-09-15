@@ -1,0 +1,13 @@
+{
+  "apps": [
+    {
+      "id": "data",
+      "name": "802.11 Data Link",
+      "desktop_entry": "com.scalerf.QuadRF.DataLink.desktop",
+      "service": "quadrf-data.service",
+      "binaries": ["quadrf-data"],
+      "exclusive": true,
+      "open": "desktop"
+    }
+  ]
+}

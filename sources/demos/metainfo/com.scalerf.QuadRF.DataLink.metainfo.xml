@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.scalerf.QuadRF.DataLink</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <name>802.11 Data Link</name>
+  <summary>IEEE 802.11 OFDM IP tunnel over the QuadRF radio</summary>
+  <description>
+    <p>802.11 Data Link runs an 802.11a-style OFDM PHY on the QuadRF tile and bridges IPv4 through a TUN interface so two units on the same channel can exchange IP traffic.</p>
+  </description>
+  <launchable type="desktop-id">com.scalerf.QuadRF.DataLink.desktop</launchable>
+  <provides>
+    <binary>quadrf-data</binary>
+  </provides>
+  <url type="homepage">https://quadrf.com/</url>
+  <developer id="com.scalerf">
+    <name>Scale RF</name>
+  </developer>
+  <content_rating type="oars-1.1"/>
+</component>

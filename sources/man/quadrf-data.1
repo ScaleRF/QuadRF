@@ -1,0 +1,60 @@
+.TH QUADRF-DATA 1 "September 2026" "QuadRF" "QuadRF"
+.SH NAME
+quadrf-data \- IEEE 802.11 OFDM IP tunnel over the QuadRF radio
+.SH SYNOPSIS
+.B quadrf-data
+[\fIoptions\fR]
+.SH DESCRIPTION
+Runs an 802.11a-style OFDM PHY on the QuadRF tile and bridges IPv4 through a
+TUN interface. Two units on the same channel form a point-to-point IP link.
+Desktop launch is
+.B quadrf-data --gui
+with the TUN address taken from
+.I QUADRF_HOSTNAME
+in
+.IR /etc/quadrf/quadrf.conf
+(quadrf is 10.99.0.1, quadrf-2 is 10.99.0.2). Frequency and gain stay on the
+web radio controls. The GUI rate buttons cycle BPSK and QPSK (6, 9, 12, 18
+Mbps);
+.B --rate
+still accepts the full 802.11a set.
+.SH OPTIONS
+.TP
+.B --gui
+Open the SDL dashboard (desktop and systemd default).
+.TP
+.B --headless
+Run without a window.
+.TP
+.BI --ip " cidr"
+TUN address (default: from hostname, as above).
+.TP
+.BI --rate " name"
+TX modulation (6, 9, 12, 18, 24, 36, 48, 54).
+.TP
+.B --verbose
+Print per-frame RX/TX and a 2 s telemetry line.
+.TP
+.B --help
+List all options, including radio CLI overrides.
+.SH KEYS
+The SDL window must have keyboard focus.
+.TP
+.BR Return ", " I
+Ping the peer.
+.TP
+.B A
+Toggle auto-ping.
+.TP
+.BR Space ", " U
+Start or stop TUN forwarding.
+.TP
+.B R
+Next GUI rate.
+.TP
+.BR Q ", " Escape
+Quit.
+.SH SEE ALSO
+.BR quadrf-jtag (1),
+.BR quadrf-psd (1),
+.BR quadrf-app (8)

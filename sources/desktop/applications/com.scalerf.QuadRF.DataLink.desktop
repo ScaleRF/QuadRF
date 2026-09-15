@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=802.11 Data Link
+Comment=IEEE 802.11 OFDM IP tunnel over the QuadRF radio
+Exec=/usr/bin/quadrf-data --gui
+TryExec=/usr/bin/quadrf-data
+Icon=quadrf-data-link
+Terminal=false
+Categories=HamRadio;Science;Network;
+X-QuadRF-Desktop=true

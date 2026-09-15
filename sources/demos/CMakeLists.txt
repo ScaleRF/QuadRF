@@ -39,6 +39,9 @@ add_executable(quadrf-nearfield nearfield.c)
 target_include_directories(quadrf-nearfield PRIVATE ${CMAKE_SOURCE_DIR}/sources/fpga/drivers/csi)
 target_link_libraries(quadrf-nearfield PRIVATE SDL2 m pthread)
 
+# quadrf-data (IEEE 802.11 OFDM TUN)
+add_subdirectory(wifi)
+
 # Install rules (standard binaries)
 install(TARGETS quadrf-rf-vision quadrf-psd quadrf-ntsc-demod quadrf-ntsc-mod quadrf-nearfield DESTINATION bin)
 
