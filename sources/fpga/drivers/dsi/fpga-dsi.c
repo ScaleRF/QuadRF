@@ -8,6 +8,7 @@
  */
 
 #include <linux/module.h>
+#include <linux/version.h>
 #include <linux/of.h>
 #include <linux/platform_device.h>
 #include <linux/miscdevice.h>
@@ -37,6 +38,7 @@
 #include <drm/drm_probe_helper.h>
 #include <drm/drm_fourcc.h>
 #include <drm/drm_client.h>
+#include <drm/drm_framebuffer.h>
 #include <drm/drm_atomic.h>
 #include <drm/drm_gem_atomic_helper.h>
 #include <drm/drm_gem_framebuffer_helper.h>
@@ -54,6 +56,12 @@
 
 #ifndef no_llseek
 #define no_llseek noop_llseek
+#endif
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 18, 0)
+#define dsi_client_buffer_delete drm_client_buffer_delete
+#else
+#define dsi_client_buffer_delete drm_client_framebuffer_delete
 #endif
 
 #define DRV_NAME "dsi-stream-panel"
@@ -378,7 +386,7 @@ static int dsi_stream_client_register(struct dsi_stream_dev *s)
 		if (ret)
 			goto err_release;
 		s->vaddr[i] = s->map[i].vaddr;
-		s->pitch[i] = s->cbuf[i]->pitch;
+		s->pitch[i] = s->cbuf[i]->fb->pitches[0];
 	}
 
 	if (s->zero_idle_on_start) {
@@ -409,7 +417,7 @@ err_release:
 	for (i = 0; i < DSI_STREAM_NUM_BUFS; i++) {
 		if (s->cbuf[i]) {
 			drm_client_buffer_vunmap(s->cbuf[i]);
-			drm_client_framebuffer_delete(s->cbuf[i]);
+			dsi_client_buffer_delete(s->cbuf[i]);
 			s->cbuf[i] = NULL;
 		}
 	}
@@ -436,7 +444,7 @@ static int dsi_stream_client_unregister(struct dsi_stream_dev *s)
 	for (i = 0; i < DSI_STREAM_NUM_BUFS; i++) {
 		if (s->cbuf[i]) {
 			drm_client_buffer_vunmap(s->cbuf[i]);
-			drm_client_framebuffer_delete(s->cbuf[i]);
+			dsi_client_buffer_delete(s->cbuf[i]);
 			s->cbuf[i] = NULL;
 		}
 	}
