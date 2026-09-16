@@ -1,3 +1,9 @@
+quadrf (1.0.28) trixie; urgency=medium
+
+  * dsi: Adapt to the 6.18 DRM client-buffer API
+
+ -- QuadRF Engineering <contact@ScaleRF.com>  Tue, 15 Sep 2026 18:51:00 -0700
+
 quadrf (1.0.27) trixie; urgency=medium
 
   * demos: Add 802.11 Data Link tunnel
