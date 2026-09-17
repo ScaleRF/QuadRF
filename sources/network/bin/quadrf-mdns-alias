@@ -137,6 +137,104 @@ def iface_addrs(ap_addr):
     return pairs
 
 
+def local_macs():
+    macs = set()
+    net_dir = "/sys/class/net"
+    try:
+        entries = os.listdir(net_dir)
+    except OSError:
+        return macs
+    for iface in entries:
+        if iface == "lo" or iface.startswith("tun") or iface.startswith("tap"):
+            continue
+        try:
+            with open(os.path.join(net_dir, iface, "address"), encoding="ascii") as fh:
+                mac = fh.read().strip().lower()
+                if mac and mac != "00:00:00:00:00:00" and len(mac) == 17:
+                    macs.add(mac)
+        except OSError:
+            pass
+    return macs
+
+
+def parse_txt_macs(raw_txt):
+    try:
+        txt_list = avahi.txt_array_to_string_array(raw_txt)
+    except Exception:
+        return set()
+    macs = set()
+    for item in txt_list:
+        if isinstance(item, bytes):
+            item = item.decode("utf-8", "replace")
+        if item.startswith("macs="):
+            for m in item[5:].split(","):
+                m = m.strip().lower()
+                if m:
+                    macs.add(m)
+    return macs
+
+
+def parse_txt_str_macs(txt_str):
+    macs = set()
+    for token in txt_str.split('"'):
+        token = token.strip()
+        if token.startswith("macs="):
+            for m in token[5:].split(","):
+                m = m.strip().lower()
+                if m:
+                    macs.add(m)
+    return macs
+
+
+def is_foreign_peer_alive(addr, my_macs):
+    # Elicit an ARP response if the neighbor entry is absent
+    try:
+        subprocess.run(
+            ["ping", "-n", "-c", "1", "-W", "1", addr],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=1.5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+    try:
+        out = subprocess.check_output(
+            ["ip", "-4", "neigh", "show", "to", addr],
+            text=True,
+            timeout=1,
+        )
+        for line in out.splitlines():
+            parts = line.split()
+            if "lladdr" in parts:
+                idx = parts.index("lladdr")
+                if idx + 1 < len(parts):
+                    mac = parts[idx + 1].strip().lower()
+                    if mac in my_macs:
+                        return False
+            if any(state in parts for state in ("REACHABLE", "DELAY", "PERMANENT")):
+                return True
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return False
+
+
+def resolve_name_ip(name):
+    try:
+        out = subprocess.check_output(
+            ["avahi-resolve", "-n", name],
+            text=True,
+            timeout=2,
+        )
+        for line in out.splitlines():
+            parts = line.strip().split()
+            if len(parts) >= 2 and parts[0] == name:
+                return parts[1]
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return None
+
+
 class Publisher:
     def __init__(self):
         self.base = "quadrf"
@@ -254,6 +352,19 @@ class Publisher:
             print(f"quadrf-mdns-alias: {slot['iface']} collision on "
                   f"{self.base}.local, locked", flush=True)
             return
+
+        our = {a for _, _, a in iface_addrs(self.ap_addr)}
+        resolved_ip = resolve_name_ip(f"{self.base}.local")
+        if resolved_ip and resolved_ip in our:
+            print(f"quadrf-mdns-alias: {slot['iface']} collision on {self.base}.local "
+                  f"resolves to local IP {resolved_ip}, ignoring", flush=True)
+            return
+        my_macs = local_macs()
+        if resolved_ip and not is_foreign_peer_alive(resolved_ip, my_macs):
+            print(f"quadrf-mdns-alias: {slot['iface']} collision on {self.base}.local "
+                  f"peer at {resolved_ip} not active on L2, ignoring", flush=True)
+            return
+
         nxt = alternative_hostname(self.base)
         if nxt is None:
             print(f"quadrf-mdns-alias: {slot['iface']} collision, "
@@ -266,7 +377,7 @@ class Publisher:
         self.browsers = []
         if self.server is None:
             return
-        for stype in ("_quadrf._tcp", "_soapy._tcp"):
+        for stype in ("_quadrf._tcp",):
             try:
                 path = self.server.ServiceBrowserNew(
                     avahi.IF_UNSPEC,
@@ -309,7 +420,13 @@ class Publisher:
         if host != f"{self.base}.local":
             return
         our = {a for _, _, a in iface_addrs(self.ap_addr)}
-        if addr in our:
+        if not our or addr in our:
+            return
+        my_macs = local_macs()
+        peer_macs = parse_txt_macs(_txt)
+        if peer_macs & my_macs:
+            return
+        if not is_foreign_peer_alive(addr, my_macs):
             return
         if self.locked or self._renaming:
             return
@@ -327,8 +444,8 @@ class Publisher:
             return True
         try:
             proc = subprocess.run(
-                ["avahi-browse", "-rk", "_quadrf._tcp"],
-                capture_output=True, text=True, timeout=4,
+                ["avahi-browse", "-lrktp", "_quadrf._tcp"],
+                capture_output=True, text=True, timeout=3,
             )
             out = proc.stdout or ""
         except subprocess.TimeoutExpired as exc:
@@ -338,21 +455,29 @@ class Publisher:
         except OSError:
             return True
         our = {a for _, _, a in iface_addrs(self.ap_addr)}
+        if not our:
+            return True
+        my_macs = local_macs()
         want = f"{self.base}.local"
-        host = None
         for line in out.splitlines():
-            s = line.strip()
-            if s.startswith("hostname ="):
-                host = s.split("=", 1)[1].strip().strip("[]")
-            elif s.startswith("address =") and host:
-                addr = s.split("=", 1)[1].strip().strip("[]")
-                if host.lower() == want and addr not in our:
-                    nxt = alternative_hostname(self.base)
-                    if nxt:
-                        print(f"quadrf-mdns-alias: {host} also at {addr}, "
-                              f"applying {nxt}.local", flush=True)
-                        self._spawn_rename(nxt)
-                    return True
+            parts = line.strip().split(";")
+            if len(parts) < 8 or parts[0] != "=":
+                continue
+            host = parts[6].rstrip(".").lower()
+            addr = parts[7].strip()
+            txt_str = parts[9] if len(parts) > 9 else ""
+            if host == want and addr not in our:
+                peer_macs = parse_txt_str_macs(txt_str)
+                if peer_macs & my_macs:
+                    continue
+                if not is_foreign_peer_alive(addr, my_macs):
+                    continue
+                nxt = alternative_hostname(self.base)
+                if nxt:
+                    print(f"quadrf-mdns-alias: {host} also at {addr}, "
+                          f"applying {nxt}.local", flush=True)
+                    self._spawn_rename(nxt)
+                return True
         return True
 
     def _publish_iface(self, idx, iface, addr):
@@ -376,6 +501,12 @@ class Publisher:
             return
 
         names = alias_names(self.base)
+        my_macs = local_macs()
+        txt = (
+            avahi.string_array_to_txt_array([f"macs={','.join(sorted(my_macs))}"])
+            if my_macs
+            else []
+        )
         try:
             group = self._group_for(idx, slot)
             if not group.IsEmpty():
@@ -399,7 +530,7 @@ class Publisher:
                 "local",
                 f"{self.base}.local",
                 dbus.UInt16(80),
-                [],
+                txt,
             )
             group.Commit()
         except dbus.DBusException as exc:
