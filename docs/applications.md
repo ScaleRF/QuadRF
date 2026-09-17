@@ -25,6 +25,7 @@ The complete `quadrf` package ships with the following built-in applications:
 | **PSD Plot** | Live FFT power spectral density (1 to 4 channels) | Remote desktop |
 | **Near-Field Phasors** | Coherent 4x4 MIMO near-field phasors with TDM TX cycling | Remote desktop |
 | **802.11 Data Link** | 802.11 OFDM IP tunnel (TUN) between two QuadRF units | Remote desktop |
+| **PhaseGaze** | Swept-LO phase-gradient hemisphere (38 Msps, 4-lane CSI) | Browser view at `/phasegaze/` |
 | **QuadRF Mesh** | Experimental Meshtastic daemon and LoRa-compatible PHY | Control panel + remote desktop (`:9443`) |
 | **GNU Radio Companion** | Flowgraph development with QuadRF source/sink blocks | Remote desktop |
 | **QRadioLink** | Multi-mode digital voice and analog transceiver | Remote desktop |

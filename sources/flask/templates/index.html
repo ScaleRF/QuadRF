@@ -1887,9 +1887,10 @@
         fetchState();
         setInterval(fetchState, 1000);
 
+        let controlSocket = null;
         if (typeof io !== 'undefined') {
-            const socket = io({ path: '{{ request.script_root }}/socket.io' });
-            socket.on('sdr_telemetry', function(data) {
+            controlSocket = io({ path: '{{ request.script_root }}/socket.io' });
+            controlSocket.on('sdr_telemetry', function(data) {
                 if(data.rx_power_dbm !== undefined) {
                     document.getElementById('rxPowerMeter').value = data.rx_power_dbm;
                     document.getElementById('rxPowerReadout').innerText = data.rx_power_dbm;
@@ -1899,8 +1900,8 @@
                     document.getElementById('txPowerReadout').innerText = data.tx_power_dbm;
                 }
             });
-            socket.on('sdr_status', applyState);
-            socket.on('app_state', applyAppState);
+            controlSocket.on('sdr_status', applyState);
+            controlSocket.on('app_state', applyAppState);
         }
 
         const appListEl = document.getElementById('appList');
@@ -1945,6 +1946,13 @@
                 }
             } catch (e) {}
             return open;
+        }
+
+        if (controlSocket) {
+            controlSocket.on('open_app', (data) => {
+                const dest = resolveOpen(data && data.open);
+                if (dest) window.open(dest, '_blank');
+            });
         }
 
         function applyAppState(data) {

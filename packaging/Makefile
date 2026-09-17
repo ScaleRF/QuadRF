@@ -27,7 +27,7 @@ quadrf: | $(OUT)
 	mv $(TOP)/../quadrf_$(shell dpkg-parsechangelog -l$(TOP)/debian/changelog -SVersion)_*.buildinfo $(OUT)/ 2>/dev/null || true
 	mv $(TOP)/../quadrf_$(shell dpkg-parsechangelog -l$(TOP)/debian/changelog -SVersion)_*.changes $(OUT)/ 2>/dev/null || true
 
-thirdparty: openocd qradiolink kasmvnc mesh
+thirdparty: openocd qradiolink kasmvnc mesh phasegaze
 
 openocd: | $(OUT)
 	OUT=$(OUT) ./thirdparty/openocd/build.sh
@@ -40,6 +40,9 @@ kasmvnc: | $(OUT)
 
 mesh: | $(OUT)
 	OUT=$(OUT) ./thirdparty/fetch-quadrf-mesh.sh
+
+phasegaze: | $(OUT)
+	OUT=$(OUT) ./thirdparty/fetch-quadrf-phasegaze.sh
 
 key:
 	./repo/gen-key.sh

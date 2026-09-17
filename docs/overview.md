@@ -118,7 +118,7 @@ flowchart TB
 | `quadrf-gui` | Flask control panel served on port 8080 |
 | `quadrf-network` | Nginx reverse proxy, dnsmasq DHCP/DNS, mDNS responder, and Wi-Fi mode management |
 | `quadrf-dev` | C++ headers (`fpga_csi.h`, `Farrow.hpp`), CMake configuration, and source trees under `/usr/src/` |
-| `quadrf-demos` | Reference apps (Spatial RF Vision, PSD Plot, NTSC decoder/encoder, Near-Field Phasors, 802.11 Data Link) and source examples |
+| `quadrf-demos` | Reference apps (Spatial RF Vision, PSD Plot, NTSC decoder/encoder, Near-Field Phasors, 802.11 Data Link, PhaseGaze) and source examples |
 | `quadrf-desktop` | KasmVNC desktop environment (`DISPLAY=:1`) with desktop launchers and triggers |
 | `quadrf-gnuradio` | Example GNU Radio Companion flowgraphs |
 | `quadrf-mesh` | QuadRF Mesh (LoRa-compatible PHY, Meshtastic daemon, desktop and control-panel launcher) |
@@ -155,6 +155,7 @@ Nginx handles ingress on ports 80 (HTTP) and 443 (HTTPS):
 | `quadrfd.local/split` | Dual view: desktop + control panel | Kasm iframe + Flask |
 | `/AR/` | Mobile Augmented Reality view | Static assets in `/usr/share/quadrf/ar/` |
 | `/ws` | High-rate RF vision data stream | `quadrf-rf-vision` on port 8000 |
+| `/phasegaze/` | PhaseGaze hemisphere view | `quadrf-phasegaze` on port 8001 |
 | `/setup/security/` | Platform root certificate installation | Local root CA certificate distribution |
 
 > For certificate installation and browser HTTPS configuration, see [HTTPS Setup](tls.md).
@@ -171,7 +172,7 @@ load-quadrf.service          OpenOCD -> bitstream -> drivers -> quadrf-jtag --in
 quadrf-gui.service           Web control panel on port 8080
 quadrf-soapy-server.service  SoapyRemote server on port 55132
         │
-nginx.service                Reverse proxy for /, :6080, /AR/, /ws
+nginx.service                Reverse proxy for /, :6080, /AR/, /ws, /phasegaze/
 quadrf-desktop.service       KasmVNC session on port 8444
 quadrf-ups.service           UPS HAT battery telemetry
 quadrf-hotspot.service       Wi-Fi client/hotspot controller

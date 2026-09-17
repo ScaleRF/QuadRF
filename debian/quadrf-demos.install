@@ -8,7 +8,6 @@ usr/bin/quadrf-nearfield
 usr/bin/quadrf-data
 usr/share/quadrf/ar/
 usr/share/quadrf/ntsc_ch.lua
-usr/share/quadrf/phasegaze/
 usr/share/quadrf/examples/
 usr/share/quadrf/apps.d/quadrf-demos.json
 usr/share/quadrf/apps.d/quadrf-data.json

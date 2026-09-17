@@ -7,6 +7,7 @@
 #   :6080                     same desktop, for IP access and as a fallback
 #   /AR/                      browser AR overlay, static
 #   /ws                       WebSocket from Spatial RF Vision on 8000
+#   /phasegaze/               PhaseGaze hemisphere (static UI; WS on 8001)
 #
 # KasmVNC's client assumes it is at the root of a host. Do not put it under
 # a path prefix.

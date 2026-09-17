@@ -570,39 +570,46 @@ def requested_client_id():
     return (request.args.get("client") or "").strip()[:64]
 
 
-# Spatial RF Vision tabs register here. Last client gone -> stop after a
-# short grace so a refresh can re-attach. A watchdog also prunes stale
-# entries; pagehide beacons are best-effort and often never arrive.
-AR_CLIENTS = {}
-AR_SEEN = False
-AR_STOP_TIMER = None
-AR_LOCK = threading.Lock()
-AR_STOP_GRACE = 0.8
-AR_STALE_SEC = 2.5
+# Browser tabs for web-open apps register here. Last client gone -> stop
+# after a short grace so a refresh can re-attach. A watchdog also prunes
+# stale entries; pagehide beacons are best-effort and often never arrive.
+# 75s stale accommodates Chromium background-tab timer clamping (~60s)
+# while still releasing CSI soon after an ungracefully abandoned tab.
+ATTACH_APPS = frozenset({"ar", "phasegaze"})
+WEB_CLIENTS = {}
+WEB_SEEN = set()
+WEB_STOP_TIMER = {}
+WEB_LOCK = threading.Lock()
+WEB_STOP_GRACE = 2.0
+WEB_STALE_SEC = 75.0
 
 
-def _prune_ar_clients(now=None):
+def _web_clients(app_id):
+    return WEB_CLIENTS.setdefault(app_id, {})
+
+
+def _prune_web_clients(app_id, now=None):
     now = now if now is not None else time.time()
-    for key, seen in list(AR_CLIENTS.items()):
-        if now - seen > AR_STALE_SEC:
-            AR_CLIENTS.pop(key, None)
+    clients = WEB_CLIENTS.get(app_id, {})
+    for key, seen in list(clients.items()):
+        if now - seen > WEB_STALE_SEC:
+            clients.pop(key, None)
 
 
-def _cancel_ar_stop():
-    global AR_STOP_TIMER
-    if AR_STOP_TIMER is not None:
-        AR_STOP_TIMER.cancel()
-        AR_STOP_TIMER = None
+def _cancel_web_stop(app_id):
+    timer = WEB_STOP_TIMER.pop(app_id, None)
+    if timer is not None:
+        timer.cancel()
 
 
-def _stop_ar_if_idle():
-    global AR_SEEN
-    with AR_LOCK:
-        _prune_ar_clients()
-        if AR_CLIENTS:
+def _stop_web_if_idle(app_id):
+    with WEB_LOCK:
+        _prune_web_clients(app_id)
+        if WEB_CLIENTS.get(app_id):
             return
-        AR_SEEN = False
-    proc = app_cli("stop", "ar")
+        WEB_SEEN.discard(app_id)
+        _cancel_web_stop(app_id)
+    proc = app_cli("stop", app_id)
     payload = parse_cli_json(proc)
     if payload:
         socketio.emit("app_state", payload)
@@ -610,29 +617,61 @@ def _stop_ar_if_idle():
         broadcast_app_state()
 
 
-def _schedule_ar_stop(reset=True):
-    global AR_STOP_TIMER
+def _schedule_web_stop(app_id, reset=True):
     if reset:
-        _cancel_ar_stop()
-    elif AR_STOP_TIMER is not None:
+        _cancel_web_stop(app_id)
+    elif app_id in WEB_STOP_TIMER:
         return
 
-    AR_STOP_TIMER = threading.Timer(AR_STOP_GRACE, _stop_ar_if_idle)
-    AR_STOP_TIMER.daemon = True
-    AR_STOP_TIMER.start()
+    timer = threading.Timer(WEB_STOP_GRACE, _stop_web_if_idle, args=(app_id,))
+    timer.daemon = True
+    WEB_STOP_TIMER[app_id] = timer
+    timer.start()
 
 
-def _ar_watchdog_loop():
+def _web_watchdog_loop():
     while True:
         time.sleep(1.0)
-        with AR_LOCK:
-            _prune_ar_clients()
-            idle = AR_SEEN and not AR_CLIENTS
-        if idle:
-            _schedule_ar_stop(reset=False)
+        idle = []
+        with WEB_LOCK:
+            for app_id in list(WEB_SEEN):
+                _prune_web_clients(app_id)
+                if not WEB_CLIENTS.get(app_id):
+                    idle.append(app_id)
+        for app_id in idle:
+            _schedule_web_stop(app_id, reset=False)
 
 
-threading.Thread(target=_ar_watchdog_loop, name="ar-watchdog", daemon=True).start()
+def _socket_client_count():
+    try:
+        eio = getattr(socketio.server, "eio", None)
+        sockets = getattr(eio, "sockets", None) if eio is not None else None
+        if sockets is not None:
+            return len(sockets)
+    except Exception:
+        pass
+    return 0
+
+
+def _app_open_path(app_id):
+    proc = app_cli("status")
+    payload = parse_cli_json(proc)
+    if not payload:
+        return ""
+    for entry in payload.get("apps") or []:
+        if entry.get("id") == app_id:
+            return entry.get("open") or ""
+    return ""
+
+
+def _clear_web_clients(app_id):
+    with WEB_LOCK:
+        WEB_CLIENTS.pop(app_id, None)
+        WEB_SEEN.discard(app_id)
+        _cancel_web_stop(app_id)
+
+
+threading.Thread(target=_web_watchdog_loop, name="web-app-watchdog", daemon=True).start()
 
 
 @app.route('/api/apps', methods=['GET'])
@@ -672,44 +711,53 @@ def apps_start():
 
 @app.route('/api/apps/attach', methods=['POST'])
 def apps_attach():
-    global AR_SEEN
     app_id = requested_app_id() or "ar"
-    if app_id != "ar":
-        return jsonify({"status": "error", "message": "attach is only used by ar"}), 400
+    if app_id not in ATTACH_APPS:
+        return jsonify({"status": "error", "message": "attach is only used by web-open apps"}), 400
     client = requested_client_id() or "anon"
-    with AR_LOCK:
-        AR_SEEN = True
-        AR_CLIENTS[client] = time.time()
-        _cancel_ar_stop()
+    with WEB_LOCK:
+        WEB_SEEN.add(app_id)
+        _web_clients(app_id)[client] = time.time()
+        _cancel_web_stop(app_id)
     return jsonify({"status": "ok"})
 
 
 @app.route('/api/apps/detach', methods=['POST'])
 def apps_detach():
     app_id = requested_app_id() or "ar"
-    if app_id != "ar":
-        return jsonify({"status": "error", "message": "detach is only used by ar"}), 400
+    if app_id not in ATTACH_APPS:
+        return jsonify({"status": "error", "message": "detach is only used by web-open apps"}), 400
     client = requested_client_id()
-    with AR_LOCK:
+    with WEB_LOCK:
         if client:
-            AR_CLIENTS.pop(client, None)
-        _prune_ar_clients()
-        if not AR_CLIENTS:
-            _schedule_ar_stop()
+            _web_clients(app_id).pop(client, None)
+        _prune_web_clients(app_id)
+        if not WEB_CLIENTS.get(app_id):
+            _schedule_web_stop(app_id)
     return jsonify({"status": "ok"})
+
+
+@app.route('/api/apps/open', methods=['POST'])
+def apps_open():
+    app_id = requested_app_id()
+    if not app_id:
+        return jsonify({"status": "error", "message": "app is required"}), 400
+    open_path = _app_open_path(app_id)
+    if not open_path or open_path in ("desktop", "browser"):
+        return jsonify({"status": "error", "message": "no web open path"}), 400
+    listeners = _socket_client_count()
+    if listeners:
+        socketio.emit("open_app", {"app": app_id, "open": open_path})
+    return jsonify({"status": "ok", "open": open_path, "opened": bool(listeners)})
 
 
 @app.route('/api/apps/stop', methods=['POST'])
 def apps_stop():
-    global AR_SEEN
     app_id = requested_app_id()
     if not app_id:
         return jsonify({"status": "error", "message": "app is required"}), 400
-    if app_id == "ar":
-        with AR_LOCK:
-            AR_CLIENTS.clear()
-            AR_SEEN = False
-            _cancel_ar_stop()
+    if app_id in ATTACH_APPS:
+        _clear_web_clients(app_id)
     proc = app_cli("stop", app_id)
     payload = parse_cli_json(proc)
     if proc.returncode != 0:
