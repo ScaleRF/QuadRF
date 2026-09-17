@@ -20,8 +20,18 @@
         
         #intensity_slider { position: absolute; right: 20px; top: 50%; transform: translateY(-50%); height: 50%; z-index: 10; 
             writing-mode: vertical-lr; direction: rtl; opacity: 0.7; }
-        #hw_gain_slider { position: absolute; right: 60px; top: 50%; transform: translateY(-50%); height: 50%; z-index: 10; 
-            writing-mode: vertical-lr; direction: rtl; opacity: 0.7; }
+        /* Fat pad around the thin native range so a finger miss still
+           owns the gesture instead of starting a background calibration. */
+        #hw_gain_wrap {
+            position: absolute; right: 28px; top: 50%; transform: translateY(-50%);
+            width: 64px; height: 56%; z-index: 10; touch-action: none;
+        }
+        #hw_gain_slider {
+            position: absolute; left: 50%; top: 0; bottom: 0;
+            width: 28px; height: 100%; margin: 0 0 0 -14px;
+            writing-mode: vertical-lr; direction: rtl; opacity: 0.7;
+            pointer-events: none;
+        }
         #mirror_btn, #fullscreen_btn, #reset_btn {
             position: absolute; bottom: 20px; z-index: 10;
             padding: 10px 15px; background: rgba(30, 30, 30, 0.8); color: white;
@@ -59,7 +69,9 @@
 <canvas id="ui_overlay"></canvas>
 
 <input type="range" id="intensity_slider" min="0.0" max="1.0" step="0.01" value="0.5" style="display: none;">
-<input type="range" id="hw_gain_slider" min="0" max="127" step="1" value="34">
+<div id="hw_gain_wrap">
+    <input type="range" id="hw_gain_slider" min="0" max="127" step="1" value="45">
+</div>
 <button id="reset_btn">Reset Align</button>
 <button id="fullscreen_btn">Fullscreen</button>
 <button id="mirror_btn">Flip L/R</button>
@@ -115,7 +127,7 @@
     ];
     let corners = DEFAULT_CORNERS.map(c => ({ u: c.u, v: c.v }));
     let flipLR = true;
-    let hwGain = 34;
+    let hwGain = 45;
     let hadLocalSettings = false;
     let saveTimer = null;
 
@@ -307,6 +319,16 @@
         startPos = pos;
         isPointerDown = true;
         isDrag = false;
+
+        const hwWrap = document.getElementById('hw_gain_wrap');
+        if (hwWrap && hwWrap.style.pointerEvents !== 'none') {
+            const r = hwWrap.getBoundingClientRect();
+            if (pos.x >= r.left && pos.x <= r.right && pos.y >= r.top && pos.y <= r.bottom) {
+                calibrationDrag = null;
+                isPointerDown = false;
+                return;
+            }
+        }
 
         // The drag start itself is the calibration observation. Invert the
         // current warp so we know which RF coordinate currently appears here.
@@ -627,6 +649,7 @@
         uiCtx.clearRect(0, 0, uiCanvas.width, uiCanvas.height);
 
         const slider = document.getElementById('intensity_slider');
+        const hwWrap = document.getElementById('hw_gain_wrap');
         const hwSlider = document.getElementById('hw_gain_slider');
         const mirrorBtn = document.getElementById('mirror_btn');
         const fsBtn = document.getElementById('fullscreen_btn');
@@ -637,9 +660,12 @@
             slider.style.opacity = controlAlpha * 0.7; 
             slider.style.pointerEvents = pe;
         }
+        if (hwWrap) {
+            hwWrap.style.opacity = controlAlpha * 0.7;
+            hwWrap.style.pointerEvents = pe;
+        }
         if (hwSlider) {
-            hwSlider.style.opacity = controlAlpha * 0.7; 
-            hwSlider.style.pointerEvents = pe;
+            hwSlider.style.opacity = controlAlpha * 0.7;
         }
         if (mirrorBtn) {
             mirrorBtn.style.opacity = controlAlpha * 0.7; 
@@ -919,16 +945,56 @@
    
     // --- Hardware Controls ---
     const hwGainSlider = document.getElementById('hw_gain_slider');
+    const hwGainWrap = document.getElementById('hw_gain_wrap');
+    const HW_GAIN_MAX = 127;
+
+    function applyHwGain(value, immediate) {
+        hwGain = Math.max(0, Math.min(HW_GAIN_MAX, value | 0));
+        if (hwGainSlider) hwGainSlider.value = String(hwGain);
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send("gain:" + hwGain);
+        }
+        saveSettings(immediate);
+        resetHideTimer();
+    }
+
+    function hwGainFromClientY(clientY) {
+        if (!hwGainWrap) return hwGain;
+        const r = hwGainWrap.getBoundingClientRect();
+        if (r.height <= 0) return hwGain;
+        // vertical-lr + rtl: top of the pad is max gain
+        let t = (clientY - r.top) / r.height;
+        t = Math.max(0, Math.min(1, t));
+        return Math.round((1 - t) * HW_GAIN_MAX);
+    }
+
     if (hwGainSlider) {
         hwGainSlider.value = String(hwGain);
         hwGainSlider.oninput = (e) => {
-            hwGain = parseInt(e.target.value, 10);
-            if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send("gain:" + hwGain);
-            }
-            saveSettings();
-            resetHideTimer(); 
+            applyHwGain(parseInt(e.target.value, 10));
         };
+    }
+
+    if (hwGainWrap) {
+        let gainDragging = false;
+        hwGainWrap.addEventListener('pointerdown', (e) => {
+            if (controlAlpha === 0 || !controlsArmed) return;
+            gainDragging = true;
+            hwGainWrap.setPointerCapture(e.pointerId);
+            applyHwGain(hwGainFromClientY(e.clientY));
+            e.preventDefault();
+            e.stopPropagation();
+        });
+        hwGainWrap.addEventListener('pointermove', (e) => {
+            if (!gainDragging) return;
+            applyHwGain(hwGainFromClientY(e.clientY));
+        });
+        hwGainWrap.addEventListener('pointerup', () => {
+            if (!gainDragging) return;
+            gainDragging = false;
+            applyHwGain(hwGain, true);
+        });
+        hwGainWrap.addEventListener('pointercancel', () => { gainDragging = false; });
     }
 
     const mBtn = document.getElementById('mirror_btn');
