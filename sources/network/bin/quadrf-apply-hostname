@@ -33,23 +33,25 @@ apply_name() {
     fi
     install -d -m 755 "${LOCKDIR}"
     exec 9>"${LOCKFILE}"
-    if ! flock -n 9; then
-        echo "quadrf-apply-hostname: apply already running"
-        exit 0
+    if ! flock -w 30 9; then
+        echo "quadrf-apply-hostname: apply already running" >&2
+        exit 1
     fi
     quadrf_load_conf
     if [ "${QUADRF_HOSTNAME}" = "${name}" ]; then
         echo "quadrf-apply-hostname: already ${name}"
+        exec 9>&-
         exit 0
     fi
     echo "quadrf-apply-hostname: ${QUADRF_HOSTNAME} -> ${name}"
     quadrf_conf_set QUADRF_HOSTNAME "${name}"
     # Reload nginx for the new name before the rest of apply (tls, ifup).
     if [ -x /usr/lib/quadrf/apply.d/40-network ]; then
-        /usr/lib/quadrf/apply.d/40-network nginx
+        /usr/lib/quadrf/apply.d/40-network nginx 9>&-
     fi
-    /usr/bin/quadrf apply
+    /usr/bin/quadrf apply 9>&-
     systemctl try-restart quadrf-soapy-server.service 2>/dev/null || true
+    exec 9>&-
 }
 
 case "${1:-}" in
@@ -66,16 +68,16 @@ case "${1:-}" in
         # only blocks automatic collision rename.
         [ -n "${2:-}" ] || usage
         name="$(printf '%s' "$2" | tr '[:upper:]' '[:lower:]')"
-        apply_name "${name}"
         if [ "${name}" = "${FACTORY}" ]; then
             quadrf_conf_set QUADRF_HOSTNAME_LOCK no
         else
             quadrf_conf_set QUADRF_HOSTNAME_LOCK yes
         fi
+        apply_name "${name}"
         ;;
     reset)
-        apply_name "${FACTORY}"
         quadrf_conf_set QUADRF_HOSTNAME_LOCK no
+        apply_name "${FACTORY}"
         ;;
     lock)
         case "${2:-}" in

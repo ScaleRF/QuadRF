@@ -310,10 +310,21 @@ class Publisher:
             slot["group"] = group
         return slot["group"]
 
+    def _is_renaming(self):
+        if not self._renaming:
+            return False
+        if time.monotonic() - getattr(self, "_renaming_at", 0) > 30:
+            print(f"quadrf-mdns-alias: rename to {self._renaming} timed out",
+                  file=sys.stderr, flush=True)
+            self._renaming = None
+            return False
+        return True
+
     def _spawn_rename(self, nxt):
-        if self._renaming == nxt:
+        if self._is_renaming():
             return
         self._renaming = nxt
+        self._renaming_at = time.monotonic()
         print(f"quadrf-mdns-alias: {self.base}.local taken, applying {nxt}.local",
               flush=True)
         try:
@@ -351,6 +362,8 @@ class Publisher:
             slot["conflict"] = (idx, slot.get("addr"))
             print(f"quadrf-mdns-alias: {slot['iface']} collision on "
                   f"{self.base}.local, locked", flush=True)
+            return
+        if self._is_renaming():
             return
 
         our = {a for _, _, a in iface_addrs(self.ap_addr)}
@@ -428,7 +441,7 @@ class Publisher:
             return
         if not is_foreign_peer_alive(addr, my_macs):
             return
-        if self.locked or self._renaming:
+        if self.locked or self._is_renaming():
             return
         nxt = alternative_hostname(self.base)
         if nxt is None:
@@ -438,7 +451,7 @@ class Publisher:
         self._spawn_rename(nxt)
 
     def _probe_peers(self):
-        if self.locked or self._renaming:
+        if self.locked or self._is_renaming():
             return True
         if time.monotonic() - self.started > JOINER_GRACE_SEC:
             return True
@@ -560,6 +573,9 @@ class Publisher:
     def _publish(self):
         hostname, ap_addr, locked = load_conf()
         self.ap_addr = ap_addr
+        if self.locked and not locked:
+            for slot in self.slots.values():
+                slot["conflict"] = None
         self.locked = locked
         if self._renaming and hostname == self._renaming:
             print(f"quadrf-mdns-alias: now {hostname}.local", flush=True)
@@ -568,7 +584,7 @@ class Publisher:
         if hostname != self.base:
             self.base = hostname
             self.drop_group()
-        if self._renaming:
+        if self._is_renaming():
             return
 
         if self.server is None and not self.attach():
