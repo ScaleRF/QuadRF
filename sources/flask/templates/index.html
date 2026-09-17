@@ -624,6 +624,20 @@
             border-radius: 3px;
             cursor: pointer;
         }
+        .path-cfg:hover:not(:disabled) {
+            color: #f8fafc !important;
+            border-color: rgba(255,255,255,0.35) !important;
+        }
+        .path-cfg:disabled {
+            opacity: 0.45 !important;
+            cursor: not-allowed !important;
+        }
+        .path-actions {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.25rem;
+            flex: 0 0 auto;
+        }
         .path-fallback {
             display: flex;
             align-items: center;
@@ -659,7 +673,7 @@
         }
         .hostname-edit {
             display: inline-flex;
-            align-items: baseline;
+            align-items: center;
             gap: 0;
             font-family: var(--font-mono);
             font-weight: 600;
@@ -669,6 +683,8 @@
             padding: 0.18rem 0.5rem;
             border-radius: 12px;
             white-space: nowrap;
+            min-height: 1.35rem;
+            box-sizing: border-box;
         }
         .hostname-edit input {
             width: 9ch !important;
@@ -692,9 +708,18 @@
         }
         .hostname-suffix { color: #94a3b8; }
         .hostname-lock {
-            max-width: 10.5rem;
-            line-height: 1.25;
-            white-space: normal;
+            margin: 0;
+            max-width: none;
+            line-height: 1.2;
+            white-space: nowrap;
+            min-height: 1.35rem;
+            box-sizing: border-box;
+        }
+        .hostname-row .path-cfg {
+            display: inline-flex;
+            align-items: center;
+            min-height: 1.35rem;
+            box-sizing: border-box;
         }
         .path-note {
             margin: 0.2rem 0 0;
@@ -1202,7 +1227,7 @@
                         <span class="hostname-suffix">.local</span>
                     </label>
                     <button type="button" class="path-cfg hidden" id="hostnameSave">Save</button>
-                    <label class="path-fallback hostname-lock{% if (hostname|default('quadrf')) == 'quadrf' %} hidden{% endif %}" id="hostnameLockLabel" title="When off, this unit takes this name-2.local if another QuadRF already has the name.">
+                    <label class="path-fallback hostname-lock{% if (hostname|default('quadrf')) == 'quadrf' %} hidden{% endif %}" id="hostnameLockLabel" title="When off, this unit takes the next free name if another QuadRF already has this one.">
                         <input type="checkbox" id="hostnameLockToggle"{% if hostname_lock %} checked{% endif %}>
                         Don't yield this name
                     </label>
@@ -1239,7 +1264,10 @@
                                 <input type="checkbox" id="wifiStaToggle"{% if wifi_mode == 'sta' %} checked{% endif %}>
                                 <span class="path-toggle-ui"></span>
                             </label>
-                            <button type="button" class="path-cfg" id="wifiStaCfg">Configure</button>
+                            <span class="path-actions">
+                                <button type="button" class="path-cfg" id="wifiStaCfg">Configure</button>
+                                <button type="button" class="path-cfg" id="wifiStaReconnect" title="Reconnect to client network">Reconnect</button>
+                            </span>
                             <span class="path-you-tag">you</span>
                             <span class="path-addr">{{ np.get('wifi_sta', {}).get('addr') or '' }}</span>
                         </div>
@@ -2090,6 +2118,7 @@
         const hostnameApi = '{{ url_for("network_hostname") }}';
         const callsignApi = '{{ url_for("system_callsign") }}';
         const wifiStaToggle = document.getElementById('wifiStaToggle');
+        const wifiStaReconnect = document.getElementById('wifiStaReconnect');
         const wifiApToggle = document.getElementById('wifiApToggle');
         const wifiFallbackToggle = document.getElementById('wifiFallbackToggle');
         const wifiFallbackNote = document.getElementById('wifiFallbackNote');
@@ -2296,6 +2325,16 @@
             hostnameInput.style.setProperty('width', Math.max(4, hostnameInput.value.length + 1) + 'ch', 'important');
         }
 
+        function alternativeHostname(name) {
+            const i = name.lastIndexOf('-');
+            if (i > 0 && /^\d+$/.test(name.slice(i + 1))) {
+                const n = parseInt(name.slice(i + 1), 10) + 1;
+                if (n > 99) return null;
+                return `${name.slice(0, i)}-${n}`;
+            }
+            return `${name}-2`;
+        }
+
         function syncHostnameUi() {
             const applied = (hostnameInput.dataset.applied || 'quadrf').toLowerCase();
             const draft = hostnameDraft();
@@ -2306,9 +2345,12 @@
             hostnameReset.classList.toggle('hidden', applied === 'quadrf');
             if (hostnameLockLabel) {
                 hostnameLockLabel.classList.toggle('hidden', applied === 'quadrf');
+                const next = alternativeHostname(applied);
                 hostnameLockLabel.title = applied === 'quadrf'
                     ? ''
-                    : `When off, this unit takes ${applied}-2.local if another QuadRF already has ${applied}.local.`;
+                    : next
+                        ? `When off, this unit takes ${next}.local if another QuadRF already has ${applied}.local.`
+                        : `When off, this unit yields ${applied}.local if another QuadRF already has it.`;
             }
         }
 
@@ -2374,9 +2416,12 @@
             wifiBusy = true;
             try {
                 await postWifi(hostnameApi, { lock: hostnameLockToggle.checked });
+                const next = alternativeHostname((hostnameInput.dataset.applied || 'quadrf').toLowerCase());
                 showWifiBanner('success', hostnameLockToggle.checked
                     ? 'This unit will keep this name even if another QuadRF is using it.'
-                    : 'If another QuadRF already has this name, this unit will take the next free name-2.local.');
+                    : next
+                        ? `If another QuadRF already has this name, this unit will take ${next}.local.`
+                        : 'If another QuadRF already has this name, this unit will take the next free name.');
             } catch (e) {
                 hostnameLockToggle.checked = !hostnameLockToggle.checked;
                 showWifiBanner('error', e.message);
@@ -2388,6 +2433,43 @@
         document.getElementById('wifiStaCfg').addEventListener('click', () => {
             showWifiForm(netJoin.classList.contains('hidden') ? 'sta' : null);
         });
+        async function reconnectWifiStation() {
+            if (wifiBusy) return;
+            wifiBusy = true;
+            if (wifiStaReconnect) wifiStaReconnect.disabled = true;
+            wifiStaToggle.checked = true;
+            if (wifiApToggle.checked) wifiApToggle.checked = false;
+            try {
+                if (wifiVia === 'wifi_ap') {
+                    showWifiBanner('error', 'Reconnecting client drops hotspot during the attempt. Ethernet and USB still reach the QuadRF.');
+                } else {
+                    showWifiBanner('success', 'Reconnecting to saved network…');
+                }
+                const data = await postWifi(wifiModeApi, { mode: 'sta' });
+                if (data.wifi_fallback_active) {
+                    showWifiBanner('error', 'Could not connect to client network. Reverted to hotspot.');
+                } else if (data.paths && data.paths.wifi_sta && data.paths.wifi_sta.up) {
+                    showWifiBanner('success', 'Connected to ' + (data.wifi_sta_ssid || 'client network') + '.');
+                } else {
+                    showWifiBanner('success', 'Client network joined.');
+                }
+            } catch (e) {
+                if (e.needConfig) {
+                    showWifiForm('sta');
+                    showWifiBanner('error', e.message);
+                } else if (/Failed to fetch|NetworkError/i.test(e.message || '')) {
+                    showWifiBanner('error', 'Connection lost while reconnecting. Reconnect via LAN or client Wi-Fi.');
+                } else {
+                    showWifiBanner('error', e.message);
+                }
+            } finally {
+                if (wifiStaReconnect) wifiStaReconnect.disabled = false;
+                wifiBusy = false;
+            }
+        }
+        if (wifiStaReconnect) {
+            wifiStaReconnect.addEventListener('click', reconnectWifiStation);
+        }
         document.getElementById('wifiApCfg').addEventListener('click', () => {
             showWifiForm(netAp.classList.contains('hidden') ? 'ap' : null);
         });
@@ -2400,7 +2482,7 @@
                     password: document.getElementById('staPassword').value,
                 });
                 showWifiForm(null);
-                showWifiBanner('success', 'Saved client network. Toggle Client to join.');
+                showWifiBanner('success', 'Saved client network. Toggle Client or click Reconnect to join.');
             } catch (e) {
                 showWifiBanner('error', e.message);
             } finally {
