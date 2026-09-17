@@ -1,0 +1,9 @@
+#!/bin/sh
+# DietPi ships systemd-logind masked. Unmask it so the Pi 5 pwr_button
+# (gpio-keys KEY_POWER) can request a clean poweroff.
+set -eu
+
+systemctl unmask systemd-logind.service
+if [ -d /run/systemd/system ]; then
+    systemctl start systemd-logind.service || true
+fi

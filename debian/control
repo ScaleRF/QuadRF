@@ -75,11 +75,14 @@ Description: QuadRF appliance without the graphical desktop
 
 Package: quadrf-common
 Architecture: all
-Depends: ${misc:Depends}
+Depends: dbus, ${misc:Depends}
 Description: QuadRF shared configuration and control command
  Site configuration in /etc/quadrf/quadrf.conf, the shell helpers the other
  quadrf-* packages use in their maintainer scripts, and the quadrf command for
  checking state and re-applying configuration.
+ .
+ Unmasks systemd-logind so the Raspberry Pi 5 power button issues a clean
+ shutdown.
 
 Package: quadrf-boot
 Architecture: all
