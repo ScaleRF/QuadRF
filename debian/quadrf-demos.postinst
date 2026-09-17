@@ -1,8 +1,12 @@
 #!/bin/sh
 set -e
 
+# Desktop launch of quadrf-data runs as dietpi. TUNSETIFF needs
+# CAP_NET_ADMIN; the systemd unit grants it via AmbientCapabilities, but
+# that does not apply to the .desktop Exec.
 if [ "$1" = configure ]; then
     /usr/lib/quadrf/apply.d/45-demos
+    setcap cap_net_admin+eip /usr/bin/quadrf-data
 fi
 
 #DEBHELPER#
