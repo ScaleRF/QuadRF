@@ -184,6 +184,7 @@ install(FILES sources/desktop/pcmanfm-LXDE.conf DESTINATION ${datadir}/desktop/c
 install(FILES sources/desktop/libfm.conf DESTINATION ${datadir}/desktop/config/libfm)
 install(FILES sources/desktop/mimeapps.list DESTINATION ${datadir}/desktop/config)
 install(FILES sources/desktop/qradiolink.cfg DESTINATION ${datadir}/desktop/config/qradiolink)
+install(FILES sources/desktop/pulse-daemon.conf DESTINATION ${datadir}/desktop/config/pulse RENAME daemon.conf)
 install(DIRECTORY sources/kasmvnc/www/ DESTINATION ${datadir}/desktop/www)
 install(PROGRAMS sources/desktop/50-desktop DESTINATION ${libdir}/apply.d)
 install(PROGRAMS sources/desktop/sync-desktop-apps DESTINATION ${libdir})
