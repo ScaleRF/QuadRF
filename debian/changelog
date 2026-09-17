@@ -1,3 +1,15 @@
+quadrf (1.0.29) trixie; urgency=medium
+
+  * gui: Align hostname row and increment yield-name tooltip
+  * demos: Expand touch target for AR hardware gain slider
+  * network: Validate peer MAC and ARP reachability before mDNS hostname failover
+  * desktop: Disable PulseAudio idle timeout in KasmVNC sessions
+  * common: Unmask systemd-logind for physical power button shutdown
+  * debian: Integrate PhaseGaze as pinned third-party package
+  * debian: Grant CAP_NET_ADMIN file capability to quadrf-data
+
+ -- QuadRF Engineering <contact@ScaleRF.com>  Thu, 17 Sep 2026 16:30:48 -0700
+
 quadrf (1.0.28) trixie; urgency=medium
 
   * dsi: Adapt to the 6.18 DRM client-buffer API
