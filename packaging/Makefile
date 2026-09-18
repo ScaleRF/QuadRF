@@ -1,7 +1,7 @@
 # Build the QuadRF packages and fill the apt repository.
 #
 #   make quadrf        packages from this source tree
-#   make thirdparty    quadrf-openocd, qradiolink, mirrored KasmVNC and Mesh
+#   make thirdparty    quadrf-openocd, qradiolink, mirrored KasmVNC, Mesh, PhaseGaze
 #   make repo          publish everything in out/ into repo/
 #   make serve         HTTP-serve the signed tree (maintainer testing)
 #
@@ -57,4 +57,4 @@ serve: repo
 clean:
 	rm -rf $(OUT) thirdparty/openocd/work thirdparty/qradiolink/work
 
-.PHONY: all quadrf thirdparty openocd qradiolink kasmvnc mesh key repo serve clean
+.PHONY: all quadrf thirdparty openocd qradiolink kasmvnc mesh phasegaze key repo serve clean

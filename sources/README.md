@@ -25,4 +25,4 @@ are installed into `/usr/lib/quadrf/apply.d/` and run in order by
 `quadrf apply`, so each package configures itself and nothing else.
 
 Upstream: SoapySDR, GNU Radio and the rest come
-from Debian; OpenOCD, KasmVNC, and QuadRF Mesh are handled in `packaging/thirdparty/`.
+from Debian; OpenOCD, KasmVNC, QuadRF Mesh, and PhaseGaze are handled in `packaging/thirdparty/`.
