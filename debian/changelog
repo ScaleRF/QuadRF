@@ -1,3 +1,9 @@
+quadrf (1.0.32) trixie; urgency=medium
+
+  * desktop: Remove snd-dummy to stop PulseAudio 100% CPU spins
+
+ -- QuadRF Engineering <contact@ScaleRF.com>  Fri, 18 Sep 2026 12:13:40 -0700
+
 quadrf (1.0.31) trixie; urgency=medium
 
   * debian: Publish PhaseGaze with the thirdparty release target
