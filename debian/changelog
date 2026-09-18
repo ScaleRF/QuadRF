@@ -1,3 +1,9 @@
+quadrf (1.0.31) trixie; urgency=medium
+
+  * debian: Publish PhaseGaze with the thirdparty release target
+
+ -- QuadRF Engineering <contact@ScaleRF.com>  Fri, 18 Sep 2026 09:28:32 -0700
+
 quadrf (1.0.30) trixie; urgency=medium
 
   * network: Prevent hostname rename lock inheritance and race wedging
