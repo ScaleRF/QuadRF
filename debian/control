@@ -150,6 +150,7 @@ Architecture: all
 Depends: avahi-daemon,
          avahi-utils,
          dnsmasq,
+         ethtool,
          hostapd,
          isc-dhcp-server,
          iw,

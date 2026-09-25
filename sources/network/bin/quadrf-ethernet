@@ -177,6 +177,19 @@ lease_alive() {
     return 1
 }
 
+# Pi 5 macb + BCM54213PE drops the first frames after LPI wake. With a
+# Realtek r8169 peer, 1 s pings lost 57% with EEE on, 0% with it off.
+# Setting EEE renegotiates the link, so only write it when it is on or
+# the carrier bounce retriggers the watcher forever.
+disable_eee() {
+    command -v ethtool >/dev/null || return 0
+    ethtool --show-eee "${IFACE}" 2>/dev/null |
+        grep -q 'EEE status: enabled' || return 0
+    if ethtool --set-eee "${IFACE}" eee off 2>/dev/null; then
+        log "disabled EEE on ${IFACE}"
+    fi
+}
+
 leave_link() {
     stop_dhcp
     ip addr flush dev "${IFACE}" scope global 2>/dev/null || true
@@ -195,6 +208,7 @@ configure_locked() {
         leave_link
         return
     fi
+    disable_eee
 
     if [[ -n "$(lan_v4)" ]]; then
         if lease_alive; then
