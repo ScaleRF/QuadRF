@@ -1,3 +1,10 @@
+quadrf (1.0.33) trixie; urgency=medium
+
+  * flask: Autostart web-open apps and HTTPS camera links
+  * network: Disable EEE on eth0 at carrier up
+
+ -- QuadRF Engineering <contact@ScaleRF.com>  Wed, 30 Sep 2026 23:31:27 -0700
+
 quadrf (1.0.32) trixie; urgency=medium
 
   * desktop: Remove snd-dummy to stop PulseAudio 100% CPU spins
