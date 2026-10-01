@@ -1964,12 +1964,43 @@
             return !!(open && open !== 'desktop' && open !== 'browser');
         }
 
-        function resolveOpen(open) {
+        // getUserMedia only exists in a secure context, so these two have to
+        // land on HTTPS or their camera view is dead on arrival.
+        const cameraApps = new Set(['ar', 'phasegaze']);
+        let httpsTrusted = false;
+
+        // Same probe the AR page uses: no-cors still performs the TLS
+        // handshake, so an untrusted certificate rejects and we keep serving
+        // HTTP links instead of dropping the user on an interstitial.
+        async function probeHttps() {
+            if (window.location.protocol !== 'http:') return;
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), 1800);
+            try {
+                await fetch(`https://${window.location.hostname}/quadrf-root-ca.sha256?probe=${Date.now()}`, {
+                    method: 'GET', mode: 'no-cors', cache: 'no-store',
+                    credentials: 'omit', signal: controller.signal
+                });
+                httpsTrusted = true;
+                fetchApps();
+            } catch (e) {
+                httpsTrusted = false;
+            } finally {
+                clearTimeout(timer);
+            }
+        }
+
+        function resolveOpen(open, appId) {
             if (!isWebOpen(open)) return '';
             try {
                 const u = new URL(open, window.location.href);
                 if (u.port && window.location.hostname && window.location.hostname !== u.hostname) {
                     u.hostname = window.location.hostname;
+                    return u.href;
+                }
+                if (httpsTrusted && cameraApps.has(appId) && u.protocol === 'http:') {
+                    u.protocol = 'https:';
+                    u.port = '';
                     return u.href;
                 }
             } catch (e) {}
@@ -1978,7 +2009,7 @@
 
         if (controlSocket) {
             controlSocket.on('open_app', (data) => {
-                const dest = resolveOpen(data && data.open);
+                const dest = resolveOpen(data && data.open, data && data.app);
                 if (dest) window.open(dest, '_blank');
             });
         }
@@ -2008,7 +2039,7 @@
                         else controlApp(app.id, 'start', row.dataset.open);
                     });
                     row.querySelector('.app-open').addEventListener('click', () => {
-                        const dest = resolveOpen(row.dataset.open);
+                        const dest = resolveOpen(row.dataset.open, app.id);
                         if (dest) window.open(dest, '_blank');
                     });
                     const icon = row.querySelector('.app-icon');
@@ -2028,7 +2059,8 @@
                     icon.removeAttribute('src');
                     icon.classList.add('hidden');
                 }
-                row.querySelector('.app-https-note').classList.toggle('hidden', app.id !== 'ar' || window.isSecureContext);
+                row.querySelector('.app-https-note').classList.toggle('hidden',
+                    !cameraApps.has(app.id) || window.isSecureContext || httpsTrusted);
                 row.classList.toggle('app-active', !!app.running);
                 const toggle = row.querySelector('.app-toggle');
                 toggle.hidden = !app.installed;
@@ -2064,7 +2096,7 @@
 
         async function controlApp(appId, action, openPath) {
             const url = action === 'start' ? appsStartApi : appsStopApi;
-            const dest = action === 'start' ? resolveOpen(openPath) : '';
+            const dest = action === 'start' ? resolveOpen(openPath, appId) : '';
             let popup = null;
             if (dest) {
                 popup = window.open(dest, '_blank');
@@ -2104,6 +2136,7 @@
         }
 
         fetchApps();
+        probeHttps();
         setInterval(fetchApps, 3000);
         window.addEventListener('load', scrollToReceiveOnce);
 

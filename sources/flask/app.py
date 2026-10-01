@@ -582,6 +582,10 @@ WEB_STOP_TIMER = {}
 WEB_LOCK = threading.Lock()
 WEB_STOP_GRACE = 2.0
 WEB_STALE_SEC = 75.0
+# Explicit Stop from the drawer. Without this an already-open tab would
+# resurrect the app on its next attach.
+WEB_SUPPRESS = set()
+WEB_AUTOSTART = set()
 
 
 def _web_clients(app_id):
@@ -627,6 +631,33 @@ def _schedule_web_stop(app_id, reset=True):
     timer.daemon = True
     WEB_STOP_TIMER[app_id] = timer
     timer.start()
+
+
+def _web_app_running(app_id):
+    payload = parse_cli_json(app_cli("status"))
+    for entry in (payload or {}).get("apps") or []:
+        if entry.get("id") == app_id:
+            return bool(entry.get("running"))
+    return False
+
+
+def _web_autostart(app_id):
+    """A fresh tab on a web-open app is the launch. Covers reloads that
+    outran the stop grace, bookmarks, and the HTTP -> HTTPS hop."""
+    try:
+        if _web_app_running(app_id):
+            return
+        with WEB_LOCK:
+            if app_id in WEB_SUPPRESS:
+                return
+        payload = parse_cli_json(app_cli("start", app_id))
+        if payload:
+            socketio.emit("app_state", payload)
+        else:
+            broadcast_app_state()
+    finally:
+        with WEB_LOCK:
+            WEB_AUTOSTART.discard(app_id)
 
 
 def _web_watchdog_loop():
@@ -699,6 +730,8 @@ def apps_start():
     app_id = requested_app_id()
     if not app_id:
         return jsonify({"status": "error", "message": "app is required"}), 400
+    with WEB_LOCK:
+        WEB_SUPPRESS.discard(app_id)
     proc = app_cli("start", app_id)
     payload = parse_cli_json(proc)
     if proc.returncode != 0:
@@ -716,9 +749,18 @@ def apps_attach():
         return jsonify({"status": "error", "message": "attach is only used by web-open apps"}), 400
     client = requested_client_id() or "anon"
     with WEB_LOCK:
+        # Only a client we have not seen before triggers the running check;
+        # the 1 Hz keepalive must not spawn an `app status` every second.
+        start = (client not in WEB_CLIENTS.get(app_id, {})
+                 and app_id not in WEB_AUTOSTART)
+        if start:
+            WEB_AUTOSTART.add(app_id)
         WEB_SEEN.add(app_id)
         _web_clients(app_id)[client] = time.time()
         _cancel_web_stop(app_id)
+    if start:
+        threading.Thread(target=_web_autostart, args=(app_id,),
+                         name="web-app-autostart", daemon=True).start()
     return jsonify({"status": "ok"})
 
 
@@ -758,6 +800,8 @@ def apps_stop():
         return jsonify({"status": "error", "message": "app is required"}), 400
     if app_id in ATTACH_APPS:
         _clear_web_clients(app_id)
+        with WEB_LOCK:
+            WEB_SUPPRESS.add(app_id)
     proc = app_cli("stop", app_id)
     payload = parse_cli_json(proc)
     if proc.returncode != 0:
