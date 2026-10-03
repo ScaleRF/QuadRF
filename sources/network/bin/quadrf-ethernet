@@ -15,6 +15,7 @@ DHCP_WAIT=12
 CARRIER_WAIT=5
 PIDFILE=/run/quadrf-ethernet.pid
 LOCKFILE=/run/quadrf-ethernet.lock
+DHCP_CL_CONF="/run/quadrf/dhclient.${IFACE}.conf"
 
 log() { logger -t quadrf-ethernet -- "$*"; echo "$*"; }
 
@@ -101,9 +102,34 @@ EOF
     log "${IFACE} direct-connect at ${DIRECT_ADDR}"
 }
 
+# Stock dhclient.conf leaves reboot at 10s and timeout at 60s. An outer
+# kill of DHCP_WAIT (12s) then lands while dhclient is still REQUESTing
+# the previous address, so it never sends DISCOVER. A silent REQUEST
+# (PHY still dropping frames) becomes "no router" and we go direct.
+write_dhclient_conf() {
+    install -d -m 755 /run/quadrf
+    {
+        if [[ -f /etc/dhcp/dhclient.conf ]]; then
+            awk '
+                /^[[:space:]]*#/ { next }
+                /^[[:space:]]*$/ { next }
+                /^[[:space:]]*(reboot|timeout|select-timeout|initial-interval)[[:space:]]/ { next }
+                { print }
+            ' /etc/dhcp/dhclient.conf
+        fi
+        printf '%s\n' \
+            'reboot 3;' \
+            'timeout 10;' \
+            'select-timeout 3;' \
+            'initial-interval 1;'
+    } > "${DHCP_CL_CONF}"
+}
+
 try_dhcp() {
     if command -v dhclient >/dev/null; then
+        write_dhclient_conf
         timeout "${DHCP_WAIT}" dhclient -1 \
+            -cf "${DHCP_CL_CONF}" \
             -pf "/run/dhclient.${IFACE}.pid" \
             -lf "/var/lib/dhcp/dhclient.${IFACE}.leases" \
             "${IFACE}" >/dev/null 2>&1 || true
@@ -187,6 +213,15 @@ disable_eee() {
         grep -q 'EEE status: enabled' || return 0
     if ethtool --set-eee "${IFACE}" eee off 2>/dev/null; then
         log "disabled EEE on ${IFACE}"
+        # set-eee restarts PHY auto-negotiation (3.3-4.1s typical on BCM54213PE).
+        # Wait for carrier to drop, then wait up to 8s for it to re-establish.
+        sleep 0.5
+        local deadline=$((SECONDS + 8))
+        while (( SECONDS < deadline )); do
+            has_carrier && break
+            sleep 0.2
+        done
+        has_carrier && sleep 1
     fi
 }
 
@@ -195,6 +230,7 @@ leave_link() {
     ip addr flush dev "${IFACE}" scope global 2>/dev/null || true
     drop_conf "${DIRECT_CONF}"
     drop_conf "${LAN_CONF}"
+    rm -f "${DHCP_CL_CONF}"
 }
 
 configure_locked() {
@@ -209,6 +245,11 @@ configure_locked() {
         return
     fi
     disable_eee
+    if ! has_carrier; then
+        log "no carrier on ${IFACE}"
+        leave_link
+        return
+    fi
 
     if [[ -n "$(lan_v4)" ]]; then
         if lease_alive; then
