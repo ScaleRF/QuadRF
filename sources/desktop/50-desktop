@@ -101,6 +101,18 @@ if [ -f "${qrl_src}" ]; then
     fi
 fi
 
+# Pre-seed GNU Radio FFTW wisdom for Cortex-A76 NEON. Without this,
+# QRadioLink's demod constructor spends >5 minutes benchmarking 25+
+# modem filters on first RX with the radio mutex locked, freezing the GUI.
+gnuradio_cache="${HOME_DIR}/.cache/gnuradio"
+qrl_wisdom="${SHARE}/fftw_wisdom"
+if [ -f "${qrl_wisdom}" ]; then
+    install -d -o "${QUADRF_USER}" -g "${GROUP}" -m 755 "${gnuradio_cache}"
+    if [ ! -f "${gnuradio_cache}/fftw_wisdom" ]; then
+        install -o "${QUADRF_USER}" -g "${GROUP}" -m 644 "${qrl_wisdom}" "${gnuradio_cache}/fftw_wisdom"
+    fi
+fi
+
 # GRC File Open lists GTK bookmarks in the left pane. Keep one entry for the
 # packaged flowgraphs; drop the unlabeled "grc" cwd shortcut by not setting
 # Path= on the launcher.

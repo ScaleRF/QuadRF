@@ -187,6 +187,7 @@ install(FILES sources/desktop/qradiolink.cfg DESTINATION ${datadir}/desktop/conf
 install(FILES sources/desktop/pulse-daemon.conf DESTINATION ${datadir}/desktop/config/pulse RENAME daemon.conf)
 install(DIRECTORY sources/kasmvnc/www/ DESTINATION ${datadir}/desktop/www)
 install(PROGRAMS sources/desktop/50-desktop DESTINATION ${libdir}/apply.d)
+install(FILES sources/desktop/fftw_wisdom DESTINATION ${datadir}/desktop)
 install(PROGRAMS sources/desktop/sync-desktop-apps DESTINATION ${libdir})
 install(FILES sources/systemd/quadrf-desktop.service DESTINATION ${unitdir})
 install(FILES sources/icons/qradiolink.svg DESTINATION ${icondir} RENAME quadrf-qradiolink.svg)
