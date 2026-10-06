@@ -577,6 +577,14 @@ static int max285x_set_freq_common(int fd, uint8_t fpga_addr, double freq_mhz)
     const uint16_t w16 = (uint16_t)((16u << 10) | ((unsigned long long)(fdiv >> 10) & 0x3FFULL));
     const uint16_t w17 = (uint16_t)((17u << 10) | ((unsigned long long)fdiv & 0x3FFULL));
 
+    /* Main19 VAS_MODE (D6) back to auto first. Swept-LO apps (PhaseGaze,
+     * rf-vision) run VAS_MODE=0 with a learned VAS_SPI band and can leave it
+     * that way; then the Main17 write below does not re-select the sub-band
+     * and the VCO sits at a rail far from freq_mhz (RX deaf, or nothing below
+     * ~5760 MHz with band 55 left behind). */
+    const uint16_t m19 = (fpga_addr == MAX2851_REG_ADDR) ? max2851_base_regs[19] : max2850_base_regs[19];
+    if (jtag_write_u16(fd, fpga_addr, (uint16_t)((19u << 10) | m19)) != 0) return -1;
+
     if (jtag_write_u16(fd, fpga_addr, w15) != 0) return -1;
     if (jtag_write_u16(fd, fpga_addr, w16) != 0) return -1;
     if (jtag_write_u16(fd, fpga_addr, w17) != 0) return -1;
