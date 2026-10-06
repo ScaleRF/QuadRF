@@ -167,6 +167,10 @@ static int set_lo_mhz(int fd, uint8_t spi_addr, double mhz) {
     uint16_t w15 = (uint16_t)((15u << 10) | (1u << 9) | ((unsigned)idiv & 0x7Fu));
     uint16_t w16 = (uint16_t)((16u << 10) | (((unsigned)fdiv >> 10) & 0x3FFu));
     uint16_t w17 = (uint16_t)((17u << 10) | ((unsigned)fdiv & 0x3FFu));
+    // Main19 VAS_MODE (D6) = auto, same templates as quadrf-jtag --init.
+    // rf-vision / PhaseGaze can leave the VCO pinned to another sub-band;
+    // then the LO never gets here (lock detect 0, phasors ~60 dB down).
+    if (spi_word(fd, spi_addr, 19, spi_addr == MAX2851_REG_ADDR ? 0x0DF : 0x05F) < 0) return -1;
     if (jtag_write_u16(fd, spi_addr, w15) < 0) return -1;
     if (jtag_write_u16(fd, spi_addr, w16) < 0) return -1;
     if (jtag_write_u16(fd, spi_addr, w17) < 0) return -1;
