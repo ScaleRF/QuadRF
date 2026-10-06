@@ -20,6 +20,9 @@ int max2850_init(int fd);
 
 int max2851_set_freq_mhz(int fd, double mhz);
 int max2850_set_freq_mhz(int fd, double mhz);
+/* Both chips: Main19 back to automatic VCO sub-band select, VAS re-run at
+ * the current LO. Nothing else changes. */
+int max285x_vas_auto(int fd);
 
 int max2851_set_rx_gain(int fd, int16_t rx_gain_setting);
 int max2850_set_tx_gain(int fd, uint16_t tx_gain_setting);

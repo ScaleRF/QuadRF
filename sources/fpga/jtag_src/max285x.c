@@ -619,6 +619,41 @@ int max2850_set_freq_mhz(int fd, double mhz)
     return max285x_set_freq_common(fd, MAX2850_REG_ADDR, mhz);
 }
 
+static int max285x_read_main_at(int fd, uint8_t fpga_addr, uint16_t main_addr, uint16_t *out)
+{
+    const uint16_t reg14 = 0x160; /* Main14 template, both chips; D1 = DOUT_SEL */
+    if (jtag_write_u16(fd, fpga_addr, (uint16_t)((14u << 10) | reg14 | (1u << 1))) != 0) return -1;
+    if (jtag_write_u16(fd, fpga_addr, (uint16_t)(0x8000 | ((main_addr & 0x1Fu) << 10))) != 0) return -1;
+    uint16_t val = 0;
+    int rc = jtag_read_u16(fd, fpga_addr, &val);
+    if (jtag_write_u16(fd, fpga_addr, (uint16_t)((14u << 10) | reg14)) != 0) return -1;
+    if (rc != 0) return -1;
+    *out = val & 0x3FFu;
+    return 0;
+}
+
+int max285x_vas_auto(int fd)
+{
+    const uint8_t chips[2] = { MAX2851_REG_ADDR, MAX2850_REG_ADDR };
+    for (int i = 0; i < 2; i++) {
+        const uint8_t a = chips[i];
+        const uint16_t m19 = (a == MAX2851_REG_ADDR) ? max2851_base_regs[19] : max2850_base_regs[19];
+        uint16_t r15 = 0, r16 = 0, r17 = 0;
+        const bool have_lo = max285x_read_main_at(fd, a, 15, &r15) == 0 &&
+                             max285x_read_main_at(fd, a, 16, &r16) == 0 &&
+                             max285x_read_main_at(fd, a, 17, &r17) == 0 &&
+                             (r15 & (1u << 9)) && !(r15 == 0x3FF && r16 == 0x3FF && r17 == 0x3FF);
+        if (jtag_write_u16(fd, a, (uint16_t)((19u << 10) | m19)) != 0) return -1;
+        /* Same LO again; the Main17 write is what starts VAS. */
+        if (have_lo) {
+            if (jtag_write_u16(fd, a, (uint16_t)((15u << 10) | r15)) != 0) return -1;
+            if (jtag_write_u16(fd, a, (uint16_t)((16u << 10) | r16)) != 0) return -1;
+            if (jtag_write_u16(fd, a, (uint16_t)((17u << 10) | r17)) != 0) return -1;
+        }
+    }
+    return 0;
+}
+
 // -----------------------------------------------------------------------------
 // Status Readers
 // -----------------------------------------------------------------------------

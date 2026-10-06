@@ -9,6 +9,10 @@ Type=simple
 User=root
 WorkingDirectory=/var/lib/quadrf/demos
 ExecStart=/usr/bin/quadrf-rf-vision --headless
+# The sweep pins the MAX2851 VCO sub-band (Main19 VAS_MODE=0). Hand the
+# synths back in automatic VAS even after a crash or SIGKILL; '-' keeps an
+# older quadrf-jtag without --vas-auto from failing the stop.
+ExecStopPost=-/usr/bin/quadrf-jtag --vas-auto
 KillMode=control-group
 KillSignal=SIGINT
 TimeoutStopSec=5

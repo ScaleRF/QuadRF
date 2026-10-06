@@ -35,6 +35,7 @@ static void usage(const char *argv0)
         "  %s [options] --tx <spec>\n"
         "  %s [options] --rx <spec>\n"
         "  %s [options] --status <rx|tx>\n"
+        "  %s [options] --vas-auto\n"
         "  %s [options] read  <addr>\n"
         "  %s [options] write <addr> <value>\n"
         "\n"
@@ -42,6 +43,8 @@ static void usage(const char *argv0)
         "  --init                 Initialize both chips and leave in standby\n"
         "  --max2850              Initialize TX chip only and leave in standby\n"
         "  --max2851              Initialize RX chip only and leave in standby\n"
+        "  --vas-auto             Both chips back to automatic VCO sub-band select,\n"
+        "                         re-run at the current LO (for ExecStopPost)\n"
         "\n"
         "TX control (MAX2850):\n"
         "  --tx <spec>            Enter TX mode and optionally program parameters.\n"
@@ -66,7 +69,7 @@ static void usage(const char *argv0)
         "      --keep             Do not call CSI_IOC_JTAG_RELEASE on exit\n"
         "  -h, --help             Show this help\n"
         "\n",
-        argv0, argv0, argv0, argv0, argv0, argv0, argv0, argv0);
+        argv0, argv0, argv0, argv0, argv0, argv0, argv0, argv0, argv0);
 }
 
 static inline uint64_t now_ns(void)
@@ -405,6 +408,7 @@ int main(int argc, char **argv)
     bool do_rx = false;
     
     bool do_status = false;
+    bool do_vas_auto = false;
     bool status_rx = false;
     
     struct txrx_spec txs, rxs;
@@ -421,6 +425,7 @@ int main(int argc, char **argv)
         {"tx",       required_argument, 0,  6 },
         {"rx",       required_argument, 0,  7 },
         {"status",   required_argument, 0,  8 },
+        {"vas-auto", no_argument,       0,  9 },
         {"help",     no_argument,       0, 'h'},
         {"hs0", required_argument, 0, 0},
         {"hs1", required_argument, 0, 0},
@@ -470,6 +475,9 @@ int main(int argc, char **argv)
                 return 2;
             }
             break;
+        case 9: /* --vas-auto */
+            do_vas_auto = true;
+            break;
         default:
             usage(argv[0]);
             return 2;
@@ -479,7 +487,7 @@ int main(int argc, char **argv)
     bool is_read = false, is_write = false;
     unsigned long rw_addr = 0, rw_val = 0;
 
-    const bool any_action = (do_init_both || do_init_2850 || do_init_2851 || do_tx || do_rx || do_status);
+    const bool any_action = (do_init_both || do_init_2850 || do_init_2851 || do_tx || do_rx || do_status || do_vas_auto);
 
     if (!any_action) {
         if (optind >= argc) {
@@ -521,7 +529,7 @@ int main(int argc, char **argv)
         return 2;
     }
 
-    if (!(do_init_both || do_init_2850 || do_init_2851 || do_tx || do_rx || do_status || is_read || is_write)) {
+    if (!(do_init_both || do_init_2850 || do_init_2851 || do_tx || do_rx || do_status || do_vas_auto || is_read || is_write)) {
         usage(argv[0]);
         return 2;
     }
@@ -577,6 +585,10 @@ int main(int argc, char **argv)
     }
     if (do_init_2851) {
         if (max2851_init(fd) != 0) { fprintf(stderr, "Error: max2851_init failed: %s\n", strerror(errno)); rc = 1; goto out_release; }
+    }
+
+    if (do_vas_auto) {
+        if (max285x_vas_auto(fd) != 0) { fprintf(stderr, "Error: --vas-auto failed: %s\n", strerror(errno)); rc = 1; goto out_release; }
     }
 
     /* TX */
