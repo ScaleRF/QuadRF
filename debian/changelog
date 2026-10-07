@@ -1,3 +1,9 @@
+quadrf (1.0.37) trixie; urgency=medium
+
+  * apps, gui: Prevent popup tab auto-close, fix launch race, and bump mesh to 0.1.8
+
+ -- QuadRF Engineering <contact@ScaleRF.com>  Wed, 07 Oct 2026 00:46:49 -0700
+
 quadrf (1.0.36) trixie; urgency=medium
 
   * network: Extend STA join timeout and skip hotspot stop on package upgrade
