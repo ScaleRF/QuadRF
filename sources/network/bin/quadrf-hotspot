@@ -11,7 +11,7 @@ quadrf_load_conf
 AP_CONF=/etc/dnsmasq.d/quadrf-wlan0-ap.conf
 LAN_CONF=/etc/dnsmasq.d/quadrf-wlan0-lan.conf
 CONFIG_TXT="${QUADRF_BOOT_DIR}/config.txt"
-STA_TIMEOUT=12
+STA_TIMEOUT=20
 WPA_CONF=/etc/wpa_supplicant/wpa_supplicant.conf
 LOCKFILE=/run/quadrf-hotspot.lock
 CAPTIVE_DNS_PID=/run/quadrf-captive-dns.pid
