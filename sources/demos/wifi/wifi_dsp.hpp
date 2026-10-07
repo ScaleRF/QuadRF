@@ -40,9 +40,9 @@ struct StsResult {
 };
 
 struct DspConfig {
-  float sts_threshold = 0.70f;
-  float cca_threshold = 0.00008f;
-  int sts_consecutive = 8;
+  float sts_threshold = 0.42f;
+  float cca_threshold = 0.00018f;
+  int sts_consecutive = 3;
   bool enable_cir_smoothing = false;
   float pll_alpha = 0.40f;
   float pll_beta = 0.04f;

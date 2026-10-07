@@ -275,30 +275,43 @@ int WifiDsp::find_dual_ltf(const c32* iq, size_t len, float* out_peak) const {
     return -1;
   }
 
-  // Matched filter against time-domain LTF reference
   float max_score = 0.f;
   int max_i = -1;
 
   // Search window: LTF starts within 320 samples of STS trigger
   const size_t max_search = std::min<size_t>(len - 160, 320);
-  std::vector<float> scores(max_search, 0.f);
 
   for (size_t i = 0; i < max_search; ++i) {
-    c32 sum1(0.f, 0.f);
-    c32 sum2(0.f, 0.f);
-    float pwr = 0.f;
-
+    // 1. Dual-symbol repetition autocorrelation (immune to CFO)
+    c32 p_rep(0.f, 0.f);
+    float pwr1 = 0.f, pwr2 = 0.f;
     for (int k = 0; k < 64; ++k) {
       const c32 s1 = iq[i + 32 + k];       // LTF1 (skipping 32 CP)
       const c32 s2 = iq[i + 32 + 64 + k];  // LTF2
-      const c32 ref = ltf_ref_.td[static_cast<size_t>(k)];
-      sum1 += s1 * std::conj(ref);
-      sum2 += s2 * std::conj(ref);
-      pwr += std::norm(s1) + std::norm(s2);
+      p_rep += std::conj(s1) * s2;
+      pwr1 += std::norm(s1);
+      pwr2 += std::norm(s2);
     }
+    const float rep_denom = 0.5f * (pwr1 + pwr2);
+    if (rep_denom < 1e-9f) continue;
+    const float rep_metric = std::abs(p_rep) / rep_denom;
 
-    const float score = (std::norm(sum1) + std::norm(sum2)) / (pwr + 1e-9f);
-    scores[i] = score;
+    // 2. Coherent matched filter derotated by repetition phase
+    const float fine_phase_step = std::arg(p_rep) / 64.f;
+    c32 sum1(0.f, 0.f), sum2(0.f, 0.f);
+    for (int k = 0; k < 64; ++k) {
+      const float derot_ang1 = -fine_phase_step * static_cast<float>(k);
+      const float derot_ang2 = -fine_phase_step * static_cast<float>(k + 64);
+      const c32 s1_c = iq[i + 32 + k] * c32(std::cos(derot_ang1), std::sin(derot_ang1));
+      const c32 s2_c = iq[i + 32 + 64 + k] * c32(std::cos(derot_ang2), std::sin(derot_ang2));
+      const c32 ref = ltf_ref_.td[static_cast<size_t>(k)];
+      sum1 += s1_c * std::conj(ref);
+      sum2 += s2_c * std::conj(ref);
+    }
+    const float mf_score = (std::norm(sum1) + std::norm(sum2)) / (pwr1 + pwr2 + 1e-9f);
+
+    // Combined score: repetition metric * matched filter score
+    const float score = rep_metric * mf_score;
     if (score > max_score) {
       max_score = score;
       max_i = static_cast<int>(i);
@@ -306,7 +319,7 @@ int WifiDsp::find_dual_ltf(const c32* iq, size_t len, float* out_peak) const {
   }
 
   if (out_peak) *out_peak = max_score;
-  if (max_score < 0.12f || max_i < 0) return -1;
+  if (max_score < 0.012f || max_i < 0) return -1;
 
   return max_i + 32;
 }
@@ -441,9 +454,9 @@ FrameResult WifiDsp::decode_burst(std::span<const c32> raw_iq, const StsResult* 
       }
     }
   }
-  // Dual LTF has an unambiguous range of +/-156.25 kHz. If coarse CFO is within +/-120 kHz,
+  // Dual LTF has an unambiguous range of +/-156.25 kHz. If coarse CFO is within +/-150 kHz,
   // bypass STS coarse CFO to eliminate STS boundary jitter and let LTF measure CFO cleanly.
-  if (std::abs(coarse_rad * FS / kTwoPi) < 120000.f) {
+  if (std::abs(coarse_rad * FS / kTwoPi) < 150000.f) {
     coarse_rad = 0.f;
   }
   fr.coarse_cfo_hz = coarse_rad * FS / kTwoPi;
@@ -689,14 +702,19 @@ FrameResult WifiDsp::decode_burst(std::span<const c32> raw_iq, const StsResult* 
 
     c32 corr_sc[48];
     const bool is_high_order = (rate_info->mod == Modulation::QAM16 || rate_info->mod == Modulation::QAM64);
-    for (int i = 0; i < 48; ++i) {
-      float ph_i = std::arg(sum_dd_sc[i]);
-      const float max_ph = is_high_order ? 0.12f : 0.40f;
-      ph_i = std::clamp(ph_i, -max_ph, max_ph);
-      const float mag_i = sum_mag_sc[i] / static_cast<float>(n_syms);
-      float scale = (mag_i > 0.15f) ? (1.f / mag_i) : 1.f;
-      if (is_high_order) scale = std::clamp(scale, 0.85f, 1.15f);
-      corr_sc[i] = c32(std::cos(-ph_i) * scale, std::sin(-ph_i) * scale);
+    if (is_high_order) {
+      for (int i = 0; i < 48; ++i) {
+        float ph_i = std::arg(sum_dd_sc[i]);
+        ph_i = std::clamp(ph_i, -0.12f, 0.12f);
+        const float mag_i = sum_mag_sc[i] / static_cast<float>(n_syms);
+        float scale = (mag_i > 0.15f) ? (1.f / mag_i) : 1.f;
+        scale = std::clamp(scale, 0.85f, 1.15f);
+        corr_sc[i] = c32(std::cos(-ph_i) * scale, std::sin(-ph_i) * scale);
+      }
+    } else {
+      for (int i = 0; i < 48; ++i) {
+        corr_sc[i] = c32(1.f, 0.f);
+      }
     }
 
     // Pass 2: apply Pass-1 CPE/slope, then soft-demap
@@ -789,37 +807,57 @@ FrameResult WifiDsp::decode_burst(std::span<const c32> raw_iq, const StsResult* 
       return (calc_crc == rx_crc);
     };
 
+    auto find_best_seeds = [](const std::vector<uint8_t>& dec_bits) -> std::vector<int> {
+      std::vector<std::pair<int, int>> scored;
+      scored.reserve(127);
+      for (int s = 1; s <= 127; ++s) {
+        int errs = 0;
+        int state = s & 0x7F;
+        for (size_t i = 0; i < 7 && i < dec_bits.size(); ++i) {
+          const int fb = ((state >> 6) ^ (state >> 3)) & 1;
+          state = ((state << 1) | fb) & 0x7F;
+          if ((dec_bits[i] ^ fb) != 0) ++errs;
+        }
+        scored.push_back({errs, s});
+      }
+      std::sort(scored.begin(), scored.end());
+      std::vector<int> seeds;
+      for (const auto& p : scored) {
+        if (p.first <= 2) seeds.push_back(p.second);
+      }
+      if (seeds.empty() && !scored.empty()) seeds.push_back(scored[0].second);
+      return seeds;
+    };
+
     auto try_verify = [&](const std::vector<uint8_t>& dec_bits) -> bool {
       // 1. Standard self-synchronizing descrambler
-      const auto desc = descramble(dec_bits);
-      if (check_payload(desc, fr.payload)) return true;
+      const auto desc_self = descramble(dec_bits);
+      if (check_payload(desc_self, fr.payload)) return true;
 
-      // 2. Known default seed fallback (0x5D)
-      const auto desc_5d = descramble(dec_bits, 0x5D);
-      if (check_payload(desc_5d, fr.payload)) return true;
-
-      // 3. Service field 1-bit error correction: test single-bit flips in bits 0..6
-      std::vector<uint8_t> bf(dec_bits.begin(), dec_bits.end());
-      for (int flip = 0; flip < 7; ++flip) {
-        bf[static_cast<size_t>(flip)] ^= 1;
-        if (check_payload(descramble(bf), fr.payload)) return true;
-        bf[static_cast<size_t>(flip)] ^= 1;
+      // 2. Test seeds ranked by SERVICE field zero-error matching
+      const auto ranked_seeds = find_best_seeds(dec_bits);
+      for (int s : ranked_seeds) {
+        const auto desc_s = descramble(dec_bits, s);
+        if (check_payload(desc_s, fr.payload)) return true;
       }
 
-      // 4. Exhaustive search across all non-zero 7-bit scrambler seeds (1..127)
+      // 3. Fallback: test all remaining non-zero 7-bit seeds
       for (int s = 1; s <= 127; ++s) {
-        if (s == 0x5D) continue;
-        if (check_payload(descramble(dec_bits, s), fr.payload)) return true;
+        const auto desc_s = descramble(dec_bits, s);
+        if (check_payload(desc_s, fr.payload)) return true;
       }
 
-      // 5. Zero-allocation Chase Combining on known seed payload
-      // Always populate payload from desc_5d, which has the true known seed 0x5D
+      // 4. Chase Combining on the highest-confidence recovered seed payload
+      int best_seed = ranked_seeds.empty() ? 0x5D : ranked_seeds[0];
       std::vector<uint8_t> payload;
-      check_payload(desc_5d, payload);
+      check_payload(descramble(dec_bits, best_seed), payload);
+      if (payload.empty()) {
+        check_payload(desc_self, payload);
+      }
       if (!payload.empty() && payload.size() >= 4) {
         const size_t body_len = payload.size() - 4;
 
-        // 5a. Single-bit flip across entire payload and CRC
+        // 4a. Single-bit flip across entire payload and CRC
         for (size_t byte_idx = 0; byte_idx < payload.size(); ++byte_idx) {
           for (int bit = 0; bit < 8; ++bit) {
             payload[byte_idx] ^= (1 << bit);
@@ -834,7 +872,7 @@ FrameResult WifiDsp::decode_burst(std::span<const c32> raw_iq, const StsResult* 
           }
         }
 
-        // 5b. 2-bit and 3-bit Chase combining on the lowest-confidence bits
+        // 4b. 2-bit flips on low-confidence bits
         const size_t total_uncoded = std::min<size_t>(dec_bits.size(), static_cast<size_t>(16 + pkt_len * 8));
         if (total_uncoded > 16 && !depunct.empty()) {
           std::vector<std::pair<float, size_t>> conf;
@@ -848,7 +886,6 @@ FrameResult WifiDsp::decode_burst(std::span<const c32> raw_iq, const StsResult* 
           }
           std::sort(conf.begin(), conf.end());
 
-          // 2-bit flips on top 36 low-confidence bits
           const size_t n_search2 = std::min<size_t>(conf.size(), 36);
           for (size_t i = 0; i < n_search2; ++i) {
             const size_t b1 = conf[i].second;
@@ -864,34 +901,6 @@ FrameResult WifiDsp::decode_burst(std::span<const c32> raw_iq, const StsResult* 
               if (calc_crc == rx_crc) {
                 fr.payload = payload;
                 return true;
-              }
-              payload[b2 / 8] ^= (1 << (b2 % 8));
-            }
-            payload[b1 / 8] ^= (1 << (b1 % 8));
-          }
-
-          // 3-bit flips on top 14 low-confidence bits
-          const size_t n_search3 = std::min<size_t>(conf.size(), 14);
-          for (size_t i = 0; i < n_search3; ++i) {
-            const size_t b1 = conf[i].second;
-            if (b1 / 8 >= payload.size()) continue;
-            payload[b1 / 8] ^= (1 << (b1 % 8));
-            for (size_t j = i + 1; j < n_search3; ++j) {
-              const size_t b2 = conf[j].second;
-              if (b2 / 8 >= payload.size()) continue;
-              payload[b2 / 8] ^= (1 << (b2 % 8));
-              for (size_t k = j + 1; k < n_search3; ++k) {
-                const size_t b3 = conf[k].second;
-                if (b3 / 8 >= payload.size()) continue;
-                payload[b3 / 8] ^= (1 << (b3 % 8));
-                const uint32_t calc_crc = wifi_crc32(payload.data(), body_len);
-                uint32_t rx_crc = 0;
-                std::memcpy(&rx_crc, payload.data() + body_len, 4);
-                if (calc_crc == rx_crc) {
-                  fr.payload = payload;
-                  return true;
-                }
-                payload[b3 / 8] ^= (1 << (b3 % 8));
               }
               payload[b2 / 8] ^= (1 << (b2 % 8));
             }
@@ -921,9 +930,11 @@ FrameResult WifiDsp::decode_burst(std::span<const c32> raw_iq, const StsResult* 
       return fr;
     }
 
-    // Retain payload from known seed attempt for telemetry
-    const auto desc_5d = descramble(decoded_bits_z0, 0x5D);
-    if (!check_payload(desc_5d, fr.payload)) {
+    // Retain payload from recovered seed attempt for telemetry
+    const auto best_seeds = find_best_seeds(decoded_bits_z0);
+    const int rep_seed = best_seeds.empty() ? 0x5D : best_seeds[0];
+    const auto desc_rep = descramble(decoded_bits_z0, rep_seed);
+    if (!check_payload(desc_rep, fr.payload)) {
       check_payload(descramble(decoded_bits_z0), fr.payload);
     }
     fr.fcs_ok = false;

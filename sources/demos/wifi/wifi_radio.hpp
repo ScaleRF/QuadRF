@@ -23,6 +23,7 @@ struct RadioConfig {
   int rx_antenna_mask = 0x0F;
   int tx_antenna_mask = 0x01;
   bool enable_pa_mute = true;  // mute PA while listening
+  bool skip_lo_retune = false;  // preserve LO and front-end configured by parent process (e.g. PhaseGaze)
   int pa_settle_us = 100;
   float cca_threshold = 0.05f;
 };

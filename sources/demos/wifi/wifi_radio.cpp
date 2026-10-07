@@ -95,6 +95,16 @@ void WifiRadio::pa_unmute() {
 }
 
 void WifiRadio::configure_rf_hardware() {
+  if (cfg_.skip_lo_retune) {
+    std::cerr << "WifiRadio: skip_lo_retune enabled, preserving active LO and RF configuration\n";
+    if (cfg_.enable_pa_mute) {
+      pa_mute();
+    } else {
+      pa_unmute();
+    }
+    return;
+  }
+
   const std::string jtag = find_jtag_cmd();
   std::ostringstream rx_spec, tx_spec;
 
@@ -124,8 +134,8 @@ void WifiRadio::configure_rf_hardware() {
 
 bool WifiRadio::init() {
   close();
-  open_csi_device();
   configure_rf_hardware();
+  open_csi_device();
 
   std::cerr << "WifiRadio: initializing SoapySDR (driver=mipi)...\n";
   SoapySDR::Kwargs args{{"driver", "mipi"}};
