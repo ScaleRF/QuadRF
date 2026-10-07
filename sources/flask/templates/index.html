@@ -866,7 +866,10 @@
             position: absolute; top: 50%; left: 50%;
             transform: translate(-50%, -50%);
             box-shadow: 0 0 15px var(--rx-color), inset 0 0 5px rgba(0,0,0,0.5);
-            pointer-events: none; transition: transform 0.05s linear;
+            pointer-events: none; transition: left 0.05s ease-out, top 0.05s ease-out, transform 0.05s linear;
+        }
+        .beam-pad.dragging .beam-puck {
+            transition: none;
         }
 
         .width-control { width: 100%; margin-bottom: 0; }
@@ -1614,6 +1617,7 @@
 
             pad.addEventListener('pointerdown', (e) => {
                 dragState[prefix] = true;
+                pad.classList.add('dragging');
                 pad.setPointerCapture(e.pointerId);
                 updatePuckPosition(e.clientX, e.clientY);
             });
@@ -1623,10 +1627,13 @@
                 updatePuckPosition(e.clientX, e.clientY);
             });
 
-            pad.addEventListener('pointerup', (e) => {
+            const stopDrag = (e) => {
                 dragState[prefix] = false;
-                pad.releasePointerCapture(e.pointerId);
-            });
+                pad.classList.remove('dragging');
+                try { pad.releasePointerCapture(e.pointerId); } catch(err) {}
+            };
+            pad.addEventListener('pointerup', stopDrag);
+            pad.addEventListener('pointercancel', stopDrag);
 
             if (widthSlider && widthNum) {
                 widthSlider.addEventListener('input', (e) => {
@@ -1926,6 +1933,24 @@
                 if(data.tx_power_dbm !== undefined) {
                     document.getElementById('txPowerMeter').value = data.tx_power_dbm;
                     document.getElementById('txPowerReadout').innerText = data.tx_power_dbm;
+                }
+                if(data.rx_phases !== undefined) {
+                    const [p1, p2, p3, p4] = data.rx_phases;
+                    updatePuckFromPhases('rx', p1, p2, p3, p4);
+                    for(let i = 1; i <= 4; i++) {
+                        let roundedPhase = Math.round(data.rx_phases[i - 1]);
+                        updateIfUnfocused(`rxP${i}Num`, roundedPhase);
+                        updateIfUnfocused(`rxP${i}`, roundedPhase);
+                    }
+                    const txLock = document.getElementById('txLockRx');
+                    if(txLock && txLock.checked) {
+                        updatePuckFromPhases('tx', p1, p2, p3, p4);
+                        for(let i = 1; i <= 4; i++) {
+                            let roundedPhase = Math.round(data.rx_phases[i - 1]);
+                            updateIfUnfocused(`txP${i}Num`, roundedPhase);
+                            updateIfUnfocused(`txP${i}`, roundedPhase);
+                        }
+                    }
                 }
             });
             controlSocket.on('sdr_status', applyState);

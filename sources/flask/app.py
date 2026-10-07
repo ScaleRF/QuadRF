@@ -10,6 +10,8 @@ import threading
 import time
 import math
 import re
+import fcntl
+import struct
 from app_icons import find_app_icon
 
 # Suppress verbose per-request access logs from Werkzeug to prevent stdio stream saturation
@@ -250,6 +252,74 @@ def parse_cli_json(proc):
         return json.loads(proc.stdout or "")
     except json.JSONDecodeError:
         return None
+
+CSI_IOC_JTAG_REG_READ = 0xc0064313
+
+def _read_csi_reg(fd, addr, buf):
+    buf[0] = addr
+    try:
+        fcntl.ioctl(fd, CSI_IOC_JTAG_REG_READ, buf)
+        return struct.unpack("<BxHH", buf)[1]
+    except OSError:
+        return None
+
+def _autosteer_telemetry_loop():
+    """Lightweight 20 Hz phase telemetry worker for auto steer."""
+    buf = bytearray(6)
+    last_val_2a = None
+    last_val_2b = None
+    last_autosteer = False
+
+    while True:
+        try:
+            dev_path = "/dev/csi_stream0"
+            if not os.path.exists(dev_path):
+                time.sleep(2.0)
+                continue
+
+            fd = os.open(dev_path, os.O_RDWR | os.O_CLOEXEC)
+            try:
+                while True:
+                    val_2e = _read_csi_reg(fd, 0x2E, buf)
+                    is_autosteer = bool(val_2e is not None and (val_2e & 0x01))
+
+                    if not is_autosteer:
+                        last_autosteer = False
+                        last_val_2a = None
+                        last_val_2b = None
+                        time.sleep(0.5)
+                        continue
+
+                    val_2a = _read_csi_reg(fd, 0x2A, buf)
+                    val_2b = _read_csi_reg(fd, 0x2B, buf)
+
+                    if val_2a is not None and val_2b is not None:
+                        if val_2a != last_val_2a or val_2b != last_val_2b or not last_autosteer:
+                            last_val_2a = val_2a
+                            last_val_2b = val_2b
+                            last_autosteer = True
+
+                            p1 = round(((val_2a >> 8) & 0xFF) * 360.0 / 256.0, 1)
+                            p2 = round((val_2a & 0xFF) * 360.0 / 256.0, 1)
+                            p3 = round(((val_2b >> 8) & 0xFF) * 360.0 / 256.0, 1)
+                            p4 = round((val_2b & 0xFF) * 360.0 / 256.0, 1)
+
+                            with _SDR_STATUS_LOCK:
+                                if _SDR_STATUS_CACHE:
+                                    _SDR_STATUS_CACHE['rx_p1'] = p1
+                                    _SDR_STATUS_CACHE['rx_p2'] = p2
+                                    _SDR_STATUS_CACHE['rx_p3'] = p3
+                                    _SDR_STATUS_CACHE['rx_p4'] = p4
+
+                            socketio.emit('sdr_telemetry', {'rx_phases': [p1, p2, p3, p4]})
+
+                    time.sleep(0.05)
+            finally:
+                os.close(fd)
+        except Exception:
+            time.sleep(1.0)
+
+threading.Thread(target=_autosteer_telemetry_loop, daemon=True).start()
 
 _SDR_STATUS_LOCK = threading.Lock()
 _SDR_STATUS_CACHE = {}
