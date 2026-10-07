@@ -1,3 +1,16 @@
+quadrf (1.0.34) trixie; urgency=medium
+
+  * debian: Add quadrf-wifi-rx to quadrf-demos package
+  * gui: add real-time 20 Hz auto-steer beam telemetry via direct ioctl and WebSockets
+  * demos: Add headless 802.11 OFDM receiver with JSON MAC decode
+  * demos: Set auto VAS in nearfield set_lo_mhz
+  * fpga: Add quadrf-jtag --vas-auto and run it on rf-vision stop
+  * fpga: Restore automatic VAS on every quadrf-jtag freq= write
+  * desktop: Pre-seed GNU Radio FFTW wisdom for Cortex-A76 NEON
+  * network: Accelerate dhclient fallback and wait for PHY renegotiation on eth0
+
+ -- QuadRF Engineering <contact@ScaleRF.com>  Tue, 06 Oct 2026 20:24:26 -0700
+
 quadrf (1.0.33) trixie; urgency=medium
 
   * flask: Autostart web-open apps and HTTPS camera links
