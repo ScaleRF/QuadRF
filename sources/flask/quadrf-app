@@ -28,7 +28,7 @@ APP_ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
 PREFERRED_APP_IDS = ("ar", "phasegaze", "ntsc", "ntsc-tx", "psd", "nearfield", "mesh")
 CSI_RELEASE_S = 0.5
 STOP_WAIT_S = 4.0
-START_WAIT_S = 8.0
+START_WAIT_S = 30.0
 
 
 def die(msg, code=1):
@@ -179,6 +179,9 @@ def start_app(app):
     unit = app["service"]
     if not unit_exists(unit):
         die(f"{app['id']}: {unit} is not installed", 2)
+    ready_port = app.get("ready_port")
+    if unit_active(unit) and (not ready_port or port_open(ready_port)):
+        return
     r = run(["systemctl", "start", unit])
     if r.returncode != 0:
         err = (r.stderr or r.stdout or "").strip() or f"systemctl start {unit} failed"

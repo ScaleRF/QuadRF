@@ -2134,7 +2134,6 @@
                 });
                 const result = await res.json();
                 if (!res.ok || result.status === 'error') {
-                    if (popup) popup.close();
                     logToConsole(`app ${action} ${appId}`, result.message || 'failed', true);
                     return;
                 }

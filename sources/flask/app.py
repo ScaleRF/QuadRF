@@ -244,7 +244,7 @@ def run_sudo(cmd, timeout=30, kill_on_timeout=True):
 
 
 def app_cli(*args):
-    return run_sudo([APP_CLI, *args])
+    return run_sudo([APP_CLI, *args], timeout=60)
 
 
 def parse_cli_json(proc):
@@ -650,7 +650,8 @@ WEB_CLIENTS = {}
 WEB_SEEN = set()
 WEB_STOP_TIMER = {}
 WEB_LOCK = threading.Lock()
-WEB_STOP_GRACE = 2.0
+APP_ACTION_LOCK = threading.Lock()
+WEB_STOP_GRACE = 10.0
 WEB_STALE_SEC = 75.0
 # Explicit Stop from the drawer. Without this an already-open tab would
 # resurrect the app on its next attach.
@@ -683,7 +684,11 @@ def _stop_web_if_idle(app_id):
             return
         WEB_SEEN.discard(app_id)
         _cancel_web_stop(app_id)
-    proc = app_cli("stop", app_id)
+    with APP_ACTION_LOCK:
+        with WEB_LOCK:
+            if WEB_CLIENTS.get(app_id):
+                return
+        proc = app_cli("stop", app_id)
     payload = parse_cli_json(proc)
     if payload:
         socketio.emit("app_state", payload)
@@ -715,12 +720,14 @@ def _web_autostart(app_id):
     """A fresh tab on a web-open app is the launch. Covers reloads that
     outran the stop grace, bookmarks, and the HTTP -> HTTPS hop."""
     try:
-        if _web_app_running(app_id):
-            return
-        with WEB_LOCK:
-            if app_id in WEB_SUPPRESS:
+        with APP_ACTION_LOCK:
+            if _web_app_running(app_id):
                 return
-        payload = parse_cli_json(app_cli("start", app_id))
+            with WEB_LOCK:
+                if app_id in WEB_SUPPRESS:
+                    return
+            proc = app_cli("start", app_id)
+            payload = parse_cli_json(proc)
         if payload:
             socketio.emit("app_state", payload)
         else:
@@ -802,15 +809,21 @@ def apps_start():
         return jsonify({"status": "error", "message": "app is required"}), 400
     with WEB_LOCK:
         WEB_SUPPRESS.discard(app_id)
-    proc = app_cli("start", app_id)
-    payload = parse_cli_json(proc)
-    if proc.returncode != 0:
-        return jsonify({"status": "error", "message": (proc.stderr or proc.stdout or "start failed").strip()}), 500
-    if payload:
-        socketio.emit("app_state", payload)
+        WEB_AUTOSTART.add(app_id)
+    try:
+        with APP_ACTION_LOCK:
+            proc = app_cli("start", app_id)
+        payload = parse_cli_json(proc)
+        if proc.returncode != 0:
+            return jsonify({"status": "error", "message": (proc.stderr or proc.stdout or "start failed").strip()}), 500
+        if payload:
+            socketio.emit("app_state", payload)
+            return jsonify(payload)
+        payload, _ = broadcast_app_state()
         return jsonify(payload)
-    payload, _ = broadcast_app_state()
-    return jsonify(payload)
+    finally:
+        with WEB_LOCK:
+            WEB_AUTOSTART.discard(app_id)
 
 @app.route('/api/apps/attach', methods=['POST'])
 def apps_attach():
@@ -872,7 +885,8 @@ def apps_stop():
         _clear_web_clients(app_id)
         with WEB_LOCK:
             WEB_SUPPRESS.add(app_id)
-    proc = app_cli("stop", app_id)
+    with APP_ACTION_LOCK:
+        proc = app_cli("stop", app_id)
     payload = parse_cli_json(proc)
     if proc.returncode != 0:
         return jsonify({"status": "error", "message": (proc.stderr or proc.stdout or "stop failed").strip()}), 500
