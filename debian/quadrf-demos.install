@@ -6,6 +6,7 @@ usr/bin/quadrf-ntsc-mod
 usr/bin/quadrf-ntsc-tx
 usr/bin/quadrf-nearfield
 usr/bin/quadrf-data
+usr/bin/quadrf-wifi-rx
 usr/share/quadrf/ar/
 usr/share/quadrf/ntsc_ch.lua
 usr/share/quadrf/examples/
