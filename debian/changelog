@@ -1,3 +1,9 @@
+quadrf (1.0.38) trixie; urgency=medium
+
+  * debian: Pin quadrf-mesh 0.1.9 and quadrf-phasegaze 0.1.2
+
+ -- QuadRF Engineering <contact@ScaleRF.com>  Thu, 08 Oct 2026 15:07:12 -0700
+
 quadrf (1.0.37) trixie; urgency=medium
 
   * apps, gui: Prevent popup tab auto-close, fix launch race, and bump mesh to 0.1.8
