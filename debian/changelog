@@ -1,3 +1,12 @@
+quadrf (1.0.39) trixie; urgency=medium
+
+  * fpga-csi: Bit-bang JTAG via RP1 RIO and add paced/streamed PIO write slot engine
+  * fpga-csi: Add compat_ioctl, lease validation during streaming, and bounded pacing
+  * soapy: Integrate FpgaJtag C++ driver and preload registers for on-demand stream start
+  * systemd: Clean stop for quadrf-ntsc-tx service
+
+ -- QuadRF Engineering <contact@ScaleRF.com>  Mon, 12 Oct 2026 15:39:00 -0700
+
 quadrf (1.0.38) trixie; urgency=medium
 
   * debian: Pin quadrf-mesh 0.1.9 and quadrf-phasegaze 0.1.2
