@@ -9,7 +9,7 @@ Type=simple
 User=root
 Environment=DISPLAY=:1
 ExecStart=/usr/bin/quadrf-ntsc-tx
-ExecStopPost=/usr/bin/quadrf-jtag --tx off
+ExecStopPost=-/usr/bin/quadrf-jtag --tx off
 TimeoutStopSec=8
 Restart=no
 

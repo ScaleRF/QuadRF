@@ -92,6 +92,13 @@ MipiDevice::MipiDevice(const SoapySDR::Kwargs &args)
 
 MipiDevice::~MipiDevice()
 {
+    try {
+        std::lock_guard<std::mutex> lock(fpgaMutex_);
+        if (fpga_.streaming()) fpga_.stop(true);
+    } catch (const std::exception &e) {
+        SoapySDR::logf(SOAPY_SDR_WARNING, "JTAG stream drain on close: %s", e.what());
+    }
+
     std::lock_guard<std::recursive_mutex> dlock(deviceMutex_);
     std::lock_guard<std::recursive_mutex> rlock(rxMutex_);
     std::lock_guard<std::recursive_mutex> tlock(txMutex_);
@@ -409,6 +416,7 @@ void MipiDevice::parseFrontendStatus(const std::string &text, bool isRx, Fronten
 
 std::string MipiDevice::jtagRun(const std::vector<std::string> &args) const
 {
+    fpgaQuiesce_();
     std::string lastErr;
     for (int attempt = 0; attempt < 5; ++attempt) {
         int pipefd[2];
@@ -540,6 +548,12 @@ SoapySDR::ArgInfoList MipiDevice::getSettingInfo(void) const
 {
     SoapySDR::ArgInfoList out;
     out.push_back(makeArg("bypass_iir", "true", "Bypass IIR", "RX IIR is removed in this build", SoapySDR::ArgInfo::BOOL));
+    out.push_back(makeArg("jtag_stream_period_ns", "5000", "JTAG stream period",
+                          "Slot spacing of the next JTAG write stream, 5 ns steps", SoapySDR::ArgInfo::INT,
+                          "ns", {}, SoapySDR::Range(quadrf::FpgaJtag::kMinPeriodNs, 1e9, 5)));
+    out.push_back(makeArg("jtag_stream", "off", "JTAG stream",
+                          "start: hold a stream open; drain: stop after queued writes; stop: drop them",
+                          SoapySDR::ArgInfo::STRING, {}, {"start", "drain", "stop"}));
     for (auto a : rxSettingInfo()) { out.push_back(a); a.key = "rx_" + a.key; out.push_back(std::move(a)); }
     for (auto a : txSettingInfo()) {
         if (a.key == "follow_rx") a.key = "tx_follow_rx";
@@ -553,6 +567,27 @@ void MipiDevice::writeSetting(const std::string &key, const std::string &value)
 {
     if (key == "bypass_iir") {
         SoapySDR::log(SOAPY_SDR_INFO, "RX IIR Filter is permanently bypassed/removed in this build.");
+        return;
+    }
+    if (key == "jtag_stream_period_ns") {
+        const long p = std::stol(value);
+        if (p < long(quadrf::FpgaJtag::kMinPeriodNs) || p > 1000000000L)
+            throw std::out_of_range("jtag_stream_period_ns");
+        std::lock_guard<std::mutex> lock(fpgaMutex_);
+        fpgaPeriodNs_ = uint32_t(p);
+        return;
+    }
+    if (key == "jtag_stream") {
+        std::lock_guard<std::mutex> lock(fpgaMutex_);
+        if (value == "start") {
+            if (!fpga_.streaming()) fpga_.start(fpgaPeriodNs_);
+            fpgaHeld_ = true;
+        } else if (value == "drain" || value == "stop") {
+            if (fpga_.streaming()) fpga_.stop(value == "drain");
+            fpgaHeld_ = false;
+        } else {
+            throw std::invalid_argument("jtag_stream: start, drain or stop");
+        }
         return;
     }
     if (key.rfind("rx_", 0) == 0) {
@@ -582,6 +617,12 @@ std::string MipiDevice::readSetting(const std::string &key) const
     if (key == "tx_dev") return txPath_;
     if (key == "bypass_iir") return "true";
     if (key == "jtag") return jtagPath_;
+    if (key == "jtag_stream_period_ns") return std::to_string(fpgaPeriodNs_);
+    if (key == "jtag_stream") {
+        std::lock_guard<std::mutex> lock(fpgaMutex_);
+        return !fpga_.streaming() ? "off" : fpgaHeld_ ? "held" : "auto";
+    }
+    if (key == "jtag_stream_status") return fpgaStatus_();
     if (key.rfind("rx_", 0) == 0) return readChannelSetting(SOAPY_SDR_RX, key.substr(3));
     if (key == "tx_follow_rx" || key == "follow_rx") return readChannelSetting(SOAPY_SDR_TX, "follow_rx");
     if (key.rfind("tx_", 0) == 0) return readChannelSetting(SOAPY_SDR_TX, key.substr(3));
@@ -591,6 +632,129 @@ std::string MipiDevice::readSetting(const std::string &key) const
         return readChannelSetting(SOAPY_SDR_RX, key);
     }
     return "";
+}
+
+void MipiDevice::fpgaQuiesce_() const
+{
+    std::lock_guard<std::mutex> lock(fpgaMutex_);
+    if (!fpga_.streaming()) return;
+    if (fpgaHeld_)
+        throw std::runtime_error("JTAG stream held open (jtag_stream=start); drain or stop it first");
+    fpga_.stop(true);
+}
+
+void MipiDevice::fpgaWrite_(std::vector<csi_jtag_reg> &&regs)
+{
+    std::lock_guard<std::mutex> lock(fpgaMutex_);
+    const long long t = cmdTimeNs_;
+
+    if (!t) {
+        if (fpga_.streaming()) fpga_.queue(regs.data(), regs.size());
+        else for (const auto &r : regs) fpga_.write(r.addr, r.value);
+        return;
+    }
+
+    const uint64_t now = quadrf::FpgaJtag::nowNs();
+    if (uint64_t(t) < now)
+        throw std::runtime_error("timed FPGA write is late by " + std::to_string((now - uint64_t(t)) / 1000) + " us (call setCommandTime(0) to clear)");
+
+    if (!fpga_.streaming()) {
+        fpga_.start(fpgaPeriodNs_, uint64_t(t), 0, regs);
+    } else {
+        fpga_.status();    // t_slot0 moves on underrun
+        fpga_.queue(regs.data(), regs.size(), int64_t(fpga_.slotAt(uint64_t(t))));
+    }
+}
+
+std::string MipiDevice::fpgaStatus_() const
+{
+    std::lock_guard<std::mutex> lock(fpgaMutex_);
+    const auto st = fpga_.status();
+    std::ostringstream o;
+    o << "active=" << st.active << " held=" << (fpgaHeld_ && st.active) << " period_ns=" << st.period_ns
+      << " t_slot0_ns=" << st.t_slot0_ns << " t_slot0_err_ns=" << st.t_slot0_err_ns
+      << " slot_now=" << st.slot_now << " committed=" << st.committed << " queued_end=" << st.queued_end
+      << " lead_slots=" << st.lead_slots << " underruns=" << st.underruns;
+    return o.str();
+}
+
+std::vector<std::string> MipiDevice::listRegisterInterfaces(void) const
+{
+    return {"FPGA", "FPGA_WORDS"};
+}
+
+void MipiDevice::writeRegister(const std::string &name, const unsigned addr, const unsigned value)
+{
+    if (name == "FPGA_WORDS") {
+        writeRegisters(name, addr, {value});
+        return;
+    }
+    if (name != "FPGA") throw std::runtime_error("unknown register interface: " + name);
+    if (addr > 0xFF || value > 0xFFFF) throw std::out_of_range("FPGA register is 8-bit address, 16-bit value");
+    csi_jtag_reg r{};
+    r.addr = uint8_t(addr);
+    r.value = uint16_t(value);
+    fpgaWrite_({r});
+}
+
+void MipiDevice::writeRegisters(const std::string &name, const unsigned addr, const std::vector<unsigned> &value)
+{
+    std::vector<csi_jtag_reg> regs(value.size());
+    if (name == "FPGA") {
+        if (addr + value.size() > 0x100) throw std::out_of_range("FPGA register range past 0xFF");
+        for (size_t i = 0; i < value.size(); i++) {
+            if (value[i] > 0xFFFF) throw std::out_of_range("FPGA register value is 16 bits");
+            regs[i].addr = uint8_t(addr + i);
+            regs[i].value = uint16_t(value[i]);
+        }
+    } else if (name == "FPGA_WORDS") {
+        for (size_t i = 0; i < value.size(); i++) {
+            if (value[i] > 0xFFFFFF) throw std::out_of_range("FPGA_WORDS entry is addr << 16 | value");
+            regs[i].addr = uint8_t(value[i] >> 16);
+            regs[i].value = uint16_t(value[i]);
+        }
+    } else {
+        throw std::runtime_error("unknown register interface: " + name);
+    }
+    if (!regs.empty()) fpgaWrite_(std::move(regs));
+}
+
+unsigned MipiDevice::readRegister(const std::string &name, const unsigned addr) const
+{
+    if (name != "FPGA") throw std::runtime_error("readRegister: only the FPGA interface is readable");
+    if (addr > 0xFF) throw std::out_of_range("FPGA register address is 8 bits");
+    fpgaQuiesce_();
+    std::lock_guard<std::mutex> lock(fpgaMutex_);
+    return fpga_.read(uint8_t(addr));
+}
+
+std::vector<unsigned> MipiDevice::readRegisters(const std::string &name, const unsigned addr, const size_t length) const
+{
+    if (name != "FPGA") throw std::runtime_error("readRegister: only the FPGA interface is readable");
+    if (addr + length > 0x100) throw std::out_of_range("FPGA register range past 0xFF");
+    fpgaQuiesce_();
+    std::lock_guard<std::mutex> lock(fpgaMutex_);
+    std::vector<unsigned> out(length);
+    for (size_t i = 0; i < length; i++) out[i] = fpga_.read(uint8_t(addr + i));
+    return out;
+}
+
+bool MipiDevice::hasHardwareTime(const std::string &what) const
+{
+    return what.empty();
+}
+
+long long MipiDevice::getHardwareTime(const std::string &what) const
+{
+    if (!what.empty()) throw std::runtime_error("unknown time source: " + what);
+    return (long long)quadrf::FpgaJtag::nowNs();
+}
+
+void MipiDevice::setCommandTime(const long long timeNs, const std::string &what)
+{
+    if (!what.empty()) throw std::runtime_error("unknown time source: " + what);
+    std::lock_guard<std::mutex> lock(fpgaMutex_);
+    cmdTimeNs_ = timeNs;
 }
 
 SoapySDR::ArgInfoList MipiDevice::getSettingInfo(const int dir, const size_t) const

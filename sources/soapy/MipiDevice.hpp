@@ -18,6 +18,7 @@
 #endif 
 
 #include "Farrow.hpp" 
+#include "FpgaJtag.hpp"
 
 // 4-lane CSI
 static constexpr const double RX_LINE_RATE = ((65536.0/76714.0)*175.0e6);
@@ -187,6 +188,21 @@ public:
     SoapySDR::ArgInfoList getSettingInfo(const int dir, const size_t chan) const override;
     void writeSetting(const int dir, const size_t chan, const std::string &key, const std::string &value) override;
     std::string readSetting(const int dir, const size_t chan, const std::string &key) const override;
+
+    // FPGA registers over JTAG. "FPGA": 8-bit address, 16-bit value; with a
+    // command time set, writes are timed and go out through the PIO write
+    // stream. "FPGA_WORDS": writeRegisters only, each value addr << 16 | data,
+    // one write per stream slot, for sequences that hop between addresses.
+    std::vector<std::string> listRegisterInterfaces(void) const override;
+    void writeRegister(const std::string &name, const unsigned addr, const unsigned value) override;
+    unsigned readRegister(const std::string &name, const unsigned addr) const override;
+    void writeRegisters(const std::string &name, const unsigned addr, const std::vector<unsigned> &value) override;
+    std::vector<unsigned> readRegisters(const std::string &name, const unsigned addr, const size_t length) const override;
+
+    // Hardware time is CLOCK_MONOTONIC in ns, the timebase of the JTAG stream.
+    bool hasHardwareTime(const std::string &what) const override;
+    long long getHardwareTime(const std::string &what) const override;
+    void setCommandTime(const long long timeNs, const std::string &what) override;
     
     // Streams
     SoapySDR::Stream *setupStream(const int dir,
@@ -473,4 +489,17 @@ private:
     static void parseFrontendStatus(const std::string &text, bool isRx, FrontendStatus &st);
     void writeChannelSetting(int dir, const std::string &key, const std::string &value);
     std::string readChannelSetting(int dir, const std::string &key) const;
+
+    // JTAG write stream. Started on demand by the first timed write, or held
+    // open with the jtag_stream setting. While it runs the driver refuses
+    // every other JTAG access, so an on-demand stream is drained before RIO
+    // reads and before quadrf-jtag runs; a held one makes those fail.
+    mutable std::mutex fpgaMutex_;
+    mutable quadrf::FpgaJtag fpga_;
+    long long cmdTimeNs_{0};
+    uint32_t fpgaPeriodNs_{5000};
+    bool fpgaHeld_{false};
+    void fpgaQuiesce_() const;
+    void fpgaWrite_(std::vector<csi_jtag_reg> &&regs);
+    std::string fpgaStatus_() const;
 };

@@ -210,7 +210,7 @@ install(PROGRAMS sources/ups_hat/60-ups DESTINATION ${libdir}/apply.d)
 configure_file(quadrfConfig.cmake.in ${CMAKE_CURRENT_BINARY_DIR}/QuadRFConfig.cmake @ONLY)
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/QuadRFConfig.cmake DESTINATION lib/cmake/quadrf)
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/QuadRFConfig.cmake DESTINATION lib/cmake/quadrf RENAME quadrf-config.cmake)
-install(FILES sources/soapy/Farrow.hpp DESTINATION ${includedir})
+install(FILES sources/soapy/Farrow.hpp sources/soapy/FpgaJtag.hpp DESTINATION ${includedir})
 install(FILES sources/fpga/jtag_src/jtag.c
               sources/fpga/jtag_src/max285x.c
               sources/fpga/jtag_src/max285x.h
@@ -221,6 +221,7 @@ install(FILES sources/soapy/Registration.cpp
               sources/soapy/NEON.cpp
               sources/soapy/MipiDevice.hpp
               sources/soapy/Farrow.hpp
+              sources/soapy/FpgaJtag.hpp
               sources/soapy/Makefile
         DESTINATION ${srcdir}/quadrf-soapy)
 

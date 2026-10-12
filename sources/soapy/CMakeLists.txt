@@ -21,7 +21,7 @@ add_library(SoapyMipiSDR MODULE
 )
 
 target_compile_features(SoapyMipiSDR PRIVATE cxx_std_17)
-target_include_directories(SoapyMipiSDR PRIVATE ${SOAPY_SDR_INCLUDE_DIRS} .)
+target_include_directories(SoapyMipiSDR PRIVATE ${SOAPY_SDR_INCLUDE_DIRS} . ${CMAKE_CURRENT_SOURCE_DIR}/../fpga/drivers/csi)
 
 target_link_libraries(SoapyMipiSDR PRIVATE ${SOAPY_SDR_LIBRARIES})
 # Link-Time Optimization requires linker flags as well

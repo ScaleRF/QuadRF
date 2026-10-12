@@ -51,7 +51,12 @@
 #include <linux/kernel.h>
 #include <linux/delay.h>
 #include <linux/gpio/consumer.h>
+#include <linux/gpio/driver.h>
+#include <linux/of.h>
 #include <linux/workqueue.h>
+#include <linux/kthread.h>
+#include <linux/sched.h>
+#include <linux/pio_rp1.h>
 
 #include "fpga_csi.h"
 
@@ -65,6 +70,18 @@ module_param(drop_oldest, bool, 0444);
 MODULE_PARM_DESC(drop_oldest,
                  "Overwrite oldest ring data when full "
                  "(default: 0=drop incoming span)");
+
+static bool jtag_rio = true;
+module_param(jtag_rio, bool, 0644);
+MODULE_PARM_DESC(jtag_rio,
+                 "Bit-bang JTAG with direct RP1 RIO stores instead of gpiolib "
+                 "(default: 1, falls back to gpiolib if RIO is not found)");
+
+static bool jtag_pio = true;
+module_param(jtag_pio, bool, 0644);
+MODULE_PARM_DESC(jtag_pio,
+                 "Clock paced JTAG batches out of an RP1 PIO state machine "
+                 "(default: 1, falls back to timed RIO bit-bang)");
 
 /* -------- Userspace byte ring -------- */
 
@@ -224,6 +241,29 @@ struct csi_dma_buffer {
     enum dma_buf_state state;
 };
 
+struct csi_file_ctx;
+
+/* Slot numbers are absolute since stream start; the ring holds slot & (size-1). */
+struct jtag_stream {
+    spinlock_t            lock;            /* everything below; taken from DMA tasklet */
+    wait_queue_head_t     wq;              /* feeder, queuers waiting for space, stop */
+    struct task_struct   *feeder;
+    struct csi_file_ctx  *owner;
+    u32                  *ring;            /* queued words, 0 = idle slot */
+    u32                  *chunkbuf;        /* feeder scratch, one DMA chunk */
+    u32                   pio_delay;       /* delay loop count in Y, U32_MAX = unknown */
+    u32                   period_ns;       /* quantized to 5 ns */
+    u32                   chunk;           /* slots per DMA chunk */
+    u64                   committed;       /* slots handed to DMA so far */
+    u64                   queued_end;      /* one past the last queued write */
+    int                   in_flight;       /* DMA chunks not yet completed */
+    u64                   t_empty_ns;      /* when in_flight last dropped to 0 */
+    u64                   t_slot0_ns;
+    u32                   t_slot0_err_ns;
+    u32                   underruns;
+    bool                  active, running, stopping, fed_all, failed;
+};
+
 struct fpga_csi_dev {
     struct device       *dev;
     struct rp1_regs      regs;
@@ -282,6 +322,19 @@ struct fpga_csi_dev {
     bool                  jtag_pins_acquired;
     bool                  jtag_ready;
     bool                  jtag_write_gpio_cansleep;
+    void __iomem         *jtag_rio_base;   /* RP1 RIO bank 0, NULL = gpiolib only */
+    bool                  jtag_rio_logged; /* userspace re-runs setup every ~30 s */
+    u32                   rio_tck, rio_tms, rio_tdi, rio_tdo;
+
+    /* JTAG streams and paced batches on an RP1 PIO SM, set up on first use */
+    struct rp1_pio_client *pio;
+    int                   pio_sm;
+    uint                  pio_off;         /* program load offset */
+    bool                  pio_failed;      /* stay on RIO until the module reloads */
+    u32                   pio_fs;          /* PIO funcsel, read back after gpio_init */
+    void __iomem         *iobank;          /* RP1 IO_BANK0, GPIOn_CTRL funcsel */
+    struct jtag_stream    js;
+
     struct mutex          jtag_lock;
     atomic_t             jtag_users;
 
@@ -1503,19 +1556,180 @@ static void jtag_shift_dr25_write_sleep(struct fpga_csi_dev *cd, u32 out)
     jtag_write_pulse_sleep(cd); /* RTI */
 }
 
+/*
+ * RP1 RIO path.
+ *
+ * RP1 sits behind PCIe. A gpiod_set_value() through gpiolib and pinctrl-rp1
+ * costs ~230 ns; a posted store straight to the RIO XOR alias costs ~25 ns.
+ * TMS/TDI changes ride on the falling TCK edge (the TAP samples them on the
+ * rising edge, half a period later), so every clock is exactly two stores and
+ * a DR scan is 67 stores: ~1.7 us instead of ~19 us, TCK ~20 MHz. The clock
+ * sequence is the same 33 clocks as jtag_shift_dr25().
+ *
+ * Stores to one Device-nGnRE peripheral stay in program order, and a read
+ * cannot pass the posted writes ahead of it on PCIe, so no barriers are
+ * needed between edges. Reads sample TDO via SYNC_IN after the rising edge,
+ * like jtag_clock(); TDO was launched on the previous falling edge.
+ *
+ * RP1 RIO bank 0: OUT +0x00, SYNC_IN +0x08, XOR alias +0x1000, CLR +0x3000.
+ */
+#define RIO_OUT     0x0000
+#define RIO_SYNC_IN 0x0008
+#define RIO_XOR     0x1000
+#define RIO_CLR     0x3000
+#define RIO_SPAN    0x4000
+
+/*
+ * @nin: TDO bits to capture from the first data clocks. Each costs a ~1.2 us
+ * non-posted PCIe round trip, so callers ask only for what they use.
+ */
+static void jtag_rio_scan(struct fpga_csi_dev *cd, u32 out, u32 *in, int nin)
+{
+    void __iomem *base = cd->jtag_rio_base;
+    void __iomem *x = base + RIO_XOR;
+    const u32 tck = cd->rio_tck, tms = cd->rio_tms, tdi = cd->rio_tdi;
+    u32 seq[3 + DR_WIDTH + 5];
+    u32 cur = 0, res = 0;
+    int c, k = 0, i;
+
+    seq[k++] = tms;                 /* RTI -> Select-DR */
+    seq[k++] = 0;                   /* Capture-DR */
+    seq[k++] = 0;                   /* ghost clock */
+    for (i = 0; i < DR_WIDTH; i++)
+        seq[k++] = (out >> i) & 1 ? tdi : 0;
+    seq[k++] = 0;                   /* two post-data clocks */
+    seq[k++] = 0;
+    seq[k++] = tms;                 /* Exit1-DR */
+    seq[k++] = tms;                 /* Update-DR */
+    seq[k++] = 0;                   /* RTI */
+
+    /*
+     * Every path leaves TCK/TMS/TDI low between scans and the XOR stores rely
+     * on that; CLR re-asserts it without making an edge.
+     */
+    writel_relaxed(tck | tms | tdi, base + RIO_CLR);
+    for (c = 0; c < k; c++) {
+        writel_relaxed((c ? tck : 0) | (cur ^ seq[c]), x);
+        cur = seq[c];
+        writel_relaxed(tck, x);
+        if (in && c >= 3 && c < 3 + nin &&
+            (readl_relaxed(base + RIO_SYNC_IN) & cd->rio_tdo))
+            res |= 1u << (c - 3);
+    }
+    writel_relaxed(tck | cur, x);
+
+    if (in)
+        *in = res;
+}
+
+/* Wait until the posted stores have reached the pins. */
+static inline void jtag_rio_drain(struct fpga_csi_dev *cd)
+{
+    if (cd->jtag_rio_base && jtag_rio)
+        (void)readl(cd->jtag_rio_base + RIO_SYNC_IN);
+}
+
 static inline void jtag_shift_dr25_write(struct fpga_csi_dev *cd, u32 out)
 {
     /* Branch once per complete DR write, never once per GPIO edge. */
-    if (likely(!cd->jtag_write_gpio_cansleep))
+    if (likely(cd->jtag_rio_base && jtag_rio))
+        jtag_rio_scan(cd, out, NULL, 0);
+    else if (likely(!cd->jtag_write_gpio_cansleep))
         jtag_shift_dr25_write_fast(cd, out);
     else
         jtag_shift_dr25_write_sleep(cd, out);
 }
 
+static int jtag_rio_bit(struct gpio_desc *d, u32 *mask)
+{
+    struct gpio_device *gdev = gpiod_to_gpio_device(d);
+    int off;
+
+    if (!gdev)
+        return -ENODEV;
+    off = desc_to_gpio(d) - gpio_device_get_base(gdev);
+    if (off < 0 || off >= 28)       /* RIO bank 0 holds GPIO 0..27 */
+        return -ERANGE;
+    *mask = BIT(off);
+    return 0;
+}
+
+static bool jtag_rio_check(void __iomem *rio, struct gpio_desc *d, u32 mask, int idle)
+{
+    u32 a, b;
+
+    gpiod_set_value(d, !idle);
+    a = readl(rio + RIO_OUT);
+    gpiod_set_value(d, idle);
+    b = readl(rio + RIO_OUT);
+    return !!(a & mask) == !idle && !!(b & mask) == idle;
+}
+
+/*
+ * Map RIO bank 0 and confirm, on the pins themselves, that each JTAG output
+ * lands on the bit its gpio offset predicts. Called before the TAP reset in
+ * setup, so the TCK edges made here are harmless.
+ */
+static void jtag_rio_map(struct fpga_csi_dev *cd)
+{
+    struct device_node *np;
+    struct resource res;
+    void __iomem *rio;
+    int ret;
+
+    cd->jtag_rio_base = NULL;
+    if (cd->jtag_write_gpio_cansleep ||
+        jtag_rio_bit(cd->jtag_tck, &cd->rio_tck) ||
+        jtag_rio_bit(cd->jtag_tms, &cd->rio_tms) ||
+        jtag_rio_bit(cd->jtag_tdi, &cd->rio_tdi) ||
+        jtag_rio_bit(cd->jtag_tdo, &cd->rio_tdo))
+        goto gpiolib;
+
+    np = of_find_compatible_node(NULL, NULL, "raspberrypi,rp1-gpio");
+    if (!np)
+        goto gpiolib;
+    ret = of_address_to_resource(np, 1, &res);     /* reg[1] = RIO */
+    of_node_put(np);
+    if (ret || resource_size(&res) < RIO_SPAN)
+        goto gpiolib;
+    rio = ioremap(res.start, RIO_SPAN);
+    if (!rio)
+        goto gpiolib;
+
+    if (!jtag_rio_check(rio, cd->jtag_tck, cd->rio_tck, 0) ||
+        !jtag_rio_check(rio, cd->jtag_tdi, cd->rio_tdi, 0) ||
+        !jtag_rio_check(rio, cd->jtag_tms, cd->rio_tms, 1)) {
+        dev_warn(cd->dev, "RIO bit check failed, JTAG stays on gpiolib\n");
+        iounmap(rio);
+        goto gpiolib;
+    }
+    cd->jtag_rio_base = rio;
+    if (!cd->jtag_rio_logged)
+        dev_info(cd->dev, "JTAG via RP1 RIO at %pa (tck %d tms %d tdi %d tdo %d)\n",
+                 &res.start, __ffs(cd->rio_tck), __ffs(cd->rio_tms),
+                 __ffs(cd->rio_tdi), __ffs(cd->rio_tdo));
+    cd->jtag_rio_logged = true;
+    return;
+
+gpiolib:
+    if (!cd->jtag_rio_logged)
+        dev_info(cd->dev, "JTAG via gpiolib\n");
+    cd->jtag_rio_logged = true;
+}
+
+static void jtag_pio_teardown(struct fpga_csi_dev *cd);
+
 static void jtag_release_locked(struct fpga_csi_dev *cd)
 {
     if (!cd->jtag_pins_acquired)
         return;
+
+    jtag_pio_teardown(cd);
+
+    if (cd->jtag_rio_base) {
+        iounmap(cd->jtag_rio_base);
+        cd->jtag_rio_base = NULL;
+    }
 
     if (cd->jtag_tck) {
         gpiod_put(cd->jtag_tck);
@@ -1589,6 +1803,8 @@ static int jtag_setup_locked(struct fpga_csi_dev *cd)
         gpiod_cansleep(cd->jtag_tms) ||
         gpiod_cansleep(cd->jtag_tdi);
 
+    jtag_rio_map(cd);
+
     /* Configure idle levels and TAP */
     gpiod_set_value_cansleep(cd->jtag_tck, 0);
     gpiod_set_value_cansleep(cd->jtag_tms, 1);
@@ -1635,6 +1851,14 @@ static int jtag_reg_read(struct fpga_csi_dev *cd, u8 addr, u16 *out_val)
 {
     u32 jtag_val = ((u32)addr << 16); /* write flag = 0 */
     u32 readback = 0;
+
+    if (cd->jtag_rio_base && jtag_rio) {
+        /* the first scan only loads the address; its readback is stale */
+        jtag_rio_scan(cd, jtag_val, NULL, 0);
+        jtag_rio_scan(cd, jtag_val, &readback, 16);
+        *out_val = (u16)(readback & 0xffff);
+        return 0;
+    }
 
     /* First DR scan: pipeline fill, discard result */
     jtag_shift_dr25(cd, jtag_val, &readback);
@@ -1735,6 +1959,787 @@ static int csi_apply_geometry(struct fpga_csi_dev *cd,
 /* --- JTAG shared-use helpers (forward decls) --- */
 static int csi_jtag_attach_locked(struct csi_file_ctx *ctx);
 static void csi_jtag_detach_locked(struct fpga_csi_dev *cd);
+
+/*
+ * JTAG write streams on an RP1 PIO state machine.
+ *
+ * The RIO busy-wait keeps a schedule only while its stores reach RP1
+ * promptly; DRAM traffic stretches each store and writes start late. Here a
+ * PIO SM is a slot clock: every period it takes one word from its TX FIFO
+ * without waiting. A word with the write flag (bit 24) runs one DR scan; 0, or
+ * an empty FIFO, runs an idle slot of exactly the same length with TCK low
+ * and the TAP parked in Run-Test/Idle. Slot k therefore starts at
+ * t_slot0 + k * period, set by the 200 MHz PIO clock, for as long as the
+ * stream runs.
+ *
+ * A feeder kthread keeps up to JSTREAM_NBUF DMA chunks in flight, built from
+ * a ring of JSTREAM_RING slots; slots nobody queued go out as idle words.
+ * That keeps the word -> slot mapping exact. If the feeder ever falls behind
+ * by more than the FIFO, the SM runs idle slots on its own, the mapping
+ * shifts, and the driver counts an underrun and re-estimates t_slot0.
+ *
+ * TCK and TMS are the two side-set pins (TMS must sit on TCK + 1), TDI the
+ * single OUT pin; TMS follows the fixed 33-clock sequence of jtag_rio_scan().
+ * The pins sit on the PIO function only while a stream runs; everything else
+ * uses RIO. Both leave TCK/TMS/TDI low in Run-Test/Idle, so the handover
+ * makes no edge.
+ *
+ * Slot length: pull + mov + jmp + mov + (x + 1) delay + 33 clocks of
+ * 2 * JPIO_HALF = x + JPIO_FIXED PIO clocks of 5 ns. The idle path burns the
+ * same 66 * JPIO_HALF clocks in two counted loops.
+ */
+#define JPIO_HALF     6                     /* PIO clocks per half TCK: 16.7 MHz */
+#define JPIO_SCAN     (66 * JPIO_HALF)
+#define JPIO_FIXED    (5 + JPIO_SCAN)
+#define JPIO_NS       5
+#define JPIO_FIFO     16                    /* TX FIFO joined: 2 x 8 words */
+#define JSTREAM_NBUF  3                     /* of the 4 bounce buffers rp1-pio allows */
+#define JSTREAM_RING  (256 * 1024)          /* slots, power of two: 1.3 s at 5 us */
+#define JSTREAM_QUEUE_MAX 16384             /* writes per START / QUEUE call */
+#define JSTREAM_CHUNK_MAX 1024              /* words per DMA chunk / bounce buffer */
+#define JSTREAM_LEAD_NS   (1500 * 1000)     /* default DMA horizon */
+#define IOB_CTRL(n)   (8 * (n) + 4)         /* IO_BANK0 GPIOn_CTRL, funcsel [4:0] */
+#define FS_RIO        5
+
+static void jtag_pio_program(u16 *p)
+{
+    const uint d = pio_encode_delay(JPIO_HALF - 1);
+    const uint nop = pio_encode_mov(pio_y, pio_y);
+    int k = 0;
+
+#define SS(v) pio_encode_sideset(2, v)      /* bit0 TCK, bit1 TMS */
+    p[k++] = pio_encode_pull(false, false) | SS(0);        /* 0: empty FIFO -> OSR = X = 0 */
+    p[k++] = pio_encode_mov(pio_x, pio_osr) | SS(0);
+    p[k++] = pio_encode_jmp_not_x(19) | SS(0);             /* idle slot */
+    p[k++] = pio_encode_mov(pio_x, pio_y) | SS(0);
+    p[k++] = pio_encode_jmp_x_dec(4) | SS(0);              /* 4: period padding */
+    p[k++] = nop | SS(2) | d;
+    p[k++] = nop | SS(3) | d;                               /* Select-DR */
+    p[k++] = nop | SS(0) | d;
+    p[k++] = nop | SS(1) | d;                               /* Capture-DR */
+    p[k++] = nop | SS(0) | d;
+    p[k++] = pio_encode_set(pio_x, 26) | SS(1) | d;         /* ghost clock */
+    p[k++] = pio_encode_out(pio_pins, 1) | SS(0) | d;      /* 11: TDI on falling edge */
+    p[k++] = pio_encode_jmp_x_dec(11) | SS(1) | d;         /* 25 data + 2 clocks */
+    p[k++] = nop | SS(2) | d;
+    p[k++] = nop | SS(3) | d;                               /* Exit1-DR */
+    p[k++] = nop | SS(2) | d;
+    p[k++] = nop | SS(3) | d;                               /* Update-DR */
+    p[k++] = nop | SS(0) | d;
+    p[k++] = pio_encode_set(pio_x, 0) | SS(1) | d;          /* 18: RTI; wrap -> 0 */
+    p[k++] = pio_encode_mov(pio_x, pio_y) | SS(0);         /* 19: idle slot */
+    p[k++] = pio_encode_jmp_x_dec(20) | SS(0);
+    p[k++] = pio_encode_set(pio_x, 31) | SS(0) | pio_encode_delay(7);   /* 8 */
+    p[k++] = pio_encode_jmp_x_dec(22) | SS(0) | pio_encode_delay(7);    /* 32 * 8 */
+    p[k++] = pio_encode_set(pio_x, 15) | SS(0) | pio_encode_delay(1);   /* 2 */
+    p[k++] = pio_encode_jmp_x_dec(24) | SS(0) | pio_encode_delay(7);    /* 16 * 8 */
+    p[k++] = pio_encode_set(pio_x, 0) | SS(0);                          /* 1 */
+    p[k++] = pio_encode_jmp(0) | SS(0);                                 /* 1: 396 */
+#undef SS
+}
+#define JPIO_PROG_LEN 27
+#define JPIO_WRAP     18
+
+static void jtag_pio_funcsel(struct fpga_csi_dev *cd, u32 fs)
+{
+    const u32 bits[3] = { cd->rio_tck, cd->rio_tms, cd->rio_tdi };
+    void __iomem *r;
+    int i;
+
+    for (i = 0; i < 3; i++) {
+        r = cd->iobank + IOB_CTRL(__ffs(bits[i]));
+        writel((readl(r) & ~0x1fu) | fs, r);
+    }
+    (void)readl(cd->iobank + IOB_CTRL(__ffs(cd->rio_tck)));
+}
+
+static inline u64 jstream_slot_ns(const struct jtag_stream *js, u64 slot)
+{
+    return js->t_slot0_ns + slot * js->period_ns;
+}
+
+/* DMA completion, tasklet context */
+static void jstream_dma_cb(void *param)
+{
+    struct jtag_stream *js = param;
+    unsigned long flags;
+
+    spin_lock_irqsave(&js->lock, flags);
+    js->in_flight--;
+    if (!js->in_flight)
+        js->t_empty_ns = ktime_get_ns();
+    spin_unlock_irqrestore(&js->lock, flags);
+    wake_up(&js->wq);
+}
+
+static bool jstream_feeder_ready(struct jtag_stream *js)
+{
+    bool r;
+
+    spin_lock_irq(&js->lock);
+    r = js->active && !js->fed_all && js->in_flight < JSTREAM_NBUF;
+    spin_unlock_irq(&js->lock);
+    return r;
+}
+
+static int jstream_feeder(void *arg)
+{
+    struct fpga_csi_dev *cd = arg;
+    struct jtag_stream *js = &cd->js;
+    u32 n, i, head;
+    u64 now, lag;
+    int ret;
+
+    sched_set_fifo(current);
+    while (!kthread_should_stop()) {
+        if (wait_event_interruptible(js->wq, kthread_should_stop() || jstream_feeder_ready(js)))
+            continue;
+        if (kthread_should_stop())
+            break;
+
+        spin_lock_irq(&js->lock);
+        if (js->stopping && js->committed >= js->queued_end) {
+            js->fed_all = true;
+            spin_unlock_irq(&js->lock);
+            wake_up(&js->wq);
+            continue;
+        }
+        n = js->chunk;
+        if (js->stopping)
+            n = min_t(u64, n, js->queued_end - js->committed);
+        head = js->committed & (JSTREAM_RING - 1);
+        for (i = 0; i < n; i++) {
+            js->chunkbuf[i] = js->ring[(head + i) & (JSTREAM_RING - 1)];
+            js->ring[(head + i) & (JSTREAM_RING - 1)] = 0;
+        }
+        /*
+         * Nothing in flight for longer than the FIFO lasts: the SM has been
+         * running idle slots of its own, so these words land later than
+         * their slot numbers say. Re-anchor on when they will reach the FIFO.
+         */
+        now = ktime_get_ns();
+        if (js->running && !js->in_flight && js->t_empty_ns) {
+            lag = now - js->t_empty_ns;
+            if (lag > (u64)(JPIO_FIFO - 2) * js->period_ns) {
+                js->underruns++;
+                js->t_slot0_ns = now + 30 * NSEC_PER_USEC - js->committed * js->period_ns;
+                js->t_slot0_err_ns = max_t(u32, js->t_slot0_err_ns, 30 * NSEC_PER_USEC + js->period_ns);
+            }
+        }
+        js->committed += n;
+        js->in_flight++;
+        js->t_empty_ns = 0;
+        spin_unlock_irq(&js->lock);
+        wake_up(&js->wq);           /* ring space for queuers */
+
+        ret = pio_sm_xfer_data(cd->pio, cd->pio_sm, PIO_DIR_TO_SM, n * sizeof(u32),
+                               js->chunkbuf, 0, jstream_dma_cb, js);
+        if (ret) {
+            spin_lock_irq(&js->lock);
+            js->in_flight--;
+            js->failed = true;
+            js->fed_all = true;
+            spin_unlock_irq(&js->lock);
+            wake_up(&js->wq);
+            dev_warn(cd->dev, "JTAG stream DMA submit failed (%d)\n", ret);
+        }
+    }
+    return 0;
+}
+
+static void jtag_pio_teardown(struct fpga_csi_dev *cd)
+{
+    struct jtag_stream *js = &cd->js;
+
+    if (js->feeder) {
+        kthread_stop(js->feeder);
+        js->feeder = NULL;
+    }
+    if (READ_ONCE(js->in_flight) > 0)
+        wait_event_timeout(js->wq, !READ_ONCE(js->in_flight), msecs_to_jiffies(500));
+    if (cd->pio) {
+        pio_close(cd->pio);
+        cd->pio = NULL;
+    }
+    if (cd->iobank) {
+        jtag_pio_funcsel(cd, FS_RIO);
+        iounmap(cd->iobank);
+        cd->iobank = NULL;
+    }
+    vfree(js->ring);
+    js->ring = NULL;
+    kfree(js->chunkbuf);
+    js->chunkbuf = NULL;
+}
+
+static int jtag_pio_init(struct fpga_csi_dev *cd)
+{
+    const uint tck = __ffs(cd->rio_tck), tms = __ffs(cd->rio_tms), tdi = __ffs(cd->rio_tdi);
+    const u32 mask = cd->rio_tck | cd->rio_tms | cd->rio_tdi;
+    struct jtag_stream *js = &cd->js;
+    struct device_node *np;
+    struct resource res;
+    pio_sm_config c;
+    u16 prog[JPIO_PROG_LEN];
+    /*
+     * Pinned at 0: jmp targets above are absolute, and whether RP1 firmware
+     * relocates them on load is not documented.
+     */
+    pio_program_t pp = { .instructions = prog, .length = JPIO_PROG_LEN, .origin = 0 };
+    uint off;
+    int ret, sm;
+
+    if (tms != tck + 1)
+        return -EINVAL;
+
+    js->ring = vzalloc(JSTREAM_RING * sizeof(u32));
+    js->chunkbuf = kmalloc_array(JSTREAM_CHUNK_MAX, sizeof(u32), GFP_KERNEL);
+    if (!js->ring || !js->chunkbuf) {
+        ret = -ENOMEM;
+        goto err;
+    }
+
+    np = of_find_compatible_node(NULL, NULL, "raspberrypi,rp1-gpio");
+    if (!np) {
+        ret = -ENODEV;
+        goto err;
+    }
+    ret = of_address_to_resource(np, 0, &res);     /* reg[0] = IO_BANK0 */
+    of_node_put(np);
+    if (ret)
+        goto err;
+    cd->iobank = ioremap(res.start, IOB_CTRL(27) + 4);
+    if (!cd->iobank) {
+        ret = -ENOMEM;
+        goto err;
+    }
+
+    cd->pio = pio_open();
+    if (IS_ERR_OR_NULL(cd->pio)) {
+        ret = cd->pio ? PTR_ERR(cd->pio) : -ENODEV;
+        cd->pio = NULL;
+        goto err;
+    }
+    sm = pio_claim_unused_sm(cd->pio, false);
+    if (sm < 0) {
+        ret = -EBUSY;
+        goto err;
+    }
+    cd->pio_sm = sm;
+
+    jtag_pio_program(prog);
+    off = pio_add_program(cd->pio, &pp);
+    if (off == PIO_ORIGIN_INVALID) {
+        ret = -ENOSPC;
+        goto err;
+    }
+    cd->pio_off = off;
+
+    c = pio_get_default_sm_config();
+    sm_config_set_wrap(&c, off, off + JPIO_WRAP);
+    sm_config_set_sideset(&c, 2, false, false);
+    sm_config_set_sideset_pins(&c, tck);
+    sm_config_set_out_pins(&c, tdi, 1);
+    sm_config_set_out_shift(&c, true, false, 32);
+    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_TX);
+    sm_config_set_clkdiv_int_frac(&c, 1, 0);
+    ret = pio_sm_init(cd->pio, sm, off, &c);
+    if (ret < 0)
+        goto err;
+    pio_sm_set_pins_with_mask(cd->pio, sm, 0, mask);
+    pio_sm_set_pindirs_with_mask(cd->pio, sm, mask, mask);
+    pio_sm_exec(cd->pio, sm, pio_encode_set(pio_x, 0) | pio_encode_sideset(2, 0));
+
+    ret = pio_gpio_init(cd->pio, tck);
+    if (!ret)
+        ret = pio_gpio_init(cd->pio, tms);
+    if (!ret)
+        ret = pio_gpio_init(cd->pio, tdi);
+    cd->pio_fs = readl(cd->iobank + IOB_CTRL(tck)) & 0x1f;
+    jtag_pio_funcsel(cd, FS_RIO);
+    if (ret < 0)
+        goto err;
+
+    ret = pio_sm_config_xfer(cd->pio, sm, PIO_DIR_TO_SM, JSTREAM_CHUNK_MAX * sizeof(u32),
+                             JSTREAM_NBUF);
+    if (ret < 0)
+        goto err;
+
+    spin_lock_init(&js->lock);
+    init_waitqueue_head(&js->wq);
+    js->pio_delay = U32_MAX;
+    js->feeder = kthread_run(jstream_feeder, cd, "fpga-csi-jtag");
+    if (IS_ERR(js->feeder)) {
+        ret = PTR_ERR(js->feeder);
+        js->feeder = NULL;
+        goto err;
+    }
+    return 0;
+
+err:
+    jtag_pio_teardown(cd);
+    return ret;
+}
+
+/* Lazily bring the PIO up; false means stay on RIO. */
+static bool jtag_pio_usable(struct fpga_csi_dev *cd)
+{
+    int ret;
+
+    if (!jtag_pio || cd->pio_failed || !cd->jtag_rio_base || !jtag_rio)
+        return false;
+    if (cd->pio)
+        return true;
+    ret = jtag_pio_init(cd);
+    if (ret) {
+        dev_info(cd->dev, "PIO JTAG unavailable (%d), streams and paced batches stay on RIO\n", ret);
+        cd->pio_failed = true;
+        return false;
+    }
+    dev_info(cd->dev, "JTAG streams via RP1 PIO SM %d, TCK %d kHz\n",
+             cd->pio_sm, 200000 / (2 * JPIO_HALF));
+    return true;
+}
+
+/*
+ * Register access other than through the stream: refused while another file
+ * holds the lease, and while any stream runs, since the pins then belong to
+ * the PIO. jtag_lock held.
+ */
+static int jtag_busy_locked(struct fpga_csi_dev *cd, struct csi_file_ctx *ctx)
+{
+    if (cd->jtag_owner && cd->jtag_owner != ctx)
+        return -EBUSY;
+    if (cd->js.active)
+        return -EBUSY;
+    return 0;
+}
+
+static inline u32 jstream_word(const struct csi_jtag_reg *r)
+{
+    return BIT(24) | ((u32)r->addr << 16) | r->value;
+}
+
+/* Copy words into the ring at slot..slot+n; js->lock held, space checked */
+static void jstream_put_locked(struct jtag_stream *js, u64 slot, const u32 *w, u32 n)
+{
+    u32 i;
+
+    for (i = 0; i < n; i++)
+        js->ring[(slot + i) & (JSTREAM_RING - 1)] = w[i];
+    js->queued_end = max(js->queued_end, slot + n);
+}
+
+static int jstream_stop_locked(struct fpga_csi_dev *cd, bool drain);
+
+/*
+ * Start a stream; jtag_lock held. @pre (optional) fills slots 0.. before the
+ * SM runs. Returns -EAGAIN if the PIO is not usable, so callers can fall back.
+ */
+static int jstream_start_locked(struct fpga_csi_dev *cd, struct csi_file_ctx *owner,
+                                u32 period_ns, u64 start_ns, u32 lead_ns,
+                                const struct csi_jtag_reg *pre, u32 npre)
+{
+    struct jtag_stream *js = &cd->js;
+    u64 cycles = div_u64(period_ns, JPIO_NS), t0, t1, now;
+    u32 x, i, chunk;
+
+    if (js->active)
+        return -EBUSY;
+    if (cycles < JPIO_FIXED || cycles > U32_MAX)
+        return -EINVAL;
+    if (npre > JSTREAM_QUEUE_MAX)
+        return -E2BIG;
+    /* the wait for start_ns holds jtag_lock */
+    if (start_ns > ktime_get_ns() + 10 * NSEC_PER_SEC)
+        return -EINVAL;
+    if (!jtag_pio_usable(cd))
+        return -EAGAIN;
+
+    x = (u32)cycles - JPIO_FIXED;
+    if (!lead_ns)
+        lead_ns = JSTREAM_LEAD_NS;
+    chunk = clamp_t(u64, div_u64(lead_ns, JSTREAM_NBUF * cycles * JPIO_NS),
+                    JPIO_FIFO, JSTREAM_CHUNK_MAX);
+
+    /* SM is disabled and parked on its pull at offset 0 between streams */
+    if (x != js->pio_delay) {
+        pio_sm_put(cd->pio, cd->pio_sm, x);
+        pio_sm_exec(cd->pio, cd->pio_sm, pio_encode_pull(false, true) | pio_encode_sideset(2, 0));
+        pio_sm_exec(cd->pio, cd->pio_sm, pio_encode_mov(pio_y, pio_osr) | pio_encode_sideset(2, 0));
+        js->pio_delay = x;
+    }
+
+    /* the feeder leaves the ring alone while !active */
+    memset(js->ring, 0, JSTREAM_RING * sizeof(u32));
+    for (i = 0; i < npre; i++)
+        js->ring[i] = jstream_word(&pre[i]);
+
+    spin_lock_irq(&js->lock);
+    js->owner = owner;
+    js->period_ns = (u32)(cycles * JPIO_NS);
+    js->chunk = chunk;
+    js->committed = 0;
+    js->queued_end = 0;
+    js->in_flight = 0;
+    js->underruns = 0;
+    js->t_empty_ns = 0;
+    js->t_slot0_ns = 0;
+    js->t_slot0_err_ns = 0;
+    js->stopping = false;
+    js->fed_all = false;
+    js->failed = false;
+    js->running = false;
+    js->queued_end = npre;
+    js->active = true;
+    spin_unlock_irq(&js->lock);
+
+    jtag_rio_drain(cd);
+    jtag_pio_funcsel(cd, cd->pio_fs);
+
+    /* let the feeder queue the first chunk so the FIFO is full at slot 0 */
+    wake_up(&js->wq);
+    wait_event_timeout(js->wq, READ_ONCE(js->committed) || READ_ONCE(js->failed),
+                       msecs_to_jiffies(50));
+    if (READ_ONCE(js->failed) || !READ_ONCE(js->committed)) {
+        jstream_stop_locked(cd, false);
+        return -EIO;
+    }
+    usleep_range(100, 150);
+
+    now = ktime_get_ns();
+    if (start_ns > now + 300 * NSEC_PER_USEC)
+        usleep_range((start_ns - now) / 1000 - 200, (start_ns - now) / 1000 - 150);
+    while (ktime_get_ns() < start_ns)
+        cpu_relax();
+
+    t0 = ktime_get_ns();
+    pio_sm_set_enabled(cd->pio, cd->pio_sm, true);
+    t1 = ktime_get_ns();
+
+    spin_lock_irq(&js->lock);
+    js->t_slot0_ns = t0 + (t1 - t0) / 2;
+    js->t_slot0_err_ns = (u32)min_t(u64, (t1 - t0) / 2, U32_MAX);
+    js->running = true;
+    spin_unlock_irq(&js->lock);
+    return 0;
+}
+
+/*
+ * Stop; jtag_lock held. drain: every queued write goes out first.
+ * Otherwise writes not yet handed to DMA are dropped. Chunks already in
+ * flight always complete: disabling the SM under a live DMA wedges the
+ * channel until reboot.
+ */
+static int jstream_stop_locked(struct fpga_csi_dev *cd, bool drain)
+{
+    struct jtag_stream *js = &cd->js;
+    u64 queued, end_ns, now;
+    long t;
+    int ret = 0;
+
+    if (!js->active)
+        return 0;
+
+    spin_lock_irq(&js->lock);
+    if (!drain)
+        js->queued_end = js->committed;
+    js->stopping = true;
+    queued = js->queued_end > js->committed ? js->queued_end - js->committed : 0;
+    spin_unlock_irq(&js->lock);
+    wake_up(&js->wq);
+
+    t = wait_event_timeout(js->wq,
+                           READ_ONCE(js->fed_all) && !READ_ONCE(js->in_flight),
+                           nsecs_to_jiffies((queued + JSTREAM_NBUF * js->chunk) * js->period_ns) +
+                           msecs_to_jiffies(200));
+    if (!t) {
+        /* leave the SM and DMA alone; remove() closes the client */
+        dev_warn(cd->dev, "JTAG stream did not drain, PIO disabled until reload\n");
+        cd->pio_failed = true;
+        ret = -ETIMEDOUT;
+        goto out;
+    }
+
+    /* the last words sit in the FIFO; wait out the slot after them */
+    spin_lock_irq(&js->lock);
+    end_ns = js->underruns ? js->t_empty_ns + (JPIO_FIFO + 2ull) * js->period_ns
+                           : jstream_slot_ns(js, js->committed + 1);
+    end_ns = max(end_ns, js->t_empty_ns + (JPIO_FIFO + 2ull) * js->period_ns);
+    spin_unlock_irq(&js->lock);
+    now = ktime_get_ns();
+    if (end_ns > now)
+        usleep_range((end_ns - now) / 1000 + 1, (end_ns - now) / 1000 + 20);
+
+    /*
+     * Park on the pull with X = 0: an idle loop cut short leaves X nonzero,
+     * and the next stream's first empty pull would take it for a write. An
+     * exec'd jmp is not relocated, hence the absolute offset.
+     */
+    pio_sm_set_enabled(cd->pio, cd->pio_sm, false);
+    pio_sm_exec(cd->pio, cd->pio_sm, pio_encode_set(pio_x, 0) | pio_encode_sideset(2, 0));
+    pio_sm_exec(cd->pio, cd->pio_sm, pio_encode_jmp(cd->pio_off) | pio_encode_sideset(2, 0));
+
+out:
+    jtag_pio_funcsel(cd, FS_RIO);
+    if (js->failed && !ret)
+        ret = -EIO;
+    if (ret) {
+        jtag_reset_tap(cd);
+        jtag_shift_ir(cd, 0x32);
+    }
+    spin_lock_irq(&js->lock);
+    js->active = false;
+    js->running = false;
+    js->owner = NULL;
+    spin_unlock_irq(&js->lock);
+    wake_up(&js->wq);
+    return ret;
+}
+
+/*
+ * Queue writes. Without CSI_JTAG_STREAM_AT they follow the last queued write
+ * (or the first slot not yet handed to DMA, whichever is later). Blocks while
+ * the ring is full unless CSI_JTAG_STREAM_NONBLOCK. Called without jtag_lock.
+ */
+static int jstream_queue(struct fpga_csi_dev *cd, struct csi_file_ctx *ctx,
+                         struct csi_jtag_stream_queue *q, const u32 *w)
+{
+    struct jtag_stream *js = &cd->js;
+    u64 slot;
+    int ret = 0;
+
+    spin_lock_irq(&js->lock);
+    for (;;) {
+        if (!js->active || js->owner != ctx || js->stopping) {
+            ret = js->active && js->owner != ctx ? -EBUSY : -ESHUTDOWN;
+            break;
+        }
+        if (js->failed) {
+            ret = -EIO;
+            break;
+        }
+        if (q->flags & CSI_JTAG_STREAM_AT) {
+            slot = q->slot;
+            if (slot < js->committed) {
+                ret = -ETIME;
+                break;
+            }
+            if (slot < js->queued_end) {
+                ret = -EINVAL;      /* would land on queued writes */
+                break;
+            }
+        } else {
+            slot = max(js->queued_end, js->committed);
+        }
+        if (slot + q->count - js->committed <= JSTREAM_RING) {
+            jstream_put_locked(js, slot, w, q->count);
+            q->slot = slot;
+            q->t_first_ns = jstream_slot_ns(js, slot);
+            break;
+        }
+        if (q->flags & CSI_JTAG_STREAM_NONBLOCK) {
+            ret = -EAGAIN;
+            break;
+        }
+        spin_unlock_irq(&js->lock);
+        ret = wait_event_interruptible(js->wq, !READ_ONCE(js->active) || READ_ONCE(js->stopping) || READ_ONCE(js->failed) ||
+                                       slot + q->count - READ_ONCE(js->committed) <= JSTREAM_RING);
+        spin_lock_irq(&js->lock);
+        if (ret)
+            break;
+    }
+    spin_unlock_irq(&js->lock);
+    return ret;
+}
+
+static void jstream_status(struct fpga_csi_dev *cd, struct csi_jtag_stream_status *s)
+{
+    struct jtag_stream *js = &cd->js;
+    u64 now = ktime_get_ns();
+
+    memset(s, 0, sizeof(*s));
+    spin_lock_irq(&js->lock);
+    s->active = js->active;
+    if (js->active) {
+        s->period_ns = js->period_ns;
+        s->t_slot0_ns = js->t_slot0_ns;
+        s->t_slot0_err_ns = js->t_slot0_err_ns;
+        s->underruns = js->underruns;
+        s->committed = js->committed;
+        s->queued_end = js->queued_end;
+        s->lead_slots = JSTREAM_NBUF * js->chunk;
+        if (js->running && now > js->t_slot0_ns)
+            s->slot_now = div_u64(now - js->t_slot0_ns, js->period_ns);
+    }
+    spin_unlock_irq(&js->lock);
+}
+
+/*
+ * Paced batch on the stream: slots 0..count-1 from start, then drain.
+ * 0: done via PIO. -EAGAIN: nothing clocked, use RIO. Other: failed part way.
+ */
+static int jtag_pio_batch(struct fpga_csi_dev *cd, struct csi_file_ctx *ctx,
+                          const struct csi_jtag_reg *regs, struct csi_jtag_batch_paced *b)
+{
+    int ret;
+
+    if (div_u64(b->period_ns, JPIO_NS) < JPIO_FIXED)
+        return -EAGAIN;
+    ret = jstream_start_locked(cd, ctx, b->period_ns, 0, 0, regs, b->count);
+    if (ret)
+        return ret == -EBUSY ? -EBUSY : -EAGAIN;
+    b->t_first_ns = cd->js.t_slot0_ns;
+    ret = jstream_stop_locked(cd, true);
+    b->slips = cd->js.underruns;
+    b->max_late_ns = cd->js.t_slot0_err_ns;
+    if (ret)
+        dev_warn(cd->dev, "PIO JTAG batch failed (%d)\n", ret);
+    return ret;
+}
+
+/*
+ * Busy-waits to each deadline with the JTAG lock held, as the unpaced batch
+ * already does for the length of its bit-banging. ktime_get_ns() reads the
+ * arch counter, so the schedule is crystal-timed; only the start of each scan
+ * can be late (preemption, or stores backed up behind DRAM traffic).
+ */
+static long csi_jtag_batch_paced(struct fpga_csi_dev *cd, struct csi_file_ctx *ctx,
+                                 void __user *arg)
+{
+    struct csi_jtag_batch_paced b;
+    struct csi_jtag_reg *regs;
+    u64 next, now, late;
+    u32 i;
+    long ret;
+
+    if (copy_from_user(&b, arg, sizeof(b)))
+        return -EFAULT;
+    if (b.count == 0 || b.count > 1024 || b.period_ns > 100 * NSEC_PER_MSEC)
+        return -EINVAL;
+    regs = memdup_user((void __user *)(uintptr_t)b.regs_ptr,
+                       b.count * sizeof(struct csi_jtag_reg));
+    if (IS_ERR(regs))
+        return PTR_ERR(regs);
+
+    b.slips = 0;
+    b.max_late_ns = 0;
+    mutex_lock(&cd->jtag_lock);
+    ret = jtag_busy_locked(cd, ctx);
+    if (ret)
+        goto out;
+    ret = csi_jtag_attach_locked(ctx);
+    if (ret)
+        goto out;
+
+    ret = jtag_pio_batch(cd, ctx, regs, &b);
+    if (ret != -EAGAIN)
+        goto out;
+    ret = 0;
+
+    next = ktime_get_ns();
+    b.t_first_ns = next;
+    for (i = 0; i < b.count; i++) {
+        now = ktime_get_ns();
+        if (next > now + 50 * NSEC_PER_USEC) {
+            usleep_range((next - now) / 1000 - 20, (next - now) / 1000);
+            now = ktime_get_ns();
+        }
+        while (now < next) {
+            cpu_relax();
+            now = ktime_get_ns();
+        }
+        late = now - next;
+        if (late > b.max_late_ns)
+            b.max_late_ns = (u32)min_t(u64, late, U32_MAX);
+        if (b.period_ns && late > b.period_ns / 4) {
+            b.slips++;
+            next = now;
+        }
+        jtag_reg_write(cd, regs[i].addr, regs[i].value);
+        next += b.period_ns;
+    }
+    jtag_rio_drain(cd);
+
+out:
+    mutex_unlock(&cd->jtag_lock);
+    kfree(regs);
+    if (!ret && copy_to_user(arg, &b, sizeof(b)))
+        ret = -EFAULT;
+    return ret;
+}
+
+static long csi_jtag_stream_start(struct fpga_csi_dev *cd, struct csi_file_ctx *ctx,
+                                  void __user *arg)
+{
+    struct csi_jtag_stream_start s;
+    struct csi_jtag_reg *regs = NULL;
+    long ret;
+
+    if (copy_from_user(&s, arg, sizeof(s)))
+        return -EFAULT;
+    if (s.count > JSTREAM_QUEUE_MAX)
+        return -E2BIG;
+    if (s.count) {
+        regs = memdup_user((void __user *)(uintptr_t)s.regs_ptr,
+                           s.count * sizeof(struct csi_jtag_reg));
+        if (IS_ERR(regs))
+            return PTR_ERR(regs);
+    }
+
+    mutex_lock(&cd->jtag_lock);
+    ret = jtag_busy_locked(cd, ctx);
+    if (!ret)
+        ret = csi_jtag_attach_locked(ctx);
+    if (!ret) {
+        ret = jstream_start_locked(cd, ctx, s.period_ns, s.start_ns, s.lead_ns, regs, s.count);
+        if (ret == -EAGAIN)
+            ret = -EOPNOTSUPP;      /* no PIO: jtag_pio=0, RIO off, or init failed */
+    }
+    if (!ret) {
+        s.period_ns = cd->js.period_ns;
+        s.t_slot0_ns = cd->js.t_slot0_ns;
+        s.t_slot0_err_ns = cd->js.t_slot0_err_ns;
+        s.lead_slots = JSTREAM_NBUF * cd->js.chunk;
+    }
+    mutex_unlock(&cd->jtag_lock);
+    kfree(regs);
+    if (!ret && copy_to_user(arg, &s, sizeof(s)))
+        ret = -EFAULT;
+    return ret;
+}
+
+static long csi_jtag_stream_queue(struct fpga_csi_dev *cd, struct csi_file_ctx *ctx,
+                                  void __user *arg)
+{
+    struct csi_jtag_stream_queue q;
+    struct csi_jtag_reg *regs;
+    u32 *w, i;
+    long ret;
+
+    if (copy_from_user(&q, arg, sizeof(q)))
+        return -EFAULT;
+    if (!q.count || q.count > JSTREAM_QUEUE_MAX)
+        return -EINVAL;
+    regs = memdup_user((void __user *)(uintptr_t)q.regs_ptr,
+                       q.count * sizeof(struct csi_jtag_reg));
+    if (IS_ERR(regs))
+        return PTR_ERR(regs);
+    w = kvmalloc_array(q.count, sizeof(*w), GFP_KERNEL);
+    if (!w) {
+        kfree(regs);
+        return -ENOMEM;
+    }
+    for (i = 0; i < q.count; i++)
+        w[i] = jstream_word(&regs[i]);
+    kfree(regs);
+
+    ret = jstream_queue(cd, ctx, &q, w);
+    kvfree(w);
+    if (!ret && copy_to_user(arg, &q, sizeof(q)))
+        ret = -EFAULT;
+    return ret;
+}
 
 static long csi_ioctl(struct file *f, unsigned int cmd, unsigned long arg)
 {
@@ -1874,6 +2879,8 @@ case CSI_IOC_JTAG_SETUP: {
         struct csi_file_ctx *ctx = csi_ctx(f);
 
         mutex_lock(&cd->jtag_lock);
+        if (cd->js.active && cd->js.owner == ctx)
+            jstream_stop_locked(cd, false);
         if (ctx->jtag_attached) {
             ctx->jtag_attached = false;
             csi_jtag_detach_locked(cd);
@@ -1892,12 +2899,13 @@ case CSI_IOC_JTAG_SETUP: {
         mutex_lock(&cd->jtag_lock);
 
         /* THE MISSING LINK: Fail if someone else holds the lease */
-        if (cd->jtag_owner && cd->jtag_owner != csi_ctx(f)) {
-            ret = -EBUSY;
-        } else {
+        ret = jtag_busy_locked(cd, csi_ctx(f));
+        if (!ret) {
             ret = csi_jtag_attach_locked(csi_ctx(f));
-            if (!ret)
+            if (!ret) {
                 ret = jtag_reg_write(cd, r.addr, r.value);
+                jtag_rio_drain(cd);
+            }
         }
 
         mutex_unlock(&cd->jtag_lock);
@@ -1915,9 +2923,8 @@ case CSI_IOC_JTAG_SETUP: {
         mutex_lock(&cd->jtag_lock);
 
         /* THE MISSING LINK: Fail if someone else holds the lease */
-        if (cd->jtag_owner && cd->jtag_owner != csi_ctx(f)) {
-            ret = -EBUSY;
-        } else {
+        ret = jtag_busy_locked(cd, csi_ctx(f));
+        if (!ret) {
             ret = csi_jtag_attach_locked(csi_ctx(f));
             if (!ret)
                 ret = jtag_reg_read(cd, r.addr, &val);
@@ -1940,7 +2947,7 @@ case CSI_IOC_JTAG_SETUP: {
         struct csi_file_ctx *ctx = csi_ctx(f);
 
         mutex_lock(&cd->jtag_lock);
-        if (cd->jtag_owner && cd->jtag_owner != ctx) {
+        if ((cd->jtag_owner && cd->jtag_owner != ctx) || cd->js.active) {
             ret = -EBUSY;
         } else {
             cd->jtag_owner = ctx;
@@ -2000,10 +3007,9 @@ case CSI_IOC_JTAG_SETUP: {
         mutex_lock(&cd->jtag_lock);
 
         /* Enforce lease protection */
-        if (cd->jtag_owner && cd->jtag_owner != ctx) {
-            ret = -EBUSY;
+        ret = jtag_busy_locked(cd, ctx);
+        if (ret)
             goto batch_out;
-        }
 
         ret = csi_jtag_attach_locked(ctx);
         if (!ret) {
@@ -2011,15 +3017,51 @@ case CSI_IOC_JTAG_SETUP: {
                 ret = jtag_reg_write(cd, regs[i].addr, regs[i].value);
                 if (ret)
                     break;
-                if (batch.delay_us)
+                if (batch.delay_us) {
+                    jtag_rio_drain(cd);
                     udelay(batch.delay_us);
+                }
             }
+            jtag_rio_drain(cd);
         }
 
     batch_out:
         mutex_unlock(&cd->jtag_lock);
         if (regs_heap)
             kfree(regs);
+        return ret;
+    }
+
+    case CSI_IOC_JTAG_BATCH_PACED:
+        return csi_jtag_batch_paced(cd, csi_ctx(f), (void __user *)arg);
+
+    case CSI_IOC_JTAG_STREAM_START:
+        return csi_jtag_stream_start(cd, csi_ctx(f), (void __user *)arg);
+
+    case CSI_IOC_JTAG_STREAM_QUEUE:
+        return csi_jtag_stream_queue(cd, csi_ctx(f), (void __user *)arg);
+
+    case CSI_IOC_JTAG_STREAM_STATUS: {
+        struct csi_jtag_stream_status st;
+
+        jstream_status(cd, &st);
+        return copy_to_user((void __user *)arg, &st, sizeof(st)) ? -EFAULT : 0;
+    }
+
+    case CSI_IOC_JTAG_STREAM_STOP: {
+        __u32 flags;
+        int ret;
+
+        if (get_user(flags, (__u32 __user *)arg))
+            return -EFAULT;
+        mutex_lock(&cd->jtag_lock);
+        if (!cd->js.active)
+            ret = 0;
+        else if (cd->js.owner != csi_ctx(f))
+            ret = -EBUSY;
+        else
+            ret = jstream_stop_locked(cd, flags & CSI_JTAG_STREAM_DRAIN);
+        mutex_unlock(&cd->jtag_lock);
         return ret;
     }
 
@@ -2066,6 +3108,9 @@ static int csi_release(struct inode *inode, struct file *f)
 
     mutex_lock(&cd->jtag_lock);
 
+    if (cd->js.active && cd->js.owner == ctx)
+        jstream_stop_locked(cd, false);
+
     /* Drop lease if this process owned it */
     if (cd->jtag_owner == ctx) {
         cd->jtag_owner = NULL;
@@ -2107,6 +3152,7 @@ static const struct file_operations csi_fops = {
     .read           = csi_read,
     .poll           = csi_poll,
     .unlocked_ioctl = csi_ioctl,
+    .compat_ioctl   = compat_ptr_ioctl,
     .mmap           = csi_mmap,
     .llseek         = noop_llseek,
 };
@@ -2387,6 +3433,11 @@ static void fpga_csi_remove(struct platform_device *pdev)
 
     /* Prevent new opens before stopping the producer. */
     misc_deregister(&cd->miscdev);
+
+    mutex_lock(&cd->jtag_lock);
+    jstream_stop_locked(cd, false);
+    jtag_pio_teardown(cd);
+    mutex_unlock(&cd->jtag_lock);
 
     /* Quiesce the hardware before synchronizing the hard IRQ. */
     csi_stop(cd);

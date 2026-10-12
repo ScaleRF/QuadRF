@@ -60,6 +60,95 @@ struct csi_jtag_batch {
 #define CSI_IOC_JTAG_ACQUIRE_LEASE _IO(CSI_IOC_MAGIC,  0x15)
 #define CSI_IOC_JTAG_RELEASE_LEASE _IO(CSI_IOC_MAGIC,  0x16)
 
+/*
+ * Paced batch: write i starts at t_first + i * period_ns (CLOCK_MONOTONIC).
+ * A write that cannot start within period_ns / 4 of its slot starts as soon
+ * as possible and the rest of the schedule moves with it, so the spacing
+ * never drops below period_ns. period_ns = 0 runs back to back.
+ *
+ * With period_ns >= 2005 ns the driver runs the batch as a JTAG stream (see
+ * below) and returns once it has drained. The spacing is then exact in PIO
+ * clocks (period rounded down to 5 ns), t_first_ns is slot 0 of the stream,
+ * max_late_ns is the uncertainty of t_first_ns (a few us), and slips counts
+ * stream underruns (0 unless the feeder thread was starved).
+ */
+struct csi_jtag_batch_paced {
+    __u64 regs_ptr;     /* in: struct csi_jtag_reg array */
+    __u32 count;        /* in: 1..1024 */
+    __u32 period_ns;    /* in */
+    __u64 t_first_ns;   /* out: CLOCK_MONOTONIC at the start of write 0 */
+    __u32 slips;        /* out: writes that started late and moved the schedule */
+    __u32 max_late_ns;  /* out: worst start lateness, slips included */
+};
+
+#define CSI_IOC_JTAG_BATCH_PACED _IOWR(CSI_IOC_MAGIC, 0x17, struct csi_jtag_batch_paced)
+
+/*
+ * JTAG write stream: an RP1 PIO state machine opens one write slot every
+ * period_ns, slot k at t_slot0 + k * period_ns (CLOCK_MONOTONIC, PIO crystal
+ * time, no drift relative to the arch counter beyond ppm). Each slot carries
+ * one queued register write or nothing. Writes keep the same 25-bit USER1 DR
+ * format as CSI_IOC_JTAG_REG_WRITE; TCK runs at 16.7 MHz, one write takes
+ * 1.98 us, so period_ns >= 2005.
+ *
+ * Writes reach DMA lead_slots ahead of their slot; until then they can be
+ * queued. A queue call whose slot is already committed gets -ETIME. The
+ * driver holds 262144 slots ahead of the DMA (1.3 s at 5 us); a write further
+ * out blocks the caller until it fits, or gets -EAGAIN with NONBLOCK.
+ *
+ * While a stream runs it owns the pins: REG_WRITE, REG_READ, BATCH_WRITE and
+ * BATCH_PACED return -EBUSY for everyone, the owner included. Only the file
+ * that started the stream can queue or stop it; closing that file or
+ * JTAG_RELEASE stops it without draining. Needs jtag_rio=1 and jtag_pio=1;
+ * START returns -EOPNOTSUPP otherwise.
+ *
+ * Underruns: if the feeder thread falls behind by more than the 16-word PIO
+ * FIFO, the SM inserts idle slots on its own, every later slot moves, and
+ * t_slot0_ns is re-estimated with a larger t_slot0_err_ns.
+ */
+struct csi_jtag_stream_start {
+    __u32 period_ns;      /* in; out: rounded down to 5 ns */
+    __u32 lead_ns;        /* in: DMA horizon, 0 = 1.5 ms */
+    __u64 start_ns;       /* in: CLOCK_MONOTONIC for slot 0, 0 = asap (~0.2 ms) */
+    __u64 regs_ptr;       /* in: optional struct csi_jtag_reg array for slots 0.. */
+    __u32 count;          /* in: 0..16384 */
+    __u32 lead_slots;     /* out: slots handed to DMA ahead of time */
+    __u64 t_slot0_ns;     /* out */
+    __u32 t_slot0_err_ns; /* out: +/- on t_slot0_ns */
+    __u32 reserved;
+};
+
+#define CSI_JTAG_STREAM_AT       (1u << 0)  /* queue at .slot, else after the last write */
+#define CSI_JTAG_STREAM_NONBLOCK (1u << 1)  /* -EAGAIN instead of waiting for ring space */
+
+struct csi_jtag_stream_queue {
+    __u64 regs_ptr;       /* in: struct csi_jtag_reg array, consecutive slots */
+    __u32 count;          /* in: 1..16384 */
+    __u32 flags;          /* in: CSI_JTAG_STREAM_* */
+    __u64 slot;           /* in with AT; out: slot of the first write */
+    __u64 t_first_ns;     /* out: slot start, CLOCK_MONOTONIC */
+};
+
+struct csi_jtag_stream_status {
+    __u32 active;
+    __u32 period_ns;
+    __u64 t_slot0_ns;
+    __u32 t_slot0_err_ns;
+    __u32 underruns;
+    __u64 committed;      /* slots handed to DMA; queue at or after this */
+    __u64 queued_end;     /* one past the last queued write */
+    __u64 slot_now;       /* slot being clocked out now (estimate) */
+    __u32 lead_slots;
+    __u32 reserved;
+};
+
+#define CSI_JTAG_STREAM_DRAIN    (1u << 0)  /* STOP: send every queued write first */
+
+#define CSI_IOC_JTAG_STREAM_START  _IOWR(CSI_IOC_MAGIC, 0x18, struct csi_jtag_stream_start)
+#define CSI_IOC_JTAG_STREAM_QUEUE  _IOWR(CSI_IOC_MAGIC, 0x19, struct csi_jtag_stream_queue)
+#define CSI_IOC_JTAG_STREAM_STATUS _IOR(CSI_IOC_MAGIC,  0x1a, struct csi_jtag_stream_status)
+#define CSI_IOC_JTAG_STREAM_STOP   _IOW(CSI_IOC_MAGIC,  0x1b, __u32)
+
 /* ---- Config / filter knobs ---- */
 struct csi_filter_cfg {
     __u8  enable_vc_filter;  // 0/1
