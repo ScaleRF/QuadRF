@@ -11,7 +11,8 @@
 % ===================================================================================
 
 %% --- Setup Environment
-addpath('C:/openEMS/matlab'); % Ensure this path is correct for your system
+addpath('C:/openEMS/matlab'); % Ensure this path is correct for your openEMS installation
+addpath('./helpers');
 clear all;
 clc;
 
