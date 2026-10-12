@@ -2,6 +2,11 @@
 # Bring eth0 up as a LAN client when DHCP answers, otherwise as a
 # direct-connect island at 10.55.1.1. quadrf-ethernet.service runs
 # "watch" and follows carrier; ifup and "quadrf apply" call start.
+#
+# The watch loop must not fork while the link is healthy. JTAG is bit-banged
+# over RP1, and an exec of ip (libraries faulted in, page cache touched)
+# stalls those MMIO reads for about a millisecond. Carrier is a sysfs read.
+# IPv4 address changes come from one long-lived netlink monitor.
 set -euo pipefail
 
 . /usr/share/quadrf/functions.sh
@@ -15,7 +20,13 @@ DHCP_WAIT=12
 CARRIER_WAIT=5
 PIDFILE=/run/quadrf-ethernet.pid
 LOCKFILE=/run/quadrf-ethernet.lock
+ADDR_FIFO=/run/quadrf-ethernet.addr
 DHCP_CL_CONF="/run/quadrf/dhclient.${IFACE}.conf"
+# empty | lan | direct. Written by enter_lan / enter_direct / leave_link
+# and by the address monitor. The watch loop does not poll ip to learn this.
+addr_cache=empty
+mon_pid=
+addr_fd_open=
 
 log() { logger -t quadrf-ethernet -- "$*"; echo "$*"; }
 
@@ -57,8 +68,129 @@ has_direct() {
 }
 
 has_carrier() {
-    [[ -f /sys/class/net/${IFACE}/carrier ]] &&
-        [[ "$(cat /sys/class/net/${IFACE}/carrier 2>/dev/null || echo 0)" = 1 ]]
+    local c
+    [[ -r /sys/class/net/${IFACE}/carrier ]] || return 1
+    # Admin-down: the carrier file read fails. That is "no carrier".
+    IFS= read -r c 2>/dev/null < /sys/class/net/${IFACE}/carrier || return 1
+    [[ "${c}" == 1 ]]
+}
+
+iface_exists() {
+    [[ -d /sys/class/net/${IFACE} ]]
+}
+
+# IFF_UP is bit 0 of /sys/class/net/$IFACE/flags. Fork ip only when the
+# interface was actually brought down.
+ensure_up() {
+    local flags n
+    [[ -r /sys/class/net/${IFACE}/flags ]] || return 0
+    IFS= read -r flags 2>/dev/null < /sys/class/net/${IFACE}/flags || return 0
+    n=$((flags))
+    if (( (n & 1) == 0 )); then
+        ip link set dev "${IFACE}" up 2>/dev/null || true
+    fi
+}
+
+# One ip invocation. On failure keep the previous cache: declaring the
+# link empty would make the watcher drop a live lease.
+refresh_addr_cache() {
+    local line addr raw seen_lan=0 seen_direct=0
+    raw=$(ip -4 -o addr show dev "${IFACE}" scope global 2>/dev/null) || return 0
+    while IFS= read -r line; do
+        [[ -z "${line}" ]] && continue
+        addr=${line#* inet }
+        [[ "${addr}" == "${line}" ]] && continue
+        addr=${addr%% *}
+        [[ -z "${addr}" ]] && continue
+        if [[ "${addr}" == 10.55.1.* ]]; then
+            seen_direct=1
+        else
+            seen_lan=1
+        fi
+    done <<< "${raw}"
+    if [[ "${seen_lan}" -eq 1 ]]; then
+        addr_cache=lan
+    elif [[ "${seen_direct}" -eq 1 ]]; then
+        addr_cache=direct
+    else
+        addr_cache=empty
+    fi
+}
+
+# kill -0 is true for a zombie, so read the state and reap it. Otherwise a
+# dead monitor looks alive and address changes are missed from then on.
+addr_mon_alive() {
+    local stat
+    [[ -n "${mon_pid}" ]] || return 1
+    if ! IFS= read -r stat 2>/dev/null < /proc/"${mon_pid}"/stat; then
+        wait "${mon_pid}" 2>/dev/null || true
+        mon_pid=
+        return 1
+    fi
+    stat=${stat##*) }
+    stat=${stat%% *}
+    if [[ "${stat}" == Z ]]; then
+        wait "${mon_pid}" 2>/dev/null || true
+        mon_pid=
+        return 1
+    fi
+    return 0
+}
+
+stop_addr_mon() {
+    if [[ -n "${mon_pid}" ]]; then
+        kill "${mon_pid}" 2>/dev/null || true
+        wait "${mon_pid}" 2>/dev/null || true
+        mon_pid=
+    fi
+    if [[ -n "${addr_fd_open}" ]]; then
+        exec 8<&- || true
+        addr_fd_open=
+    fi
+    rm -f "${ADDR_FIFO}"
+}
+
+# Long-lived RTM_NEWADDR/RTM_DELADDR feed. Line-buffered so one address
+# event is not stuck behind stdio's 4k block. 9>&- so this child does not
+# inherit the flock fd; pdeathsig so a killed watcher does not leak it.
+start_addr_mon() {
+    if addr_mon_alive; then
+        return 0
+    fi
+    if [[ -z "${addr_fd_open}" ]]; then
+        rm -f "${ADDR_FIFO}"
+        mkfifo -m 600 "${ADDR_FIFO}"
+    fi
+    if command -v setpriv >/dev/null 2>&1; then
+        setpriv --pdeathsig SIGKILL -- \
+            stdbuf -oL ip -4 monitor address dev "${IFACE}" > "${ADDR_FIFO}" 9>&- &
+    else
+        stdbuf -oL ip -4 monitor address dev "${IFACE}" > "${ADDR_FIFO}" 9>&- &
+    fi
+    mon_pid=$!
+    if [[ -z "${addr_fd_open}" ]]; then
+        exec 8<> "${ADDR_FIFO}"
+        addr_fd_open=1
+    fi
+}
+
+# 0 = at least one queued address line, 1 = quiet. The line text is not
+# trusted; refresh_addr_cache re-reads the addresses.
+#
+# read -t 0 only polls. A fifo at EOF is readable, and that poll stays
+# true without consuming the EOF, so `while read -t 0` spins the watcher
+# and the monitor is never restarted. A positive timeout does the read.
+drain_addr_events() {
+    local line
+    [[ -n "${addr_fd_open}" ]] || return 1
+    IFS= read -t 0 -r line <&8 || return 1
+    if ! IFS= read -t 0.05 -r line <&8; then
+        return 1
+    fi
+    while IFS= read -t 0.05 -r line <&8; do
+        :
+    done
+    return 0
 }
 
 watch_pid() {
@@ -82,6 +214,7 @@ interface-name=$(quadrf_desktop_mdns),${IFACE}
 interface-name=$(quadrf_desktop_mdns_short),${IFACE}
 EOF
     log "${IFACE} on LAN at $(lan_v4 | tr '\n' ' ')"
+    refresh_addr_cache
 }
 
 enter_direct() {
@@ -100,6 +233,7 @@ interface-name=$(quadrf_desktop_mdns),${IFACE}
 interface-name=$(quadrf_desktop_mdns_short),${IFACE}
 EOF
     log "${IFACE} direct-connect at ${DIRECT_ADDR}"
+    refresh_addr_cache
 }
 
 # Stock dhclient.conf leaves reboot at 10s and timeout at 60s. An outer
@@ -226,6 +360,7 @@ disable_eee() {
 }
 
 leave_link() {
+    addr_cache=empty
     stop_dhcp
     ip addr flush dev "${IFACE}" scope global 2>/dev/null || true
     drop_conf "${DIRECT_CONF}"
@@ -321,25 +456,29 @@ do_watch() {
         exit 0
     fi
     echo $$ > "${PIDFILE}"
-    trap 'rm -f "${PIDFILE}"; leave_link; exit 0' EXIT
+    trap 'rm -f "${PIDFILE}"; stop_addr_mon; leave_link; exit 0' EXIT
     trap 'exit 0' TERM INT
     trap 'do_configure' USR1
 
-    ip link show "${IFACE}" &>/dev/null && ip link set dev "${IFACE}" up || true
-
-    local prev="init" cur
+    local prev="init" cur now
     local last_empty_retry=0 last_dhcp_retry=0
     while true; do
-        if ! ip link show "${IFACE}" &>/dev/null; then
+        if ! iface_exists; then
             if [[ "${prev}" != "gone" ]]; then
                 log "no ${IFACE}"
                 leave_link
                 prev="gone"
             fi
+            stop_addr_mon
             sleep 2
             continue
         fi
-        ip link set dev "${IFACE}" up 2>/dev/null || true
+        if ! addr_mon_alive; then
+            start_addr_mon
+            # The socket was down, so an address may have changed unobserved.
+            refresh_addr_cache
+        fi
+        ensure_up
         if has_carrier; then
             cur="up"
         else
@@ -356,18 +495,25 @@ do_watch() {
             fi
             prev="${cur}"
         elif [[ "${cur}" == "up" ]]; then
-            local now=$SECONDS
-            if [[ -z "$(global_v4)" ]]; then
+            now=$SECONDS
+            if drain_addr_events; then
+                refresh_addr_cache
+            fi
+            if [[ "${addr_cache}" == empty ]]; then
                 if (( now - last_empty_retry >= 5 )); then
                     last_empty_retry=$now
-                    log "carrier up on ${IFACE} with no IPv4 address; reconfiguring"
-                    do_configure
+                    refresh_addr_cache
+                    if [[ "${addr_cache}" == empty ]]; then
+                        log "carrier up on ${IFACE} with no IPv4 address; reconfiguring"
+                        do_configure
+                    fi
                 fi
-            elif [[ -n "$(lan_v4)" ]] && ! dhcp_client_running; then
+            elif [[ "${addr_cache}" == lan ]] && ! dhcp_client_running; then
                 if (( now - last_dhcp_retry >= 15 )); then
                     last_dhcp_retry=$now
                     log "DHCP client on ${IFACE} not running; restarting"
                     try_dhcp
+                    refresh_addr_cache
                 fi
             fi
         fi

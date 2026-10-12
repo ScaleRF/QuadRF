@@ -29,7 +29,9 @@ ifupdown does not see carrier loss on the onboard NIC as an ifdown.
 .B quadrf-ethernet.service
 runs
 .B watch
-and re-evaluates on carrier change.
+and re-evaluates on carrier change. Carrier is read from sysfs. IPv4
+address changes arrive on a netlink socket, so a healthy link does not
+poll the address list.
 .B start
 configures once, or signals the watcher if it is already running. The
 ifupdown stanza in
