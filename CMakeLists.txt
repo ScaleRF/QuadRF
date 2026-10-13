@@ -45,6 +45,8 @@ install(FILES ${CMAKE_CURRENT_BINARY_DIR}/fpga-dsi.dtbo DESTINATION ${libdir}/ov
 
 install(PROGRAMS sources/cli/quadrf DESTINATION ${bindir})
 install(FILES sources/common/functions.sh DESTINATION ${datadir})
+install(FILES AGENTS.md CLAUDE.md DESTINATION ${datadir}/agent)
+install(DIRECTORY agent/docs DESTINATION ${datadir}/agent)
 install(FILES sources/common/quadrf.conf DESTINATION ${sysconfdir}/quadrf)
 install(FILES sources/man/quadrf.1 DESTINATION ${mandir}/man1)
 install(FILES sources/man/quadrf.conf.5 DESTINATION ${mandir}/man5)

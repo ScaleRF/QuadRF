@@ -3,6 +3,44 @@ set -e
 
 if [ "$1" = configure ]; then
     /usr/lib/quadrf/apply.d/05-logind
+
+    # Manage QuadRF Agent Reference System symlinks
+    AGENT_DIR="/usr/share/quadrf/agent"
+    if [ -d "$AGENT_DIR" ]; then
+        # 1. Provision /etc/skel for new users
+        mkdir -p /etc/skel
+        ln -sfn "$AGENT_DIR/AGENTS.md" /etc/skel/AGENTS.md
+        ln -sfn "$AGENT_DIR/CLAUDE.md" /etc/skel/CLAUDE.md
+
+        # 2. Provision /home/dietpi if user dietpi exists
+        if id dietpi >/dev/null 2>&1; then
+            TARGET_HOME="/home/dietpi"
+            if [ -d "$TARGET_HOME" ]; then
+                # If AGENTS.md exists and is a regular file (not a symlink), preserve local edits
+                if [ -f "$TARGET_HOME/AGENTS.md" ] && [ ! -L "$TARGET_HOME/AGENTS.md" ]; then
+                    if ! cmp -s "$TARGET_HOME/AGENTS.md" "$AGENT_DIR/AGENTS.md"; then
+                        echo "Preserving local AGENTS.md edits to AGENTS.local.md"
+                        if [ ! -f "$TARGET_HOME/AGENTS.local.md" ]; then
+                            cp -a "$TARGET_HOME/AGENTS.md" "$TARGET_HOME/AGENTS.local.md"
+                        else
+                            cp -a "$TARGET_HOME/AGENTS.md" "$TARGET_HOME/AGENTS.local.md.$(date +%s).bak"
+                        fi
+                        chown dietpi:dietpi "$TARGET_HOME"/AGENTS.local.md* 2>/dev/null || true
+                    fi
+                    rm -f "$TARGET_HOME/AGENTS.md"
+                fi
+
+                # Remove legacy regular file for CLAUDE.md if present
+                if [ -f "$TARGET_HOME/CLAUDE.md" ] && [ ! -L "$TARGET_HOME/CLAUDE.md" ]; then
+                    rm -f "$TARGET_HOME/CLAUDE.md"
+                fi
+
+                ln -sfn "$AGENT_DIR/AGENTS.md" "$TARGET_HOME/AGENTS.md"
+                ln -sfn "$AGENT_DIR/CLAUDE.md" "$TARGET_HOME/CLAUDE.md"
+                chown -h dietpi:dietpi "$TARGET_HOME/AGENTS.md" "$TARGET_HOME/CLAUDE.md" 2>/dev/null || true
+            fi
+        fi
+    fi
 fi
 
 #DEBHELPER#
