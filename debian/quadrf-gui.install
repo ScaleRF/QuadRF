@@ -4,5 +4,6 @@ usr/sbin/quadrf-app
 usr/sbin/quadrf-tx-unlock
 usr/lib/quadrf/apply.d/30-gui
 lib/systemd/system/quadrf-gui.service
+lib/systemd/system/quadrf-terminal.service
 usr/share/man/man8/quadrf-app.8
 usr/share/man/man8/quadrf-tx-unlock.8

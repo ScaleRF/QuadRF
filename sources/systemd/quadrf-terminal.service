@@ -1,0 +1,15 @@
+[Unit]
+Description=QuadRF web terminal daemon (ttyd)
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=~
+ExecStart=/usr/bin/ttyd -W -p 7681 -i 127.0.0.1 -b /terminal -t fontSize=13 -t "theme={\"background\":\"#0a0f1d\",\"foreground\":\"#a7f3d0\",\"cursor\":\"#10b981\",\"selectionBackground\":\"#1e293b\"}" -t cursorBlink=true -t disableLeaveAlert=true bash -l
+Restart=always
+RestartSec=2
+KillMode=mixed
+
+[Install]
+WantedBy=multi-user.target

@@ -1,6 +1,8 @@
 #!/bin/sh
-# Run the control panel as the operator account.
+# Run the control panel and terminal daemon as the operator account.
 set -eu
 
 . /usr/share/quadrf/functions.sh
 quadrf_user_dropin quadrf-gui.service
+quadrf_user_dropin quadrf-terminal.service
+

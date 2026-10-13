@@ -498,8 +498,8 @@
 
         /* Console */
         #consoleOutput {
-            background-color: transparent; color: #a7f3d0; padding: 1rem;
-            height: 120px; overflow-y: auto; font-family: var(--font-mono);
+            background-color: transparent; color: #a7f3d0; padding: 0.75rem 1rem;
+            height: 100%; overflow-y: auto; font-family: var(--font-mono);
             font-size: 0.75rem; margin: 0; white-space: pre-wrap; word-break: break-all;
         }
         .log-time { color: #64748b; } .log-cmd { color: #f8fafc; } .log-err { color: #f87171; }
@@ -1340,12 +1340,26 @@
             </form>
         </article>
 
-        <article class="panel panel-console" style="padding: 0;">
-            <div style="background: rgba(0,0,0,0.3); padding: 0.5rem 1rem; border-bottom: 1px solid rgba(255,255,255,0.05);">
-                <span style="font-size: 0.75rem; font-weight: 600; color: #10b981;">> System Terminal</span>
+        <article class="panel panel-console" style="padding: 0; overflow: hidden;">
+            <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.35); padding: 0.45rem 1rem; border-bottom: 1px solid rgba(255,255,255,0.08); flex-wrap: wrap; gap: 0.5rem;">
+                <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+                    <span style="font-size: 0.75rem; font-weight: 700; color: #10b981; letter-spacing: 0.03em;">> System Terminal</span>
+                    <div style="display: inline-flex; background: rgba(0,0,0,0.4); border-radius: 4px; padding: 2px; border: 1px solid rgba(255,255,255,0.1);">
+                        <button type="button" id="tabTerminalShell" class="term-tab-btn" style="padding: 0.2rem 0.65rem; font-size: 0.7rem; border: none; border-radius: 3px; cursor: pointer; background: #10b981; color: #000; font-weight: 600; margin: 0; line-height: 1.2;">Interactive Shell</button>
+                        <button type="button" id="tabTerminalLog" class="term-tab-btn" style="padding: 0.2rem 0.65rem; font-size: 0.7rem; border: none; border-radius: 3px; cursor: pointer; background: transparent; color: #94a3b8; font-weight: 600; margin: 0; line-height: 1.2; position: relative;">JTAG Log<span id="jtagNewDot" style="display: none; width: 6px; height: 6px; background: #10b981; border-radius: 50%; margin-left: 5px; vertical-align: middle;"></span></button>
+                    </div>
+                </div>
+                <div style="display: flex; align-items: center; gap: 0.4rem;">
+                    <button type="button" id="termClearLogBtn" class="outline" style="display: none; font-size: 0.65rem; padding: 0.2rem 0.55rem; margin: 0; line-height: 1.2; height: auto;" title="Clear hardware log">Clear Log</button>
+                    <button type="button" id="termReloadBtn" class="outline" style="font-size: 0.65rem; padding: 0.2rem 0.55rem; margin: 0; line-height: 1.2; height: auto;" title="Reload terminal session">Reload</button>
+                    <button type="button" id="termSizeToggleBtn" class="outline" style="font-size: 0.65rem; padding: 0.2rem 0.55rem; margin: 0; line-height: 1.2; height: auto;" title="Toggle terminal height">Expand</button>
+                </div>
             </div>
-            <pre id="consoleOutput">Hardware initialization sequence complete...
+            <div id="terminalBody" style="height: 280px; width: 100%; position: relative; background: #0a0f1d; transition: height 0.2s ease;">
+                <iframe id="terminalFrame" src="/terminal/" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: none; z-index: 2;" allow="clipboard-read; clipboard-write"></iframe>
+                <pre id="consoleOutput" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; margin: 0; box-sizing: border-box; overflow-y: auto; background: #0a0f1d; color: #a7f3d0; padding: 0.75rem 1rem; font-family: var(--font-mono); font-size: 0.75rem; white-space: pre-wrap; word-break: break-all; z-index: 1; visibility: hidden;">Hardware initialization sequence complete...
 </pre>
+            </div>
         </article>
     </main>
 
@@ -1373,18 +1387,99 @@
 
     <script>
         const consoleDiv = document.getElementById('consoleOutput');
+        const terminalFrame = document.getElementById('terminalFrame');
+        const tabTerminalShell = document.getElementById('tabTerminalShell');
+        const tabTerminalLog = document.getElementById('tabTerminalLog');
+        const termClearLogBtn = document.getElementById('termClearLogBtn');
+        const termReloadBtn = document.getElementById('termReloadBtn');
+        const termSizeToggleBtn = document.getElementById('termSizeToggleBtn');
+        const terminalBody = document.getElementById('terminalBody');
+        const jtagNewDot = document.getElementById('jtagNewDot');
+
+        let isTermExpanded = false;
+        let isShellTabActive = true;
+
+        if (tabTerminalShell && tabTerminalLog) {
+            tabTerminalShell.addEventListener('click', () => {
+                isShellTabActive = true;
+                tabTerminalShell.style.background = '#10b981';
+                tabTerminalShell.style.color = '#000';
+                tabTerminalLog.style.background = 'transparent';
+                tabTerminalLog.style.color = '#94a3b8';
+                // Retain iframe in render tree to prevent pty session disconnect
+                terminalFrame.style.visibility = 'visible';
+                terminalFrame.style.zIndex = '2';
+                consoleDiv.style.visibility = 'hidden';
+                consoleDiv.style.zIndex = '1';
+                termReloadBtn.style.display = 'inline-block';
+                termClearLogBtn.style.display = 'none';
+            });
+
+            tabTerminalLog.addEventListener('click', () => {
+                isShellTabActive = false;
+                tabTerminalLog.style.background = '#10b981';
+                tabTerminalLog.style.color = '#000';
+                tabTerminalShell.style.background = 'transparent';
+                tabTerminalShell.style.color = '#94a3b8';
+                terminalFrame.style.visibility = 'hidden';
+                terminalFrame.style.zIndex = '1';
+                consoleDiv.style.visibility = 'visible';
+                consoleDiv.style.zIndex = '2';
+                termReloadBtn.style.display = 'none';
+                termClearLogBtn.style.display = 'inline-block';
+                if (jtagNewDot) jtagNewDot.style.display = 'none';
+                consoleDiv.scrollTop = consoleDiv.scrollHeight;
+            });
+        }
+
+        if (termClearLogBtn) {
+            termClearLogBtn.addEventListener('click', () => {
+                consoleDiv.innerHTML = '';
+            });
+        }
+
+        if (termReloadBtn && terminalFrame) {
+            termReloadBtn.addEventListener('click', () => {
+                terminalFrame.src = '/terminal/?t=' + Date.now();
+            });
+        }
+
+        if (termSizeToggleBtn && terminalBody) {
+            termSizeToggleBtn.addEventListener('click', () => {
+                isTermExpanded = !isTermExpanded;
+                terminalBody.style.height = isTermExpanded ? '520px' : '280px';
+                termSizeToggleBtn.innerText = isTermExpanded ? 'Collapse' : 'Expand';
+            });
+        }
+
         document.getElementById('httpsSetupBtn').addEventListener('click', () => {
             window.open('/setup/security/', '_blank', 'noopener');
         });
         
+        const MAX_LOG_ENTRIES = 200;
+
         function logToConsole(cmd, result, isError=false) {
             const time = new Date().toLocaleTimeString([], {hour12: false, hour: '2-digit', minute:'2-digit', second:'2-digit'});
             const timeSpan = `<span class="log-time">[${time}]</span>`;
             const cmdSpan = `<span class="log-cmd">\$ ${cmd}</span>`;
             let outSpan = isError ? `<span class="log-err">${result}</span>` : result;
-            
-            consoleDiv.innerHTML += `${timeSpan} ${cmdSpan}\n  > ${outSpan}\n\n`;
+
+            // Cap DOM entries to prevent reflow lag during frequent slider/dial inputs
+            if (consoleDiv.childNodes.length > MAX_LOG_ENTRIES) {
+                while (consoleDiv.childNodes.length > (MAX_LOG_ENTRIES / 2)) {
+                    consoleDiv.removeChild(consoleDiv.firstChild);
+                }
+            }
+
+            const entry = document.createElement('div');
+            entry.style.marginBottom = '0.5rem';
+            entry.innerHTML = `${timeSpan} ${cmdSpan}\n  > ${outSpan}`;
+            consoleDiv.appendChild(entry);
             consoleDiv.scrollTop = consoleDiv.scrollHeight;
+
+            if (isShellTabActive && jtagNewDot) {
+                jtagNewDot.style.display = 'inline-block';
+            }
         }
 
         function updateToneBounds(kValue) {

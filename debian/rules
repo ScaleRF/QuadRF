@@ -31,7 +31,7 @@ override_dh_installsystemd:
 	dh_installsystemd -pquadrf-common --no-enable --no-start quadrf-journal.service
 	dh_installsystemd -pquadrf-boot --no-start quadrf-reboot-clear.service
 	dh_installsystemd -pquadrf-fpga --no-start load-quadrf.service
-	dh_installsystemd -pquadrf-gui quadrf-gui.service
+	dh_installsystemd -pquadrf-gui quadrf-gui.service quadrf-terminal.service
 	dh_installsystemd -pquadrf-soapy --no-start quadrf-soapy-server.service
 	dh_installsystemd -pquadrf-network --no-stop-on-upgrade --no-start quadrf-hotspot.service
 	dh_installsystemd -pquadrf-network quadrf-ethernet.service quadrf-usb.service quadrf-mdns.service
