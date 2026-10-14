@@ -1,3 +1,9 @@
+quadrf (1.0.41) trixie; urgency=medium
+
+  * desktop: Add procedural starfield background hook for pcmanfm
+
+ -- QuadRF Engineering <contact@ScaleRF.com>  Tue, 13 Oct 2026 21:38:28 -0700
+
 quadrf (1.0.40) trixie; urgency=medium
 
   * debian: Add quadrf-mimo v0.1.0 dependency and bump quadrf-phasegaze to v0.1.4
