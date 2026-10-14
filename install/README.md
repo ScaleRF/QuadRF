@@ -44,7 +44,7 @@ AUTO_SETUP_GLOBAL_PASSWORD=choose-a-temporary-password
 
 Remember this password; you will use it for your first SSH login.
 
-In **`dietpi-wifi.txt`**, enter your Wi-Fi credentials (remember SSID is case sensitive!):
+In **`dietpi-wifi.txt`**, enter your Wi-Fi credentials (remember SSID is **case sensitive**!):
 
 ```ini
 aWIFI_SSID[0]='your Wi-Fi name'
