@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>802.11 OFDM LINK</title>
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#000000">
+<style>
+:root {
+    --bg: rgba(6, 8, 7, 0.88);
+    --pop: rgba(6, 8, 7, 0.94);
+    --line: #232823;
+    --line-hi: #6e7a6e;
+    --txt: #b8c4b8;
+    --dim: #b8c4b8;
+    --acc: #b8c4b8;
+    --acc-ink: #0c110c;
+    --acc-soft: rgba(184, 196, 184, 0.28);
+    --peer: #8fa7c4;
+    --amber: #e6b45a;
+    --danger: #d05545;
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; padding: 0; height: 100%; background: #000;
+    font-family: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, monospace;
+    color: var(--txt); font-size: 13px; }
+body { overflow-y: auto; overflow-x: hidden; }
+
+#status { position: fixed; right: 8px; bottom: 8px; z-index: 6; font-size: 10px;
+    letter-spacing: 0.1em; color: var(--dim); pointer-events: none; text-shadow: 0 1px 2px #000; }
+#status.warn { color: var(--amber); }
+#status.lost { color: var(--danger); }
+#host { position: fixed; left: 8px; bottom: 8px; z-index: 6; font-size: 10px;
+    letter-spacing: 0.1em; color: var(--dim); pointer-events: none; text-shadow: 0 1px 2px #000; }
+
+.hbtn { background: var(--bg); border: 1px solid var(--line-hi);
+    color: var(--txt); padding: 9px 13px; font: inherit; font-size: 11px; letter-spacing: 0.15em;
+    cursor: pointer; transition: border-color 0.15s, color 0.15s; }
+.hbtn:active { border-color: var(--acc); }
+.hbtn.on { color: var(--acc-ink); background: var(--acc); border-color: var(--acc); }
+#hud-left, #hud-right { position: fixed; top: 8px; z-index: 8; display: flex; gap: 8px; }
+#hud-left { left: 8px; }
+#hud-right { right: 8px; }
+
+.hud-pop { position: fixed; top: 48px; right: 8px; z-index: 9; width: min(360px, calc(100vw - 16px));
+    display: none; background: var(--pop); border: 1px solid var(--line-hi);
+    padding: 8px 10px 16px; max-height: calc(100vh - 64px); max-height: calc(100dvh - 64px);
+    overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain;
+    scrollbar-width: thin; scrollbar-color: rgba(8, 10, 8, 0.45) transparent; }
+.hud-pop::-webkit-scrollbar { width: 6px; }
+.hud-pop::-webkit-scrollbar-track { background: transparent; }
+.hud-pop::-webkit-scrollbar-thumb { background: rgba(8, 10, 8, 0.45);
+    border: 1px solid rgba(184, 196, 184, 0.18); }
+.hud-pop.open { display: block; }
+
+.tabs { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.tab { text-align: center; padding: 5px 8px; border: 1px solid var(--line-hi);
+    letter-spacing: 0.12em; font-size: 11px; cursor: pointer; color: var(--dim);
+    background: none; font: inherit; }
+.tab.on { color: var(--acc-ink); background: var(--acc); border-color: var(--acc); }
+
+.actions { display: flex; gap: 8px; margin: 14px 0 4px; }
+.abtn { flex: 1; padding: 11px 4px; text-align: center; border: 1px solid var(--line-hi);
+    background: var(--bg); color: var(--txt); font: inherit; font-size: 11px;
+    letter-spacing: 0.15em; cursor: pointer; }
+.abtn.primary { border-color: var(--acc); color: var(--acc); }
+.abtn.on { color: var(--acc-ink); background: var(--acc); border-color: var(--acc); }
+.abtn:active { background: var(--acc-soft); }
+.abtn:disabled { opacity: 0.45; cursor: default; }
+
+.srow { margin: 14px 0; }
+.srow label { display: flex; justify-content: space-between; font-size: 11px;
+    letter-spacing: 0.12em; color: var(--txt); margin-bottom: 6px; }
+.srow label span { color: var(--acc); }
+.srow label span.mod { opacity: 1; }
+.srow input[type=range] { width: 100%; -webkit-appearance: none; appearance: none; height: 22px;
+    background: transparent; margin: 0; }
+.srow input[type=range]::-webkit-slider-runnable-track { height: 2px; background: var(--line-hi); }
+.srow input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 20px; height: 20px;
+    margin-top: -9px; background: #0c110c; border: 1px solid var(--acc); border-radius: 0; }
+.srow input[type=range]::-moz-range-track { height: 2px; background: var(--line-hi); }
+.srow input[type=range]::-moz-range-thumb { width: 18px; height: 18px; background: #0c110c;
+    border: 1px solid var(--acc); border-radius: 0; }
+.tgl { display: flex; justify-content: space-between; align-items: center; padding: 11px 0;
+    border-bottom: 1px solid var(--line); font-size: 11px; letter-spacing: 0.12em; cursor: pointer; }
+.tgl .sw2 { width: 34px; height: 16px; border: 1px solid var(--line-hi); position: relative; }
+.tgl .sw2::after { content: ''; position: absolute; top: 2px; left: 2px; width: 10px; height: 10px;
+    background: var(--dim); transition: left 0.12s, background 0.12s; }
+.tgl.on .sw2::after { left: 20px; background: var(--acc); }
+.sect { margin: 20px 0 4px; font-size: 10px; letter-spacing: 0.25em; color: var(--dim);
+    border-bottom: 1px solid var(--line); padding-bottom: 4px; }
+.sect:first-child { margin-top: 4px; }
+
+/* ---------- dashboard ---------- */
+#main { padding: 56px 8px 0; display: grid; gap: 8px;
+    grid-template-columns: 1fr; align-items: stretch; }
+@media (min-width: 680px)  { #main { grid-template-columns: repeat(2, 1fr); } }
+@media (min-width: 1024px) { #main { grid-template-columns: repeat(3, 1fr); } }
+@media (min-width: 1680px) { #main { grid-template-columns: repeat(6, 1fr); } }
+.box { background: var(--bg); border: 1px solid var(--line-hi); padding: 8px 10px 10px; min-width: 0;
+    display: flex; flex-direction: column; }
+.box .sect { margin-top: 0; }
+.kv { display: grid; grid-template-columns: auto 1fr; gap: 3px 8px; font-size: 11px;
+    letter-spacing: 0.06em; margin-top: 6px; align-items: baseline; }
+.kv span { white-space: nowrap; }
+.kv b { font-weight: normal; color: #e8ece8; text-align: right; font-variant-numeric: tabular-nums;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.kv b.warn { color: var(--amber); }
+.peer-blk { margin-top: auto; padding: 6px 0 1px 8px; border-left: 2px solid var(--peer);
+    border-top: 1px solid var(--line); }
+.peer-hd { font-size: 9px; letter-spacing: 0.22em; color: var(--peer); margin-bottom: 3px; }
+.peer-blk .kv { margin-top: 2px; }
+.big { display: flex; gap: 6px; margin: 8px 0 4px; }
+.big > div { flex: 1; min-width: 0; border: 1px solid var(--line); padding: 6px 6px; }
+.big > div.peer-card { border-left: 2px solid var(--peer); }
+.big > div.peer-card .l { color: var(--peer); }
+.big .l { font-size: 10px; letter-spacing: 0.16em; white-space: nowrap; }
+.big .v { font-size: 20px; color: #e8ece8; margin-top: 2px; font-variant-numeric: tabular-nums; }
+.big .u { font-size: 10px; letter-spacing: 0.08em; margin-left: 3px; color: var(--dim); }
+.hbar { display: grid; grid-template-columns: 68px 1fr 70px; align-items: center; gap: 6px;
+    font-size: 10px; letter-spacing: 0.1em; margin: 5px 0; }
+.hbar .tr { position: relative; height: 12px; border: 1px solid var(--line); }
+.hbar .tr i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--acc); opacity: 0.75; }
+.hbar.bw .tr i { background: var(--peer); }
+.hbar b { font-weight: normal; color: #e8ece8; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+#gp-hist { display: block; width: 100%; height: 48px; margin-top: auto; padding-top: 4px; }
+
+[data-tip] { cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='14'%3E%3Ctext x='1' y='11' font-size='11' font-family='ui-monospace,monospace' fill='%23e8ece8'%3E?%3C/text%3E%3C/svg%3E") 2 0, help;
+    text-decoration: underline dotted rgba(184, 196, 184, 0.35); text-underline-offset: 3px; }
+#tip { position: fixed; z-index: 20; max-width: min(300px, calc(100vw - 16px)); display: none;
+    background: #0c110c; border: 1px solid var(--line-hi); padding: 7px 9px; font-size: 11px;
+    line-height: 1.45; letter-spacing: 0.02em; color: #e8ece8; pointer-events: none;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.6); }
+
+.eg { display: grid; grid-template-columns: 34px repeat(4, 1fr); gap: 5px; margin: 8px 0 4px;
+    align-items: center; font-size: 10px; letter-spacing: 0.15em; }
+.eg .h { text-align: center; }
+.eb { padding: 7px 0; border: 1px solid var(--line-hi); background: none; color: var(--dim);
+    font: inherit; font-size: 10px; letter-spacing: 0.12em; cursor: pointer; }
+.eb.on { color: var(--acc-ink); background: var(--acc); border-color: var(--acc); }
+.eb:disabled { opacity: 0.35; cursor: default; }
+.mrow { display: flex; align-items: center; gap: 10px; margin: 8px 0 2px; font-size: 10px; letter-spacing: 0.15em; }
+.mrow .tabs { flex: 1; gap: 4px; }
+.mrow .tab { flex: 1; padding: 5px 2px; }
+.srow .eg { grid-template-columns: repeat(4, 1fr); margin: 0; }
+
+.sep-top { display: flex; gap: 8px; margin: 8px 0 6px; }
+.sep-top > div { flex: 1; min-width: 0; border: 1px solid var(--line); padding: 6px 8px; }
+.sep-top .l { font-size: 10px; letter-spacing: 0.16em; white-space: nowrap; }
+.sep-top .v { font-size: 20px; color: #e8ece8; margin-top: 2px; font-variant-numeric: tabular-nums; }
+.sep-top .u { font-size: 10px; letter-spacing: 0.1em; margin-left: 4px; color: var(--dim); }
+.sep-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.sep-row canvas { display: block; width: 100%; height: 112px; }
+.sep-note { font-size: 10px; letter-spacing: 0.08em; margin-top: 4px; min-height: 14px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#sep-hist { display: block; width: 100%; height: 48px; margin-top: auto; padding-top: 4px; }
+
+table.el { width: 100%; border-collapse: collapse; font-size: 11px; letter-spacing: 0.05em;
+    margin-top: 6px; font-variant-numeric: tabular-nums; }
+table.el th { font-weight: normal; font-size: 10px; letter-spacing: 0.12em; text-align: left;
+    padding: 2px 3px 4px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+table.el td { padding: 4px 3px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+table.el .pdiv { border-left: 1px solid var(--line-hi); padding-left: 6px; }
+table.el th.pcol { color: var(--peer); }
+.sbar { display: inline-block; vertical-align: middle; width: 30px; height: 8px;
+    border: 1px solid var(--line); position: relative; margin-right: 5px; }
+.sbar i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--acc); opacity: 0.7; }
+.sbar.peer i { background: var(--peer); }
+.mod { color: #e8ece8; }
+.mod.off { opacity: 0.45; }
+
+#chat-log { flex: 1; min-height: 165px; height: 0; margin-top: 6px; overflow-y: auto;
+    border: 1px solid var(--line); padding: 6px 8px;
+    font-size: 12px; line-height: 1.55; user-select: text; -webkit-user-select: text;
+    scrollbar-width: thin; scrollbar-color: rgba(184, 196, 184, 0.25) transparent; }
+#chat-log .m { display: flex; gap: 8px; }
+#chat-log .who { flex: 0 0 auto; font-size: 10px; letter-spacing: 0.12em; padding-top: 2px; opacity: 0.7; }
+#chat-log .tx { flex: 1; color: #e8ece8; word-break: break-word; }
+#chat-log .st { flex: 0 0 auto; font-size: 10px; letter-spacing: 0.1em; padding-top: 2px; }
+#chat-log .st.pend { color: var(--amber); }
+#chat-row { display: flex; gap: 8px; margin-top: 8px; }
+#chat-in { flex: 1; min-width: 0; padding: 9px 8px; background: var(--bg); color: var(--acc);
+    border: 1px solid var(--line-hi); font: inherit; font-size: 13px; }
+#chat-in:focus { border-color: var(--acc); outline: none; }
+#chat-row .abtn { flex: 0 0 auto; padding: 9px 14px; }
+
+/* ---------- stage plots ---------- */
+#stages { display: grid; padding: 8px 8px 36px; gap: 8px;
+    grid-template-columns: 1fr; align-items: stretch; }
+@media (min-width: 680px)  { #stages { grid-template-columns: repeat(2, 1fr); } }
+@media (min-width: 1200px) { #stages { grid-template-columns: repeat(4, 1fr); } }
+.plot { background: var(--bg); border: 1px solid var(--line-hi); padding: 6px 8px 8px; min-width: 0;
+    display: flex; flex-direction: column; }
+.plot .hd { display: flex; justify-content: space-between; gap: 8px; font-size: 10px;
+    letter-spacing: 0.18em; border-bottom: 1px solid var(--line); padding-bottom: 4px; white-space: nowrap; }
+.plot .hd b { font-weight: normal; letter-spacing: 0.06em; color: #e8ece8; text-align: right;
+    font-variant-numeric: tabular-nums; }
+.plot .hd b i { font-style: normal; margin-left: 6px; }
+.plot canvas { display: block; width: 100%; height: 160px; margin-top: 4px; }
+.plot.wide { grid-column: 1 / -1; }
+
+#help { position: fixed; inset: 0; z-index: 30; display: none; background: rgba(0, 0, 0, 0.6);
+    padding: 48px 8px 16px; overflow-y: auto; }
+#help.open { display: block; }
+#help .card { max-width: 640px; margin: 0 auto; background: var(--pop); border: 1px solid var(--line-hi);
+    padding: 10px 16px 18px; font-size: 12px; line-height: 1.6; color: #e8ece8; }
+#help .card .hd { display: flex; justify-content: space-between; align-items: center;
+    font-size: 10px; letter-spacing: 0.25em; color: var(--dim); border-bottom: 1px solid var(--line);
+    padding-bottom: 6px; }
+#help h3 { font-weight: normal; font-size: 10px; letter-spacing: 0.22em; color: var(--dim); margin: 18px 0 4px; }
+#help p { margin: 0 0 8px; }
+#help b { font-weight: normal; color: var(--acc); }
+</style>
+</head>
+<body>
+
+<div id="hud-left">
+    <button class="hbtn" id="btn-help">ABOUT</button>
+</div>
+<div id="hud-right">
+    <button class="hbtn" id="btn-set">CONFIG</button>
+</div>
+<div id="status" class="warn">CONNECTING</div>
+<div id="host"></div>
+
+<div id="main">
+    <section class="box" id="b-radio">
+        <div class="sect">RADIO</div>
+        <div class="eg" id="eg">
+            <span></span><span class="h">EL0</span><span class="h">EL1</span><span class="h">EL2</span><span class="h">EL3</span>
+            <span data-tip="Enable local TX antenna elements on MAX2850. Waveform amplitude scales by 1/√N_tx to hold total array power and DAC headroom constant.">TX</span>
+            <button class="eb" data-m="tx_ant" data-b="0">ON</button><button class="eb" data-m="tx_ant" data-b="1">OFF</button>
+            <button class="eb" data-m="tx_ant" data-b="2">OFF</button><button class="eb" data-m="tx_ant" data-b="3">OFF</button>
+            <span data-tip="Enable local RX antenna channels on MAX2851. When multiple RX channels are enabled, the FPGA coherently sums them before CSI-2 DMA.">RX</span>
+            <button class="eb" data-m="rx_ant" data-b="0">ON</button><button class="eb" data-m="rx_ant" data-b="1">OFF</button>
+            <button class="eb" data-m="rx_ant" data-b="2">OFF</button><button class="eb" data-m="rx_ant" data-b="3">OFF</button>
+        </div>
+        <div class="mrow"><span data-tip="IEEE 802.11a OFDM PHY data rate in Mb/s (6/9 BPSK, 12/18 QPSK, 24/36 16-QAM, 48/54 64-QAM). Encoded in the PLCP SIGNAL symbol of each burst.">RATE</span>
+            <div class="tabs" id="r-modtabs"></div></div>
+        <div class="kv">
+            <span data-tip="Local station hostname read from /etc/quadrf/quadrf.conf.">STATION ID</span><b id="r-call">-</b>
+            <span data-tip="C-band RF center frequency (4900–6000 MHz) and 20 MHz 802.11a OFDM channel bandwidth (40 MS/s hardware rate with 2× half-band FIR).">CARRIER / BW</span><b id="r-freq">-</b>
+            <span data-tip="MAX2850 transmit gain (0–40 dB) and SE5003L 1W PA switching mode (TDD MUTE unmutes PA only during active burst scanout).">TX GAIN / PA MODE</span><b id="r-tx">-</b>
+            <span data-tip="MAX2851 + FPGA RX gain command (0–63 dB, split across 8 dB LNA steps and 2 dB VGA steps).">RX GAIN</span><b id="r-rx">-</b>
+            <span data-tip="Peak int8 ADC magnitude on the last received burst vs. hardware ΣΔ comparator clip threshold (39 counts).">RX LEVEL / LIMIT</span><b id="r-lvl">-</b>
+        </div>
+        <div class="peer-blk">
+            <div class="peer-hd" data-tip="Remote peer station parameters learned from incoming 802.11 MAC headers, IPv4 tunnel packets, and ICMP echo replies.">FROM PEER</div>
+            <div class="kv">
+                <span data-tip="Peer station hostname learned from link frames or derived from peer node ID.">PEER STATION</span><b id="r-pcall">-</b>
+                <span data-tip="Peer Linux tun0 IPv4 address and IEEE 802.11 MAC address.">PEER IP / MAC</span><b id="r-peer">-</b>
+                <span data-tip="Round-trip latency of the last ICMP Echo Request/Reply over the tun0 RF link.">ICMP PING RTT</span><b id="r-ping">-</b>
+            </div>
+        </div>
+    </section>
+
+    <section class="box" id="b-rate">
+        <div class="sect">THROUGHPUT</div>
+        <div class="big">
+            <div><div class="l" data-tip="Decoded MAC payload goodput received on this unit (FCS-valid frames, rolling 0.5 s window).">RX</div><div><span class="v" id="gp-rx">-</span><span class="u">kb/s</span></div></div>
+            <div class="peer-card"><div class="l" data-tip="MAC payload rate transmitted by this unit over the RF link (rolling 0.5 s window).">TX (LOCAL)</div><div><span class="v" id="gp-tx">-</span><span class="u">kb/s</span></div></div>
+            <div><div class="l" data-tip="Selected IEEE 802.11a OFDM physical-layer burst rate in Mb/s.">PHY RATE</div><div><span class="v" id="se">-</span><span class="u">Mb/s</span></div></div>
+        </div>
+        <div class="hbar"><span data-tip="Combined bidirectional RX + TX payload goodput relative to 1 Mb/s full scale.">DATA</span><div class="tr"><i id="bar-data"></i></div><b id="bar-data-v">-</b></div>
+        <div class="hbar bw"><span data-tip="Percentage of detected PLCP bursts passing IEEE 802.11 32-bit CRC (FCS).">DELIVERY</span><div class="tr"><i id="bar-bw"></i></div><b id="bar-bw-v">-</b></div>
+        <div class="kv">
+            <span data-tip="Occupied 802.11a OFDM spectral width (52 active subcarriers × 312.5 kHz = 16.25 MHz) inside the 20 MHz channel.">OCCUPIED BW</span><b id="bw-occ">16.3 MHz (48D + 4P)</b>
+            <span data-tip="Subcarrier constellation and K=7 (133_8, 171_8) convolutional code rate for the active PHY rate.">MODULATION / CODING</span><b id="lobe">-</b>
+            <span data-tip="Local Linux TUN virtual network interface IPv4 address and MTU.">LOCAL TUN0 / MTU</span><b id="phy">-</b>
+            <span data-tip="Count of enabled local RX channels / enabled local TX antenna elements.">ACTIVE RX / TX</span><b id="streams">-</b>
+        </div>
+        <canvas id="gp-hist" data-tip="Rolling 60 s history of bidirectional MAC payload goodput (kb/s)."></canvas>
+    </section>
+
+    <section class="box" id="b-sep">
+        <div class="sect" data-tip="Frequency-domain channel state information H[k] and equalizer quality measured across the 52 active OFDM subcarriers.">CHANNEL &amp; EQUALIZER</div>
+        <div class="sep-top">
+            <div><div class="l" data-tip="Signal-to-noise ratio estimated from the two 64-sample Long Training Symbols (LTF1 vs. LTF2) over the 52 active subcarriers.">LTF SNR</div><div><span class="v" id="sep-n">-</span><span class="u">dB</span></div></div>
+            <div><div class="l" data-tip="Root-mean-square Error Vector Magnitude (20 log₁₀ ‖z − ŝ‖ / ‖ŝ‖) of equalized data subcarriers after pilot CPE/SRO tracking.">DATA EVM</div><div><span class="v" id="sep-w">-</span><span class="u">dB</span></div></div>
+        </div>
+        <div class="sep-row">
+            <canvas id="sep-sv" data-tip="Subcarrier magnitude profile |H[k]| (dB relative to strongest subcarrier) across the 4 band groups ([-26..-14], [-13..-1], [+1..+13], [+14..+26])."></canvas>
+            <canvas id="sep-ang" data-tip="Subcarrier phase dispersion across the 52 active subcarriers after LTF channel estimation and 16-tap virtual-carrier CIR denoising."></canvas>
+        </div>
+        <canvas id="sep-hist" data-tip="Rolling 60 s history of decoded burst LTF SNR (dB)."></canvas>
+        <div class="sep-note" id="sep-note"></div>
+    </section>
+
+    <section class="box" id="b-elem">
+        <div class="sect">ARRAY ELEMENTS</div>
+        <table class="el">
+            <thead><tr><th data-tip="QuadRF rhombus array element index (0: Top, 1: Left, 2: Bottom, 3: Right).">EL</th>
+                <th data-tip="Local receiver channel enable state in FPGA CSI-2 beamformer.">LOCAL RX</th>
+                <th data-tip="Effective RX gain contribution on this element.">RX GAIN</th>
+                <th class="pdiv" data-tip="Local transmitter element enable state on MAX2850 / SE5003L PA.">LOCAL TX</th>
+                <th class="pcol" data-tip="Effective per-element TX gain (scaled by 1/√N_tx across active elements).">TX GAIN</th></tr></thead>
+            <tbody id="el-body"></tbody>
+        </table>
+        <div class="kv">
+            <span data-tip="Peak-to-minimum magnitude variation (dB) across the 52 active OFDM subcarriers of H(f) on the last decoded frame.">SUBCARRIER SPAN</span><b id="cond">-</b>
+            <span data-tip="Normalized 64-sample LTF cross-correlation peak (0–1.0) and post-equalizer SNR margin.">LTF CORR / EVM MARGIN</span><b id="model">-</b>
+        </div>
+        <div class="peer-blk">
+            <div class="peer-hd" data-tip="Multipath delay spread and subband power balance derived from the 52-subcarrier LTF channel estimate H[k].">MULTIPATH &amp; SUBBAND PROFILE</div>
+            <div class="kv">
+                <span data-tip="RMS multipath delay spread τ_rms (ns) and 16-tap virtual-carrier CIR denoising window (800 ns).">RMS DELAY / CIR WIN</span><b id="el-tau">-</b>
+                <span data-tip="Relative gain (dB) across lower (B0, B1) and upper (B2, B3) 13-subcarrier quartiles.">SUBBANDS B0..B3</span><b id="el-sb">-</b>
+            </div>
+        </div>
+    </section>
+
+    <section class="box" id="b-frame">
+        <div class="sect">FRAMES &amp; ARQ</div>
+        <div class="kv">
+            <span data-tip="Received bursts passing 32-bit CRC (FCS OK) / failing CRC (FCS FAIL) / total PLCP SIGNAL headers decoded.">RX FCS OK / FAIL / DET</span><b id="frames">-</b>
+            <span data-tip="Cumulative payload bytes received (FCS OK) and transmitted over the RF link.">BYTES RX / TX</span><b id="blocks">-</b>
+            <span data-tip="Link-layer Stop-and-Wait ARQ policy and MIPI DSI VSYNC page-flip TDD turnaround guard.">ARQ / TURNAROUND</span><b id="ber">STOP-WAIT / 40 ms</b>
+            <span data-tip="Carrier frequency offset estimated from STS/LTF autocorrelation on the last decoded burst.">CFO (FINE / COARSE)</span><b id="cfo">-</b>
+            <span data-tip="MPDU byte length of the last decoded 802.11 frame.">LAST MPDU LENGTH</span><b id="tper">-</b>
+            <span data-tip="Cumulative 802.11 OFDM bursts transmitted by this station.">FRAMES SENT</span><b id="fsent">-</b>
+            <span data-tip="Local Linux TUN interface status and local MAC address.">TUN0 / MAC</span><b id="rxc">-</b>
+        </div>
+        <div class="peer-blk">
+            <div class="peer-hd" data-tip="End-to-end ICMP Echo statistics across the tun0 IP tunnel.">ICMP TUNNEL DIAGNOSTICS</div>
+            <div class="kv">
+                <span data-tip="ICMP Echo Requests sent / Echo Replies received (and delivery percentage).">PING SENT / RCVD</span><b id="pblocks">-</b>
+                <span data-tip="Minimum, average, and maximum ICMP round-trip time across the RF tunnel.">RTT MIN / AVG / MAX</span><b id="p-rtt">-</b>
+            </div>
+            <div class="actions" style="margin:8px 0 2px">
+                <button class="abtn primary" id="btn-ping" data-tip="Send one ICMP Echo Request (ping -c 1) to the peer tun0 IP address.">PING PEER</button>
+                <button class="abtn" id="btn-autoping" data-tip="Continuously ping the peer tun0 IP every 1.5 s to measure live RTT and keep the link active.">AUTO PING</button>
+            </div>
+        </div>
+    </section>
+
+    <section class="box" id="b-chat">
+        <div class="sect">CHAT</div>
+        <div id="chat-log"></div>
+        <div id="chat-row">
+            <input id="chat-in" type="text" maxlength="512" autocomplete="off" enterkeyhint="send">
+            <button class="abtn primary" id="chat-send">SEND</button>
+        </div>
+    </section>
+</div>
+
+<div id="stages">
+    <div class="plot"><div class="hd"><span data-tip="64-bin FFT power spectral density of the decimated 20 MS/s RX stream (±10 MHz around carrier LO).">ADC SPECTRUM</span><b id="r-adc"></b></div><canvas id="p-adc"></canvas></div>
+    <div class="plot"><div class="hd"><span data-tip="Raw int8 RX I/Q time-domain samples (I sage, Q white). Red dashed lines mark the hardware ΣΔ ADC saturation boundary at ±39 counts.">ADC I/Q</span><b id="r-iq"></b></div><canvas id="p-iq"></canvas></div>
+    <div class="plot"><div class="hd"><span data-tip="Captured time-domain preamble I/Q waveform over the Short Training Sequence (STS, 8 µs), Long Training Sequence (LTF, 8 µs), and SIGNAL symbol (4 µs).">PREAMBLE &amp; LTF SYNC</span><b id="r-sts"></b></div><canvas id="p-sts"></canvas></div>
+    <div class="plot"><div class="hd"><span data-tip="Zero-forcing channel magnitude estimate |H[k]| (dB) across subcarriers −26..+26 after 16-tap virtual-carrier CIR windowing.">CHANNEL MAGNITUDE |H(f)|</span><b id="r-hmag"></b></div><canvas id="p-hmag"></canvas></div>
+    <div class="plot"><div class="hd"><span data-tip="Estimated channel phase ∠H[k] (degrees) across subcarriers −26..+26 from the two Long Training Symbols.">CHANNEL PHASE ∠H(f)</span><b id="r-hph"></b></div><canvas id="p-hph"></canvas></div>
+    <div class="plot"><div class="hd"><span data-tip="64-tap time-domain Channel Impulse Response |h(τ)| (dB relative to peak tap) obtained via IDFT of H[k]. Dashed lines bound the 16-tap (−0.20..+0.60 µs) CIR denoising window.">IMPULSE RESPONSE |h(τ)|</span><b id="r-cir"></b></div><canvas id="p-cir"></canvas></div>
+    <div class="plot"><div class="hd"><span data-tip="Common Phase Error (CPE, degrees) tracked across the 4 pilot subcarriers (±7, ±21) over each OFDM data symbol in the frame.">PILOT PHASE TRACKING</span><b id="r-cpe"></b></div><canvas id="p-cpe"></canvas></div>
+    <div class="plot"><div class="hd"><span data-tip="Equalized OFDM data subcarrier constellation after LTF zero-forcing equalization, 16-tap CIR denoising, and pilot CPE + SRO phase ramp removal.">EQUALIZED SYMBOLS</span><b id="r-cons"></b></div><canvas id="p-cons"></canvas></div>
+</div>
+
+<div id="tip"></div>
+
+<div id="help"><div class="card">
+    <div class="hd"><span>ARCHITECTURE &amp; SIGNAL CHAIN</span><button class="hbtn" id="help-x">CLOSE</button></div>
+
+    <h3>IEEE 802.11a OFDM PHY &amp; C-BAND FRONTEND</h3>
+    <p>802.11 OFDM Link implements a standards-structured <b>IEEE 802.11a OFDM</b> transceiver
+    bridging a Linux <b>tun0</b> IPv4 network interface across two QuadRF phased-array stations
+    in the 4.9–6.0 GHz C-band. Each 20 MHz OFDM symbol uses a 64-point FFT (<b>312.5 kHz</b>
+    subcarrier spacing, 3.2 µs IFFT period + 0.8 µs cyclic prefix = <b>4.0 µs</b> symbol duration)
+    with <b>48 data subcarriers</b>, <b>4 BPSK pilot subcarriers</b> (k = ±7, ±21), a nulled DC
+    subcarrier, and 11 virtual guard subcarriers.</p>
+
+    <h3>40 MS/s HALF-BAND RESAMPLING &amp; DAC/ADC SCALING</h3>
+    <p>To prevent 20 MS/s zero-order-hold spectral images at ±20 MHz from folding through the
+    wideband 40 MHz MAX2850/MAX2851 analog baseband filters, both TX (MIPI DSI) and RX (MIPI CSI-2)
+    streams run at <b>40 MS/s</b>. On transmit, the 20 MS/s complex OFDM waveform is upsampled 2×
+    through a <b>15-tap anti-imaging half-band FIR filter</b>, smoothly raised-cosine windowed over
+    12 samples at burst edges, and normalized to a peak digital DAC amplitude of <b>96 counts</b>
+    (scaled by 1/√N<sub>tx</sub> when multiple TX elements are active). On receive, the 40 MS/s
+    CSI-2 stream is filtered and decimated 2× by a matched 15-tap half-band FIR filter to 20 MS/s,
+    suppressing out-of-band noise by 3 dB and rejecting alias images by &gt;45 dB.</p>
+
+    <h3>PPDU FRAME STRUCTURE (PREAMBLE, SIGNAL &amp; DATA)</h3>
+    <p>Every transmitted frame begins with a 16 µs PLCP preamble: 10 Short Training Symbols
+    (<b>STS</b>, 10 × 16 = 160 samples) for packet detection, AGC evaluation, and coarse CFO
+    estimation, followed by a 32-sample cyclic prefix and two 64-sample Long Training Symbols
+    (<b>LTF1, LTF2</b>, 160 samples total) for fine symbol timing, fine CFO estimation, and
+    per-subcarrier channel estimation.</p>
+    <p>The <b>SIGNAL</b> symbol (1 OFDM symbol, always BPSK r = 1/2) encodes the payload rate
+    (6, 9, 12, 18, 24, 36, 48, or 54 Mb/s), 12-bit MPDU byte length, and even parity bit. Data
+    symbols are scrambled by the 802.11 LFSR (<b>S(x) = x<sup>7</sup> + x<sup>4</sup> + 1</b>),
+    encoded with the K = 7 industry-standard convolutional code (<b>g<sub>0</sub> = 133<sub>8</sub>,
+    g<sub>1</sub> = 171<sub>8</sub></b>) with rate-dependent puncturing (1/2, 2/3, 3/4), block
+    interleaved, and Gray-mapped to BPSK, QPSK, 16-QAM, or 64-QAM.</p>
+
+    <h3>VIRTUAL-CARRIER CIR DENOISING &amp; PILOT CPE/SRO TRACKING</h3>
+    <p>At the receiver, the raw LTF channel estimate H<sub>raw</sub>[k] is computed on the 52 active
+    subcarriers and linearly interpolated across the DC null (k = 0) before transforming to the
+    64-tap time-domain channel impulse response (<b>CIR</b>). Retaining the 16-tap multipath support
+    (12 causal + 4 anti-causal taps) and zeroing the remaining 48 noise-only taps removes
+    out-of-window thermal noise and eliminates artificial sinc ringing at band edges k = ±26.</p>
+    <p>For each data symbol n, the 4 pilot subcarriers (k = ±7, ±21) are equalized and compared
+    against the polarity-scrambled reference pilots to extract both the <b>Common Phase Error
+    (CPE)</b> and the linear phase slope across frequency caused by residual sampling rate and
+    timing offset (<b>SRO</b>). Soft log-likelihood ratios (LLRs) are weighted by per-subcarrier
+    channel power |H[k]|<sup>2</sup> before soft-decision Viterbi decoding and IEEE 802.11
+    32-bit FCS verification.</p>
+
+    <h3>MIPI DSI VSYNC TURNAROUND, ARQ &amp; TUN0 IP BRIDGE</h3>
+    <p>Because the RP1 MIPI DSI transmitter scans out staging buffers on 19.34 ms DRM vertical sync
+    (<b>VSYNC</b>) boundaries, each TX burst arms the SE5003L 1W PA strictly around the active
+    frame scanout and immediately flips back to an all-zero staging buffer on the next VSYNC edge.
+    A <b>40 ms TDD turnaround guard</b> combined with real-time carrier-sense energy detection
+    prevents half-duplex collisions. Link-layer <b>Stop-and-Wait ARQ</b> with standalone and
+    piggybacked ACKs, asymmetric backoff, and automatic TX queue packet coalescing provides
+    lossless delivery for both ICMP/UDP/TCP traffic on <b>tun0</b> (10.99.0.x/24) and live station chat.</p>
+</div></div>
+
+<div class="hud-pop" id="set-pop">
+    <div id="set-body"></div>
+    <div class="actions">
+        <button class="abtn" id="s-defaults">DEFAULTS</button>
+    </div>
+</div>
+
+<script type="module" src="./app.js?v=7"></script>
+</body>
+</html>

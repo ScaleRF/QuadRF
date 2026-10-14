@@ -194,7 +194,7 @@ Suggests: quadrf-soapy
 Description: QuadRF demonstration applications
  Spatial RF Vision (swept-LO phase scatter with a WebSocket feed for the
  browser AR page), the PSD plot, the NTSC decoder, the NTSC encoder, the
- near-field phasor display, 802.11 Data Link, and PhaseGaze (four-lane
+ near-field phasor display, 802.11 OFDM Link, and PhaseGaze (four-lane
  phase-gradient hemisphere in the browser). The package owns their desktop
  entries, icons, AppStream metadata and control-page runtime descriptor. The
  systemd units start on demand from the control panel; they are not enabled.

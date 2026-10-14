@@ -1,21 +1,19 @@
 [Unit]
-Description=802.11 Data Link
-Wants=load-quadrf.service quadrf-desktop.service
-After=load-quadrf.service quadrf-desktop.service
+Description=802.11 OFDM Link
+Wants=load-quadrf.service
+After=load-quadrf.service
 
 [Service]
 Type=simple
 User=dietpi
 Group=dietpi
 Environment=HOME=/home/dietpi
-Environment=DISPLAY=:1
-Environment=XAUTHORITY=/home/dietpi/.Xauthority
-Environment=SDL_VIDEODRIVER=x11
 AmbientCapabilities=CAP_NET_ADMIN
 CapabilityBoundingSet=CAP_NET_ADMIN
-ExecStart=/usr/bin/quadrf-data --gui
-TimeoutStopSec=8
+ExecStart=/usr/bin/quadrf-data --port 8092
+KillSignal=SIGINT
+TimeoutStopSec=5
 Restart=no
 
 [Install]
-WantedBy=graphical.target
+WantedBy=multi-user.target

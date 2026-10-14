@@ -72,11 +72,6 @@ inline constexpr RateInfo kRate36{"36 Mbps (16-QAM 3/4)",Modulation::QAM16, 13, 
 inline constexpr RateInfo kRate48{"48 Mbps (64-QAM 2/3)",Modulation::QAM64, 8, 6, 288, 192, 2, 3};
 inline constexpr RateInfo kRate54{"54 Mbps (64-QAM 3/4)",Modulation::QAM64, 12, 6, 288, 216, 3, 4};
 
-// GUI rate stepper. CLI --rate still accepts the full 802.11a set.
-// Append kRate24, kRate36, kRate48, kRate54 to expose 16-QAM / 64-QAM again.
-inline constexpr const RateInfo* const kGuiRates[] = {
-    &kRate6, &kRate9, &kRate12, &kRate18};
-
 inline const RateInfo* rate_info_for(int rate_val) {
   switch (rate_val) {
     case 11: return &kRate6;

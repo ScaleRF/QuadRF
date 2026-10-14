@@ -30,6 +30,13 @@ struct FrameResult {
   std::vector<c32> eq_symbols;
   float evm_db = 0.f;
   int needed_samples = 0;
+
+  // Pipeline stage telemetry
+  std::vector<float> H_mag;      // 52-subcarrier channel magnitude (dB)
+  std::vector<float> H_phase;    // 52-subcarrier channel phase (deg)
+  std::vector<float> pilot_cpe;  // Pilot Common Phase Error per symbol (rad)
+  std::vector<c32> time_iq;      // Time-domain burst snippet
+  std::vector<float> sts_metric; // STS correlation metric around trigger
 };
 
 struct StsResult {
@@ -37,13 +44,15 @@ struct StsResult {
   c32 P_at_trig{0.f, 0.f};
   float R_at_trig = 0.f;
   float metric_at_trig = 0.f;
+  std::vector<float> metric_history;
 };
 
 struct DspConfig {
-  float sts_threshold = 0.42f;
-  float cca_threshold = 0.00018f;
-  int sts_consecutive = 3;
-  bool enable_cir_smoothing = false;
+  float sts_threshold = 0.82f;
+  float cca_threshold = 0.00006f;
+  float min_ltf_peak = 0.05f;
+  int sts_consecutive = 24;
+  bool enable_cir_smoothing = true;
   float pll_alpha = 0.40f;
   float pll_beta = 0.04f;
   float pll_gamma = 0.08f;

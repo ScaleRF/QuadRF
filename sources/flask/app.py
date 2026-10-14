@@ -645,13 +645,13 @@ def requested_client_id():
 # stale entries; pagehide beacons are best-effort and often never arrive.
 # 75s stale accommodates Chromium background-tab timer clamping (~60s)
 # while still releasing CSI soon after an ungracefully abandoned tab.
-ATTACH_APPS = frozenset({"ar", "phasegaze", "mimo"})
+ATTACH_APPS = frozenset({"ar", "phasegaze", "mimo", "data"})
 WEB_CLIENTS = {}
 WEB_SEEN = set()
 WEB_STOP_TIMER = {}
 WEB_LOCK = threading.Lock()
 APP_ACTION_LOCK = threading.Lock()
-WEB_STOP_GRACE = 10.0
+WEB_STOP_GRACE = 1.5
 WEB_STALE_SEC = 120.0
 # Explicit Stop from the drawer. Without this an already-open tab would
 # resurrect the app on its next attach.

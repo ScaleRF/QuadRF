@@ -1,8 +1,9 @@
 cmake_minimum_required(VERSION 3.16)
-project(quadrf_wifi LANGUAGES CXX)
+project(quadrf_wifi LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_C_STANDARD 99)
 
 add_compile_options(-Wall -Wextra -O3 -ffast-math)
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64")
@@ -21,7 +22,7 @@ if(NOT TARGET SoapySDR)
   pkg_check_modules(SOAPY REQUIRED SoapySDR)
 endif()
 
-# Core Wi-Fi RX demodulator & MAC decoder library (headless, no SDL2 needed)
+# Core Wi-Fi RX demodulator & MAC decoder library
 add_library(quadrf_wifi_rx_core STATIC
   wifi_viterbi.cpp
   wifi_dsp.cpp
@@ -51,7 +52,7 @@ target_link_libraries(quadrf-wifi-rx PRIVATE
   quadrf_wifi_rx_core
 )
 
-# Test executable (source lives under tests/, which is gitignored)
+# Test executable
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_wifi_dsp.cpp")
   add_executable(test_wifi_dsp
     tests/test_wifi_dsp.cpp
@@ -63,26 +64,29 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_wifi_dsp.cpp")
   )
 endif()
 
-# Data-link GUI/TUN binary: keep packaging intact when SDL2 is present
-find_package(SDL2)
-if(SDL2_FOUND)
-  add_executable(quadrf-data
-    main.cpp
-    wifi_tx.cpp
-    wifi_tun.cpp
-    wifi_gui.cpp
-  )
+# 802.11 OFDM Link Daemon & Embedded Web HUD
+add_executable(quadrf-data
+  main.cpp
+  wifi_link.cpp
+  wifi_server.cpp
+  wifi_tx.cpp
+  wifi_tun.cpp
+  mongoose.c
+)
 
-  target_include_directories(quadrf-data PRIVATE
-    ${SDL2_INCLUDE_DIRS}
-  )
+target_compile_definitions(quadrf-data PRIVATE
+  WIFI_WEB_DIR="/usr/share/quadrf-data/web"
+  MG_ENABLE_LINES=1
+  MG_ENABLE_LOG=0
+)
 
-  target_link_libraries(quadrf-data PRIVATE
-    quadrf_wifi_rx_core
-    ${SDL2_LIBRARIES}
-  )
+target_include_directories(quadrf-data PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}
+)
 
-  install(TARGETS quadrf-data DESTINATION bin)
-endif()
+target_link_libraries(quadrf-data PRIVATE
+  quadrf_wifi_rx_core
+)
 
-install(TARGETS quadrf-wifi-rx DESTINATION bin)
+install(TARGETS quadrf-data quadrf-wifi-rx DESTINATION bin)
+install(DIRECTORY web/ DESTINATION share/quadrf-data/web)

@@ -96,7 +96,7 @@ QuadRF pairs a Raspberry Pi 5 with an RF frontend and FPGA digital baseband:
   - Remote desktop (KasmVNC): `http://quadrfd.local/`, `http://quadrf-desktop.local/`, or `http://quadrf.local:6080/` (extra units: `quadrf-2d.local` / `quadrf-2-desktop.local`)
 - **Application Suite**:
   - **PhaseGaze** (`quadrf-phasegaze.service`): Real-time spatial RF camera and swept CSI heatmap visualization at 30+ FPS.
-  - **QuadRF Data Link** (`quadrf-data`): IEEE 802.11 OFDM IP tunnel bridging Linux `tun0` across QuadRF units.
+  - **802.11 OFDM Link** (`quadrf-data`): IEEE 802.11 OFDM IP tunnel bridging Linux `tun0` across QuadRF units.
   - **NTSC Demodulator** (`quadrf-ntsc-demod`): Real-time analog video demodulation.
   - **4x4 MIMO**: Simple 4ch MIMO demo.
   - **Nearfield** (`quadrf-nearfield`): Near-field RF sensing with TDM TX cycling.

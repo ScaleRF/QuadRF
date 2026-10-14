@@ -3,6 +3,7 @@
 #include <fftw3.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstring>
 
@@ -27,35 +28,6 @@ void mmse_equalize(const c32* Y, const c32* H, c32* eq, float mmse_reg) {
       eq[k] = c32(0.f, 0.f);
     }
   }
-}
-
-void fit_cpe_and_slope(const c32* p4, float& out_cpe, float& out_slope) {
-  // Pilot positions: k = {-21, -7, +7, +21}
-  // 1. Wrap-free frequency slope estimation from adjacent pilot pairs (Delta k = 14):
-  const c32 d14_0 = p4[1] * std::conj(p4[0]);
-  const c32 d14_1 = p4[2] * std::conj(p4[1]);
-  const c32 d14_2 = p4[3] * std::conj(p4[2]);
-  const c32 sum_d14 = d14_0 + d14_1 + d14_2;
-  const float phi_14 = std::arg(sum_d14);
-  const float coarse_slope = phi_14 / 14.f;
-
-  // Unambiguous wide-baseline (42 subcarrier) refinement:
-  const c32 diff_42 = p4[3] * std::conj(p4[0]);
-  const float phi_42_expected = 42.f * coarse_slope;
-  const float phi_42_unwrapped = phi_42_expected + std::remainder(std::arg(diff_42) - phi_42_expected, kTwoPi);
-
-  // Optimal Least-Squares estimator combining 42-span and 14-span: (3 * phi_42 + phi_14) / 140
-  const float raw_slope = (3.f * phi_42_unwrapped + phi_14) / 140.f;
-  out_slope = std::clamp(raw_slope, -0.04f, 0.04f);
-
-  // 2. Unbiased CPE: Derotate each pilot by its subcarrier slope before summing
-  // This eliminates centroid bias when one pilot is faded in a multipath notch.
-  c32 sum_p(0.f, 0.f);
-  for (int i = 0; i < 4; ++i) {
-    const float ph_k = -out_slope * PILOT_SC_K[i];
-    sum_p += p4[i] * c32(std::cos(ph_k), std::sin(ph_k));
-  }
-  out_cpe = std::arg(sum_p);
 }
 
 void apply_phase_correction(c32* eq, float cpe, float slope) {
@@ -243,11 +215,26 @@ StsResult WifiDsp::detect_sts(const c32* iq, size_t len) const {
       if (m > cfg_.sts_threshold && m <= 1.05f) {
         ++consec;
         if (consec >= cfg_.sts_consecutive) {
-          res.trig_idx = static_cast<int>(d);
-          res.P_at_trig = P_zm;
-          res.R_at_trig = pwr_avg * 16.f;
-          res.metric_at_trig = m;
-          return res;
+          // Reject narrowband CW / LO-leakage transients: a 12-tone 802.11a STS spans
+          // +-7.5 MHz so its lag-1 autocorrelation magnitude-squared is ~0.01..0.20,
+          // whereas CW / LO leakage within +-1.5 MHz has m_lag1 > 0.70.
+          const c32 mu = (S1 + S2) * (0.5f * inv16);
+          c32 p1(0.f, 0.f);
+          float r0 = 0.f;
+          for (size_t k = 0; k < 31; ++k) {
+            const c32 a = iq[d + k] - mu;
+            const c32 b = iq[d + k + 1] - mu;
+            p1 += std::conj(a) * b;
+            r0 += std::norm(a);
+          }
+          const float m_lag1 = (r0 > 1e-12f) ? (std::norm(p1) / (r0 * r0)) : 1.f;
+          if (m_lag1 < 0.50f) {
+            res.trig_idx = static_cast<int>(d);
+            res.P_at_trig = P_zm;
+            res.R_at_trig = pwr_avg * 16.f;
+            res.metric_at_trig = m;
+            return res;
+          }
         }
       } else {
         consec = 0;
@@ -319,7 +306,7 @@ int WifiDsp::find_dual_ltf(const c32* iq, size_t len, float* out_peak) const {
   }
 
   if (out_peak) *out_peak = max_score;
-  if (max_score < 0.012f || max_i < 0) return -1;
+  if (max_score < cfg_.min_ltf_peak || max_i < 0) return -1;
 
   return max_i + 32;
 }
@@ -401,17 +388,6 @@ FrameResult WifiDsp::decode_burst(std::span<const c32> raw_iq, const StsResult* 
 
   std::vector<c32> iq(raw_iq.begin(), raw_iq.end());
 
-  // Remove time-domain hardware DC offset measured over steady STS periodic window (3x16 samples)
-  // In IEEE 802.11 STS, sum over any 16 samples is identically zero, yielding exact unbiased DC
-  const size_t dc_start = (known_sts && known_sts->trig_idx >= 32) ? 32 : 16;
-  c32 mean_dc(0.f, 0.f);
-  if (iq.size() >= dc_start + 48) {
-    c32 sum_sts_dc(0.f, 0.f);
-    for (size_t m = dc_start; m < dc_start + 48; ++m) sum_sts_dc += iq[m];
-    mean_dc = sum_sts_dc * (1.f / 48.f);
-  }
-  for (auto& s : iq) s -= mean_dc;
-
   float coarse_rad = 0.f;
   if (known_sts && known_sts->trig_idx >= 0) {
     fr.sts_idx = known_sts->trig_idx;
@@ -488,46 +464,81 @@ FrameResult WifiDsp::decode_burst(std::span<const c32> raw_iq, const StsResult* 
     fr.fine_cfo_hz = fine_rad * FS / kTwoPi;
     derotate(iq_local.data(), iq_local.size(), fine_rad, static_cast<float>(cur_ltf1 + 64 - kFftAdvance));
 
-    // Channel Estimation from both LTFs (advanced 4 samples into CP for ISI protection)
-    c32 ltf1_fft[64], ltf2_fft[64];
-    fft64(&iq_local[static_cast<size_t>(cur_ltf1 - kFftAdvance)], ltf1_fft);
-    fft64(&iq_local[static_cast<size_t>(cur_ltf1 + 64 - kFftAdvance)], ltf2_fft);
-    ltf1_fft[0] = c32(0.f, 0.f);
-    ltf2_fft[0] = c32(0.f, 0.f);
+    auto compute_channel_estimate = [&](c32* out_H_smooth, float& out_avg_h2, float& out_mmse_reg, float& out_snr_db) {
+      c32 ltf1_fft[64], ltf2_fft[64];
+      fft64(&iq_local[static_cast<size_t>(cur_ltf1 - kFftAdvance)], ltf1_fft);
+      fft64(&iq_local[static_cast<size_t>(cur_ltf1 + 64 - kFftAdvance)], ltf2_fft);
+      ltf1_fft[0] = c32(0.f, 0.f);
+      ltf2_fft[0] = c32(0.f, 0.f);
 
-    c32 H_raw[64]{};
-    for (int i = 0; i < 53; ++i) {
-      const int k = i - 26;
-      if (k == 0) continue;
-      const int bin = (k + 64) % 64;
-      const c32 avg_y = 0.5f * (ltf1_fft[bin] + ltf2_fft[bin]);
-      H_raw[bin] = avg_y / L_STD[i];
-    }
+      c32 H_raw[64]{};
+      for (int i = 0; i < 53; ++i) {
+        const int k = i - 26;
+        if (k == 0) continue;
+        const int bin = (k + 64) % 64;
+        const c32 avg_y = 0.5f * (ltf1_fft[bin] + ltf2_fft[bin]);
+        H_raw[bin] = avg_y / L_STD[i];
+      }
 
-    // CIR smoothing: IFFT -> keep 16 taps -> FFT
+      if (cfg_.enable_cir_smoothing) {
+        // Extrapolate DC and 5 virtual guard subcarriers on each band edge with a raised-cosine
+        // taper and phase slope continuity so 64-pt IFFT CIR windowing does not suffer Gibbs ringing.
+        c32 H_ext[64]{};
+        std::memcpy(H_ext, H_raw, sizeof(H_raw));
+        H_ext[0] = 0.5f * (H_raw[1] + H_raw[63]);
+        const float dphi_pos = std::arg(H_raw[26] * std::conj(H_raw[25]));
+        const float dphi_neg = std::arg(H_raw[38] * std::conj(H_raw[39]));
+        for (int d = 1; d <= 5; ++d) {
+          const float w = 0.5f * (1.f + std::cos(kPi * static_cast<float>(d) / 6.f));
+          const float ang_pos = dphi_pos * static_cast<float>(d);
+          const float ang_neg = dphi_neg * static_cast<float>(d);
+          H_ext[26 + d] = w * H_raw[26] * c32(std::cos(ang_pos), std::sin(ang_pos));
+          H_ext[38 - d] = w * H_raw[38] * c32(std::cos(ang_neg), std::sin(ang_neg));
+        }
+        H_ext[32] = c32(0.f, 0.f);
+
+        c32 cir[64], cir_w[64]{};
+        ifft64(H_ext, cir);
+        for (int i = 0; i <= 8; ++i) cir_w[i] = cir[i];
+        cir_w[9]  = cir[9] * 0.85f;
+        cir_w[10] = cir[10] * 0.60f;
+        cir_w[11] = cir[11] * 0.30f;
+        cir_w[12] = cir[12] * 0.10f;
+        cir_w[61] = cir[61] * 0.30f;
+        cir_w[62] = cir[62] * 0.60f;
+        cir_w[63] = cir[63] * 0.85f;
+        fft64(cir_w, out_H_smooth);
+        out_H_smooth[0] = c32(0.f, 0.f);
+      } else {
+        std::memcpy(out_H_smooth, H_raw, sizeof(H_raw));
+      }
+
+      float pwr_sig = 0.f, pwr_noise = 0.f;
+      for (int k = -26; k <= 26; ++k) {
+        if (k == 0) continue;
+        const int bin = (k + 64) % 64;
+        pwr_sig += std::norm(out_H_smooth[bin]);
+        const c32 diff = (ltf1_fft[bin] - ltf2_fft[bin]) * 0.70710678f;
+        pwr_noise += std::norm(diff);
+      }
+      out_snr_db = 10.f * std::log10((pwr_sig + 1e-9f) / (pwr_noise + 1e-9f));
+      out_avg_h2 = (pwr_sig + 1e-6f) / 52.f;
+      const float noise_var = (pwr_noise + 1e-9f) / 52.f;
+      out_mmse_reg = std::clamp(noise_var, 1e-4f * out_avg_h2, 0.15f * out_avg_h2);
+    };
+
     c32 H_smooth[64]{};
-    if (cfg_.enable_cir_smoothing) {
-      c32 cir[64], cir_w[64]{};
-      ifft64(H_raw, cir);
-      for (int i = 0; i < 16; ++i) cir_w[i] = cir[i];
-      fft64(cir_w, H_smooth);
-    } else {
-      std::memcpy(H_smooth, H_raw, sizeof(H_raw));
-    }
+    float avg_h2 = 1.f, mmse_reg = 1e-3f;
+    compute_channel_estimate(H_smooth, avg_h2, mmse_reg, fr.snr_db);
 
-    // LTF-pair SNR: |H|^2 vs (LTF1-LTF2)/sqrt(2). Same noise_var scales MMSE.
-    float pwr_sig = 0.f, pwr_noise = 0.f;
-    for (int k = -26; k <= 26; ++k) {
-      if (k == 0) continue;
-      const int bin = (k + 64) % 64;
-      pwr_sig += std::norm(H_smooth[bin]);
-      const c32 diff = (ltf1_fft[bin] - ltf2_fft[bin]) * 0.70710678f;
-      pwr_noise += std::norm(diff);
+    const size_t td_len = std::min<size_t>(256, iq_local.size());
+    fr.time_iq.assign(iq_local.begin(), iq_local.begin() + td_len);
+
+    float max_peak = 0.f;
+    for (const auto& s : fr.time_iq) {
+      max_peak = std::max(max_peak, std::max(std::abs(s.real()), std::abs(s.imag())));
     }
-    fr.snr_db = 10.f * std::log10((pwr_sig + 1e-9f) / (pwr_noise + 1e-9f));
-    const float avg_h2 = (pwr_sig + 1e-6f) / 52.f;
-    const float noise_var = (pwr_noise + 1e-9f) / 52.f;
-    const float mmse_reg = std::clamp(noise_var, 1e-4f * avg_h2, 0.2f * avg_h2);
+    fr.peak_cs8 = static_cast<int>(std::round(max_peak * 127.f));
 
     // SIGNAL Symbol (starts at cur_ltf1 + 144 - kFftAdvance)
     const int sig_start = cur_ltf1 + 144 - kFftAdvance;
@@ -545,15 +556,16 @@ FrameResult WifiDsp::decode_burst(std::span<const c32> raw_iq, const StsResult* 
     const float cpe_sig = std::arg(sum_p_sig);
     apply_phase_correction(sig_eq, cpe_sig, 0.f);
 
-    // Demap SIGNAL symbol (BPSK)
-    float sig_h_mag[48];
+    // Demap SIGNAL symbol (BPSK) with MMSE channel weights
+    float sig_weight[48];
     c32 sig_data[48];
     for (int i = 0; i < 48; ++i) {
-      sig_h_mag[i] = std::abs(H_smooth[DATA_SC[i]]);
+      const float h2 = std::norm(H_smooth[DATA_SC[i]]);
+      sig_weight[i] = h2 / (h2 + mmse_reg);
       sig_data[i] = sig_eq[DATA_SC[i]];
     }
     float sig_llrs[48];
-    soft_demap(sig_data, sig_h_mag, 1, sig_llrs);
+    soft_demap(sig_data, sig_weight, 1, sig_llrs);
 
     const auto deint48 = make_deinterleaver_map(48, 1);
     float sig_deint[48];
@@ -582,7 +594,7 @@ FrameResult WifiDsp::decode_burst(std::span<const c32> raw_iq, const StsResult* 
     }
 
     const RateInfo* rate_info = rate_info_for(rate_val);
-    if (!rate_info || pkt_len <= 0 || pkt_len > 1500) return fr;
+    if (!rate_info || pkt_len <= 0 || pkt_len > 2048) return fr;
 
     fr.signal_ok = true;
     fr.rate_val = rate_val;
@@ -600,66 +612,82 @@ FrameResult WifiDsp::decode_burst(std::span<const c32> raw_iq, const StsResult* 
     fr.needed_samples = data_start + n_syms * 80;
     if (static_cast<size_t>(fr.needed_samples) > iq_local.size()) return fr;
 
-    // Pass 1: Measure pilot phases and slopes across all symbols
-    std::vector<float> pilot_phases;
-    std::vector<float> pilot_slopes;
-    pilot_phases.reserve(static_cast<size_t>(n_syms));
-    pilot_slopes.reserve(static_cast<size_t>(n_syms));
-
+    // Pass 1: Measure initial pilot phases across symbols and fit linear residual CFO slope
+    std::vector<float> pilot_phases(static_cast<size_t>(n_syms), 0.f);
     for (int si = 0; si < n_syms; ++si) {
       const int ss = data_start + si * 80;
-      c32 Y[64], eq[64];
+      c32 Y[64];
       fft64(&iq_local[static_cast<size_t>(ss)], Y);
-      Y[0] = c32(0.f, 0.f);
-      mmse_equalize(Y, H_smooth, eq, mmse_reg);
-
       const float pilot_pol = static_cast<float>(PILOT_SEQ[(si + 1) % 127]);
-      c32 p[4];
+      c32 sum_p(0.f, 0.f);
       for (int i = 0; i < 4; ++i) {
-        p[i] = Y[PILOT_SC[i]] * std::conj(H_smooth[PILOT_SC[i]]) * (BASE_PILOT_POLARITY[i] * pilot_pol);
+        sum_p += Y[PILOT_SC[i]] * std::conj(H_smooth[PILOT_SC[i]]) * (BASE_PILOT_POLARITY[i] * pilot_pol);
       }
-      float cpe = 0.f, slope = 0.f;
-      fit_cpe_and_slope(p, cpe, slope);
-      pilot_phases.push_back(cpe);
-      pilot_slopes.push_back(slope);
+      pilot_phases[static_cast<size_t>(si)] = std::arg(sum_p);
     }
 
-    float resid_cfo_hz = 0.f;
-    float intercept_a = 0.f;
-    float slope_b = 0.f;
-
-    if (pilot_phases.size() >= 2) {
-      std::vector<float> dphi;
-      dphi.reserve(pilot_phases.size() - 1);
-      for (size_t i = 1; i < pilot_phases.size(); ++i) {
-        dphi.push_back(std::remainder(pilot_phases[i] - pilot_phases[i - 1], kTwoPi));
+    float resid_slope_per_sym = 0.f;
+    if (n_syms >= 2) {
+      std::vector<float> unwrap_ph(static_cast<size_t>(n_syms));
+      unwrap_ph[0] = pilot_phases[0];
+      for (int i = 1; i < n_syms; ++i) {
+        const float d = std::remainder(pilot_phases[static_cast<size_t>(i)] - unwrap_ph[static_cast<size_t>(i - 1)], kTwoPi);
+        unwrap_ph[static_cast<size_t>(i)] = unwrap_ph[static_cast<size_t>(i - 1)] + d;
       }
-      std::sort(dphi.begin(), dphi.end());
-      slope_b = dphi[dphi.size() / 2];  // Robust median phase advance per symbol
-      resid_cfo_hz = slope_b * FS / (kTwoPi * 80.f);
-
-      // Circular vector average of implied intercepts across all symbols
-      c32 sum_inter(0.f, 0.f);
-      for (size_t i = 0; i < pilot_phases.size(); ++i) {
-        const float ph = pilot_phases[i] - slope_b * static_cast<float>(i);
-        sum_inter += c32(std::cos(ph), std::sin(ph));
+      const float x_mean = 0.5f * static_cast<float>(n_syms - 1);
+      float y_mean = 0.f;
+      for (int i = 0; i < n_syms; ++i) y_mean += unwrap_ph[static_cast<size_t>(i)];
+      y_mean /= static_cast<float>(n_syms);
+      float num = 0.f, den = 0.f;
+      for (int i = 0; i < n_syms; ++i) {
+        const float dx = static_cast<float>(i) - x_mean;
+        num += dx * (unwrap_ph[static_cast<size_t>(i)] - y_mean);
+        den += dx * dx;
       }
-      intercept_a = std::arg(sum_inter);
-    } else if (!pilot_phases.empty()) {
-      intercept_a = pilot_phases[0];
-    }
-    fr.resid_cfo_hz = resid_cfo_hz;
-
-    float median_slope = 0.f;
-    if (!pilot_slopes.empty()) {
-      std::vector<float> sorted_slopes = pilot_slopes;
-      std::sort(sorted_slopes.begin(), sorted_slopes.end());
-      median_slope = sorted_slopes[sorted_slopes.size() / 2];
+      if (den > 1e-9f) resid_slope_per_sym = num / den;
     }
 
-    // Accumulate per-subcarrier DFE calibration across symbols
+    const float resid_rad = resid_slope_per_sym / 80.f;
+    fr.resid_cfo_hz = resid_rad * FS / kTwoPi;
+    if (std::abs(resid_rad) > 1e-7f) {
+      // Remove residual CFO in the time domain before final LTF channel estimation and Data FFTs
+      // to eliminate Inter-Carrier Interference (ICI) and residual phase ramp.
+      derotate(iq_local.data(), iq_local.size(), resid_rad, static_cast<float>(cur_ltf1 + 64 - kFftAdvance));
+      compute_channel_estimate(H_smooth, avg_h2, mmse_reg, fr.snr_db);
+      fr.fine_cfo_hz += fr.resid_cfo_hz;
+    }
+
+    fr.H_mag.resize(52);
+    fr.H_phase.resize(52);
+    for (int i = 0; i < 52; ++i) {
+      const int k = (i < 26) ? (i - 26) : (i - 25);
+      const int bin = (k + 64) % 64;
+      const float mag = std::abs(H_smooth[bin]);
+      const float ph = std::arg(H_smooth[bin]) * (180.f / float(M_PI));
+      fr.H_mag[i] = 20.f * std::log10(mag + 1e-6f);
+      fr.H_phase[i] = ph;
+    }
+
+    auto snap_ideal = [&](const c32& d) -> c32 {
+      if (rate_info->mod == Modulation::BPSK) {
+        return c32((d.real() >= 0.f) ? 1.f : -1.f, 0.f);
+      } else if (rate_info->mod == Modulation::QPSK) {
+        return c32((d.real() >= 0.f) ? 0.70710678f : -0.70710678f,
+                   (d.imag() >= 0.f) ? 0.70710678f : -0.70710678f);
+      } else if (rate_info->mod == Modulation::QAM16) {
+        return c32(snap_1d(d.real(), qam16_levels, 4), snap_1d(d.imag(), qam16_levels, 4));
+      } else if (rate_info->mod == Modulation::QAM64) {
+        return c32(snap_1d(d.real(), qam64_levels, 8), snap_1d(d.imag(), qam64_levels, 8));
+      }
+      return c32((d.real() >= 0.f) ? 1.f : -1.f, 0.f);
+    };
+
+    // Pass 2: Equalize all symbols, track pilot + decision-directed CPE and timing slope (SRO)
+    std::vector<std::array<c32, 48>> eq_matrix(static_cast<size_t>(n_syms));
+    fr.pilot_cpe.resize(static_cast<size_t>(n_syms), 0.f);
     c32 sum_dd_sc[48]{};
-    float sum_mag_sc[48]{};
+    float sum_ref2_sc[48]{};
+
     for (int si = 0; si < n_syms; ++si) {
       const int ss = data_start + si * 80;
       c32 Y[64], eq[64];
@@ -667,93 +695,79 @@ FrameResult WifiDsp::decode_burst(std::span<const c32> raw_iq, const StsResult* 
       Y[0] = c32(0.f, 0.f);
       mmse_equalize(Y, H_smooth, eq, mmse_reg);
 
-      const float sym_phase = intercept_a + slope_b * static_cast<float>(si);
-      const c32 rot(std::cos(-sym_phase), std::sin(-sym_phase));
-      for (int k = 0; k < 64; ++k) eq[k] *= rot;
-
       const float pilot_pol = static_cast<float>(PILOT_SEQ[(si + 1) % 127]);
-      c32 p[4];
+      c32 sum_p(0.f, 0.f);
       for (int i = 0; i < 4; ++i) {
-        p[i] = (Y[PILOT_SC[i]] * rot) * std::conj(H_smooth[PILOT_SC[i]]) * (BASE_PILOT_POLARITY[i] * pilot_pol);
+        sum_p += Y[PILOT_SC[i]] * std::conj(H_smooth[PILOT_SC[i]]) * (BASE_PILOT_POLARITY[i] * pilot_pol);
       }
-      const c32 sum_p = p[0] + p[1] + p[2] + p[3];
-      const float cpe_err = std::arg(sum_p);
-      apply_phase_correction(eq, cpe_err, median_slope);
+      const float cpe0 = std::arg(sum_p);
+      apply_phase_correction(eq, cpe0, 0.f);
+
+      // Decision-directed CPE & SRO timing-slope refinement weighted by subcarrier channel power
+      c32 dd_acc(0.f, 0.f);
+      float k_num = 0.f, k_den = 0.f;
+      for (int i = 0; i < 4; ++i) {
+        const int pb = PILOT_SC[i];
+        const float w_b = std::norm(H_smooth[pb]) / (avg_h2 + 1e-9f);
+        const c32 z_err = eq[pb] * (BASE_PILOT_POLARITY[i] * pilot_pol);
+        dd_acc += 2.f * w_b * z_err;
+        const float ks = fft_bin_k(pb);
+        k_num += 2.f * w_b * ks * std::arg(z_err);
+        k_den += 2.f * w_b * ks * ks;
+      }
+      for (int i = 0; i < 48; ++i) {
+        const int db = DATA_SC[i];
+        const float w_b = std::norm(H_smooth[db]) / (avg_h2 + 1e-9f);
+        const c32 ideal = snap_ideal(eq[db]);
+        const c32 z_err = eq[db] * std::conj(ideal);
+        dd_acc += w_b * z_err;
+        const float ks = fft_bin_k(db);
+        k_num += w_b * ks * std::arg(z_err);
+        k_den += w_b * ks * ks;
+      }
+      const float cpe_dd = std::clamp(std::arg(dd_acc), -0.35f, 0.35f);
+      const float sro_slope = (k_den > 1e-6f) ? std::clamp(k_num / k_den, -0.025f, 0.025f) : 0.f;
+      apply_phase_correction(eq, cpe_dd, sro_slope);
+      fr.pilot_cpe[static_cast<size_t>(si)] = std::remainder(cpe0 + cpe_dd, kTwoPi);
 
       for (int i = 0; i < 48; ++i) {
         const c32 d = eq[DATA_SC[i]];
-        c32 ideal(0.f, 0.f);
-        if (rate_info->mod == Modulation::BPSK) {
-          ideal = c32((d.real() >= 0.f) ? 1.f : -1.f, 0.f);
-        } else if (rate_info->mod == Modulation::QPSK) {
-          ideal = c32((d.real() >= 0.f) ? 0.70710678f : -0.70710678f,
-                      (d.imag() >= 0.f) ? 0.70710678f : -0.70710678f);
-        } else if (rate_info->mod == Modulation::QAM16) {
-          ideal = c32(snap_1d(d.real(), qam16_levels, 4), snap_1d(d.imag(), qam16_levels, 4));
-        } else if (rate_info->mod == Modulation::QAM64) {
-          ideal = c32(snap_1d(d.real(), qam64_levels, 8), snap_1d(d.imag(), qam64_levels, 8));
-        } else {
-          ideal = c32((d.real() >= 0.f) ? 1.f : -1.f, 0.f);
-        }
+        eq_matrix[static_cast<size_t>(si)][static_cast<size_t>(i)] = d;
+        const c32 ideal = snap_ideal(d);
         sum_dd_sc[i] += d * std::conj(ideal);
-        sum_mag_sc[i] += std::abs(d);
+        sum_ref2_sc[i] += std::norm(ideal);
       }
     }
 
+    // Per-subcarrier residual complex channel refinement across the packet (damped to prevent overfitting)
     c32 corr_sc[48];
-    const bool is_high_order = (rate_info->mod == Modulation::QAM16 || rate_info->mod == Modulation::QAM64);
-    if (is_high_order) {
-      for (int i = 0; i < 48; ++i) {
-        float ph_i = std::arg(sum_dd_sc[i]);
-        ph_i = std::clamp(ph_i, -0.12f, 0.12f);
-        const float mag_i = sum_mag_sc[i] / static_cast<float>(n_syms);
-        float scale = (mag_i > 0.15f) ? (1.f / mag_i) : 1.f;
-        scale = std::clamp(scale, 0.85f, 1.15f);
-        corr_sc[i] = c32(std::cos(-ph_i) * scale, std::sin(-ph_i) * scale);
-      }
-    } else {
-      for (int i = 0; i < 48; ++i) {
+    for (int i = 0; i < 48; ++i) {
+      if (n_syms >= 4 && sum_ref2_sc[i] > 1e-6f) {
+        const c32 g_hat = sum_dd_sc[i] / sum_ref2_sc[i];
+        const c32 g_blend = c32(0.45f, 0.f) + 0.55f * g_hat;
+        const float mag = std::clamp(std::abs(g_blend), 0.70f, 1.45f);
+        const float ph = std::clamp(std::arg(g_blend), -0.30f, 0.30f);
+        const float inv_mag = 1.f / mag;
+        corr_sc[i] = c32(inv_mag * std::cos(-ph), inv_mag * std::sin(-ph));
+      } else {
         corr_sc[i] = c32(1.f, 0.f);
       }
     }
 
-    // Pass 2: apply Pass-1 CPE/slope, then soft-demap
     std::vector<float> raw_llrs;
     raw_llrs.reserve(static_cast<size_t>(n_syms * n_cbps));
     fr.eq_symbols.reserve(static_cast<size_t>(n_syms * 48));
 
-    float h_sq[48], h_mag[48], h_weight[48];
+    float h_sq[48], h_weight[48];
     for (int i = 0; i < 48; ++i) {
       h_sq[i] = std::norm(H_smooth[DATA_SC[i]]);
-      h_mag[i] = std::abs(H_smooth[DATA_SC[i]]);
       h_weight[i] = h_sq[i] / (h_sq[i] + mmse_reg);
     }
 
     for (int si = 0; si < n_syms; ++si) {
-      const int ss = data_start + si * 80;
-      c32 Y[64], eq[64];
-      fft64(&iq_local[static_cast<size_t>(ss)], Y);
-      Y[0] = c32(0.f, 0.f);
-      mmse_equalize(Y, H_smooth, eq, mmse_reg);
-
-      // 1. Derotate by global linear regression from Pass 1
-      const float sym_phase = intercept_a + slope_b * static_cast<float>(si);
-      const c32 rot(std::cos(-sym_phase), std::sin(-sym_phase));
-      for (int k = 0; k < 64; ++k) eq[k] *= rot;
-
-      // 2. Measure residual instantaneous phase error from 4 pilots
-      const float pilot_pol = static_cast<float>(PILOT_SEQ[(si + 1) % 127]);
-      c32 p[4];
-      for (int i = 0; i < 4; ++i) {
-        p[i] = (Y[PILOT_SC[i]] * rot) * std::conj(H_smooth[PILOT_SC[i]]) * (BASE_PILOT_POLARITY[i] * pilot_pol);
-      }
-      const c32 sum_p = p[0] + p[1] + p[2] + p[3];
-      const float cpe_err = std::arg(sum_p);
-      apply_phase_correction(eq, cpe_err, median_slope);
-
       c32 sym_data[48];
       for (int i = 0; i < 48; ++i) {
-        sym_data[i] = eq[DATA_SC[i]] * corr_sc[i];
+        sym_data[i] = eq_matrix[static_cast<size_t>(si)][static_cast<size_t>(i)] * corr_sc[i];
         fr.eq_symbols.push_back(sym_data[i]);
       }
 
@@ -906,6 +920,34 @@ FrameResult WifiDsp::decode_burst(std::span<const c32> raw_iq, const StsResult* 
             }
             payload[b1 / 8] ^= (1 << (b1 % 8));
           }
+
+          // 4c. 3-bit flips on top 14 lowest-confidence bits
+          const size_t n_search3 = std::min<size_t>(conf.size(), 14);
+          for (size_t i = 0; i < n_search3; ++i) {
+            const size_t b1 = conf[i].second;
+            if (b1 / 8 >= payload.size()) continue;
+            payload[b1 / 8] ^= (1 << (b1 % 8));
+            for (size_t j = i + 1; j < n_search3; ++j) {
+              const size_t b2 = conf[j].second;
+              if (b2 / 8 >= payload.size()) continue;
+              payload[b2 / 8] ^= (1 << (b2 % 8));
+              for (size_t k = j + 1; k < n_search3; ++k) {
+                const size_t b3 = conf[k].second;
+                if (b3 / 8 >= payload.size()) continue;
+                payload[b3 / 8] ^= (1 << (b3 % 8));
+                const uint32_t calc_crc = wifi_crc32(payload.data(), body_len);
+                uint32_t rx_crc = 0;
+                std::memcpy(&rx_crc, payload.data() + body_len, 4);
+                if (calc_crc == rx_crc) {
+                  fr.payload = payload;
+                  return true;
+                }
+                payload[b3 / 8] ^= (1 << (b3 % 8));
+              }
+              payload[b2 / 8] ^= (1 << (b2 % 8));
+            }
+            payload[b1 / 8] ^= (1 << (b1 % 8));
+          }
         }
       }
 
@@ -937,11 +979,12 @@ FrameResult WifiDsp::decode_burst(std::span<const c32> raw_iq, const StsResult* 
     if (!check_payload(desc_rep, fr.payload)) {
       check_payload(descramble(decoded_bits_z0), fr.payload);
     }
+
     fr.fcs_ok = false;
     return fr;
   };
 
-  const int shifts[] = {0, -1, 1, -2, 2, -3, 3};
+  const int shifts[] = {0, -1, 1, -2, 2, -3, 3, -4, 4};
   FrameResult best_fr;
   for (int shift : shifts) {
     const int cur_ltf1 = ltf1 + shift;
@@ -950,7 +993,10 @@ FrameResult WifiDsp::decode_burst(std::span<const c32> raw_iq, const StsResult* 
     if (res.fcs_ok) {
       return res;
     }
-    if (shift == 0) {
+    if (res.signal_ok && res.needed_samples > static_cast<int>(iq.size())) {
+      return res;
+    }
+    if (shift == 0 || (!best_fr.signal_ok && res.signal_ok)) {
       best_fr = res;
     }
   }

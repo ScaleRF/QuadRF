@@ -139,6 +139,14 @@ bool WifiTun::configure_interface(const std::string& ip_cidr, int mtu) {
   std::snprintf(cmd, sizeof(cmd), "sysctl -w net.ipv6.conf.%s.disable_ipv6=1 >/dev/null 2>&1 || true", ifname_.c_str());
   std::system(cmd);
 
+  // Clamp TCP MSS to path MTU to prevent TCP fragmentation across the TDD link
+  char ipt_cmd[512];
+  std::snprintf(ipt_cmd, sizeof(ipt_cmd),
+                "iptables -t mangle -C POSTROUTING -o %s -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null || "
+                "iptables -t mangle -A POSTROUTING -o %s -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null || true",
+                ifname_.c_str(), ifname_.c_str());
+  std::system(ipt_cmd);
+
   std::cerr << "WifiTun: configured " << ifname_ << " (" << ip_cidr << ", MTU " << mtu << ")\n";
   return true;
 }
@@ -176,7 +184,7 @@ void WifiTun::read_loop() {
   pfd.events = POLLIN;
 
   while (running_) {
-    int ret = poll(&pfd, 1, 50);  // 50 ms timeout
+    int ret = poll(&pfd, 1, 15);  // 15 ms timeout
     if (ret > 0 && (pfd.revents & POLLIN)) {
       ssize_t n = ::read(fd_, buf, sizeof(buf));
       if (n > 0) {

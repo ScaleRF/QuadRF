@@ -25,7 +25,7 @@ DESKTOP_ENTRY_DIRS = tuple(filter(None, os.environ.get(
 ).split(":")))
 APP_ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
 # Bundled radio apps stay left of drop-ins, whose files sort by name.
-PREFERRED_APP_IDS = ("ar", "phasegaze", "mimo", "ntsc", "ntsc-tx", "psd", "nearfield", "mesh")
+PREFERRED_APP_IDS = ("ar", "phasegaze", "mimo", "data", "ntsc", "ntsc-tx", "psd", "nearfield", "mesh")
 CSI_RELEASE_S = 0.5
 STOP_WAIT_S = 4.0
 START_WAIT_S = 30.0
@@ -120,8 +120,8 @@ def run(cmd, check=False):
 
 
 def unit_exists(unit):
-    r = run(["systemctl", "list-unit-files", "--no-legend", unit])
-    return r.returncode == 0 and unit in (r.stdout or "")
+    r = run(["systemctl", "show", "--property=LoadState", "--value", "--", unit])
+    return r.returncode == 0 and (r.stdout or "").strip() not in ("", "not-found")
 
 
 def unit_active(unit):
@@ -132,8 +132,64 @@ def unit_failed(unit):
     return run(["systemctl", "is-failed", "--quiet", unit]).returncode == 0
 
 
-def binary_running(name):
-    return run(["pgrep", "-x", name]).returncode == 0
+def query_units(units):
+    units = list(dict.fromkeys(u for u in units if u))
+    if not units:
+        return {}
+    r = run(["systemctl", "show", "--property=Id,LoadState,ActiveState", "--", *units])
+    out = {}
+    if r.returncode != 0:
+        for u in units:
+            installed = unit_exists(u)
+            active = unit_active(u) if installed else False
+            failed = unit_failed(u) if installed else False
+            out[u] = (installed, active, failed)
+        return out
+    for block in (r.stdout or "").strip().split("\n\n"):
+        kv = {}
+        for line in block.splitlines():
+            if "=" in line:
+                k, v = line.split("=", 1)
+                kv[k] = v
+        uid = kv.get("Id")
+        if uid:
+            load = kv.get("LoadState", "not-found")
+            act = kv.get("ActiveState", "inactive")
+            installed = load != "not-found"
+            active = act in ("active", "activating", "reloading")
+            failed = act == "failed"
+            out[uid] = (installed, active, failed)
+    return out
+
+
+def running_process_names():
+    names = set()
+    try:
+        for entry in os.scandir("/proc"):
+            if not entry.name.isdigit():
+                continue
+            try:
+                with open(os.path.join(entry.path, "comm"), "r", encoding="utf-8", errors="ignore") as f:
+                    comm = f.read().strip()
+                    if comm:
+                        names.add(comm)
+                with open(os.path.join(entry.path, "cmdline"), "rb") as f:
+                    raw = f.read(512)
+                    if raw:
+                        arg0 = raw.split(b"\x00", 1)[0].decode("utf-8", errors="ignore")
+                        if arg0:
+                            names.add(os.path.basename(arg0))
+            except OSError:
+                continue
+    except OSError:
+        return None
+    return names
+
+
+def binary_running(name, proc_names=None):
+    if proc_names is not None:
+        return name in proc_names or name[:15] in proc_names
+    return run(["pgrep", "-x", name[:15]]).returncode == 0
 
 
 def port_open(port):
@@ -144,7 +200,7 @@ def port_open(port):
         return False
 
 
-def wait_until(pred, timeout, interval=0.1):
+def wait_until(pred, timeout, interval=0.05):
     deadline = time.time() + timeout
     while time.time() < deadline:
         if pred():
@@ -155,24 +211,29 @@ def wait_until(pred, timeout, interval=0.1):
 
 def stop_binaries(app):
     for name in app.get("binaries") or []:
-        run(["pkill", "-x", name])
+        run(["pkill", "-x", name[:15]])
 
 
-def stop_app(app):
+def stop_app(app, unit_info=None, proc_names=None):
     unit = app["service"]
-    needs_stop = False
-    if unit_exists(unit):
-        needs_stop = unit_active(unit) or unit_failed(unit)
+    if unit_info is None:
+        unit_info = query_units([unit]).get(unit, (False, False, False))
+    installed, active, failed = unit_info
+    bins = app.get("binaries") or []
+    needs_stop = installed and (active or failed)
     if not needs_stop:
-        needs_stop = any(binary_running(b) for b in (app.get("binaries") or []))
+        needs_stop = any(binary_running(b, proc_names) for b in bins)
     if not needs_stop:
         return
-    if unit_exists(unit):
-        run(["systemctl", "stop", unit])
-        run(["systemctl", "reset-failed", unit])
-        wait_until(lambda: not unit_active(unit), STOP_WAIT_S)
-    stop_binaries(app)
-    wait_until(lambda: not any(binary_running(b) for b in (app.get("binaries") or [])), 2.0)
+    if installed:
+        if active:
+            run(["systemctl", "stop", unit])
+            wait_until(lambda: not unit_active(unit), STOP_WAIT_S)
+        if failed or unit_failed(unit):
+            run(["systemctl", "reset-failed", unit])
+    if any(binary_running(b) for b in bins):
+        stop_binaries(app)
+        wait_until(lambda: not any(binary_running(b) for b in bins), 2.0)
 
 
 def start_app(app):
@@ -196,16 +257,16 @@ def start_app(app):
 
 
 def status_payload(catalog):
+    units_map = query_units([app["service"] for app in catalog.values()])
+    proc_names = running_process_names()
     apps = []
     for app_id, app in catalog.items():
         metadata = desktop_metadata(app)
         unit = app["service"]
-        installed = unit_exists(unit)
-        running = False
-        if installed:
-            running = unit_active(unit)
+        installed, active, _ = units_map.get(unit, (False, False, False))
+        running = active if installed else False
         if not running:
-            running = any(binary_running(b) for b in (app.get("binaries") or []))
+            running = any(binary_running(b, proc_names) for b in (app.get("binaries") or []))
         apps.append({
             "id": app_id,
             "name": metadata.get("name") or app.get("name") or app_id,
@@ -231,11 +292,13 @@ def cmd_start(catalog, app_id):
     app = catalog.get(app_id)
     if not app:
         die(f"unknown app: {app_id}", 2)
+    units_map = query_units([a["service"] for a in catalog.values()])
+    proc_names = running_process_names()
     for other_id, other in catalog.items():
         if other_id == app_id:
             continue
         if app.get("exclusive") and other.get("exclusive"):
-            stop_app(other)
+            stop_app(other, units_map.get(other["service"]), proc_names)
     time.sleep(CSI_RELEASE_S)
     start_app(app)
     json.dump(status_payload(catalog), sys.stdout)

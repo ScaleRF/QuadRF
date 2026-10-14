@@ -12,6 +12,7 @@ usr/share/quadrf/ntsc_ch.lua
 usr/share/quadrf/examples/
 usr/share/quadrf/apps.d/quadrf-demos.json
 usr/share/quadrf/apps.d/quadrf-data.json
+usr/share/quadrf-data/
 usr/share/applications/com.scalerf.QuadRF.SpatialRFVision.desktop
 usr/share/applications/com.scalerf.QuadRF.CameraDecoder.desktop
 usr/share/applications/com.scalerf.QuadRF.CameraEncoder.desktop

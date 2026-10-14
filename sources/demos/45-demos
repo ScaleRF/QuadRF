@@ -17,8 +17,9 @@ for unit in quadrf-rf-vision.service quadrf-ntsc.service quadrf-ntsc-tx.service 
     quadrf_user_dropin "${unit}"
 done
 
+rm -f /etc/systemd/system/quadrf-data.service.d/20-display.conf
 if [ -n "${home}" ]; then
-    for unit in quadrf-ntsc.service quadrf-ntsc-tx.service quadrf-psd.service quadrf-nearfield.service quadrf-data.service; do
+    for unit in quadrf-ntsc.service quadrf-ntsc-tx.service quadrf-psd.service quadrf-nearfield.service; do
         dir="/etc/systemd/system/${unit}.d"
         [ -d "${dir}" ] || continue
         cat > "${dir}/20-display.conf" <<EOF

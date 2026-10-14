@@ -1,59 +1,66 @@
-.TH QUADRF-DATA 1 "September 2026" "QuadRF" "QuadRF"
+.TH QUADRF-DATA 1 "October 2026" "QuadRF" "QuadRF"
 .SH NAME
-quadrf-data \- IEEE 802.11 OFDM IP tunnel over the QuadRF radio
+quadrf-data \- 802.11 OFDM Link transceiver and web HUD over the QuadRF radio
 .SH SYNOPSIS
 .B quadrf-data
 [\fIoptions\fR]
 .SH DESCRIPTION
-Runs an 802.11a-style OFDM PHY on the QuadRF tile and bridges IPv4 through a
-TUN interface. Two units on the same channel form a point-to-point IP link.
-Desktop launch is
-.B quadrf-data --gui
-with the TUN address taken from
+Runs an IEEE 802.11a OFDM PHY and Stop-and-Wait ARQ MAC on the QuadRF tile,
+bridging IPv4 traffic through a Linux TUN interface (\fItun0\fR) and serving a
+real-time browser HUD and WebSocket telemetry stream on port 8092 (proxied at
+.IR /data/ ).
+Two units on the same carrier frequency form a point-to-point IP link and peer
+chat channel with a default TUN subnet of 10.99.0.0/24 derived from
 .I QUADRF_HOSTNAME
 in
-.IR /etc/quadrf/quadrf.conf
-(quadrf is 10.99.0.1, quadrf-2 is 10.99.0.2). Frequency and gain stay on the
-web radio controls. The GUI rate buttons cycle BPSK and QPSK (6, 9, 12, 18
-Mbps);
-.B --rate
-still accepts the full 802.11a set.
+.IR /etc/quadrf/quadrf.conf .
 .SH OPTIONS
 .TP
-.B --gui
-Open the SDL dashboard (desktop and systemd default).
+.BI --port " port"
+Web HUD and WebSocket listen port (default: 8092).
 .TP
-.B --headless
-Run without a window.
+.BI --web-dir " path"
+Static web assets directory (default: \fI/usr/share/quadrf-data/web\fR).
+.TP
+.B --gui
+Start \fBquadrf-data.service\fR via \fBquadrf-app\fR and open \fI/data/\fR in
+the operator browser.
+.TP
+.BI --tun " name"
+Linux TUN interface name (default: \fItun0\fR).
 .TP
 .BI --ip " cidr"
-TUN address (default: from hostname, as above).
+TUN IPv4 address with prefix length (default: auto from hostname).
+.TP
+.BI --freq " MHz"
+RF center frequency in MHz (default: 5860.0).
 .TP
 .BI --rate " name"
-TX modulation (6, 9, 12, 18, 24, 36, 48, 54).
+TX modulation rate in Mb/s (6, 9, 12, 18, 24, 36, 48, 54).
 .TP
-.B --verbose
-Print per-frame RX/TX and a 2 s telemetry line.
+.BI --tx-gain " dB"
+Transmit gain in dB (0..40, default: 34.0).
 .TP
-.B --help
-List all options, including radio CLI overrides.
-.SH KEYS
-The SDL window must have keyboard focus.
+.BI --rx-gain " dB"
+Receive gain in dB (0..63, default: 30.0).
 .TP
-.BR Return ", " I
-Ping the peer.
+.BI --tx-ant " mask"
+Transmit antenna bitmask (1..15, default: 0x01).
 .TP
-.B A
-Toggle auto-ping.
+.BI --rx-ant " mask"
+Receive antenna bitmask (1..15, default: 0x01).
 .TP
-.BR Space ", " U
-Start or stop TUN forwarding.
+.B --pa-mute
+Mute SE5003L PA during receive and unmute around DSI VSYNC burst scanout (default).
 .TP
-.B R
-Next GUI rate.
+.B --no-pa-mute
+Keep PA unmuted continuously.
 .TP
-.BR Q ", " Escape
-Quit.
+.B --smoke-test
+Run offline synthetic DSP loopback validation across all 802.11a rates.
+.TP
+.BR --help ", " -h
+List command-line options.
 .SH SEE ALSO
 .BR quadrf-jtag (1),
 .BR quadrf-psd (1),

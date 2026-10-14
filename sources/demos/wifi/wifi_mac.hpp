@@ -23,6 +23,9 @@ struct MacTxConfig {
   MacAddr sa = {0x00, 0x12, 0x34, 0x56, 0x78, 0x9A};  // QuadRF node local MAC
   MacAddr bssid = {0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC};
   uint16_t ethertype = 0x0800;  // IPv4
+  bool retry = false;
+  bool has_piggy_ack = false;
+  uint16_t piggy_ack_seq = 0;
 };
 
 struct MacRxConfig {
@@ -124,6 +127,23 @@ class WifiMac {
                                                const MacTxConfig& cfg = {});
   static std::vector<uint8_t> decapsulate_ipv4(std::span<const uint8_t> mpdu,
                                                const MacRxConfig& cfg = {});
+
+  static std::vector<uint8_t> encapsulate_chat(const std::string& sender,
+                                               const std::string& text,
+                                               uint16_t seq_num,
+                                               const MacTxConfig& cfg = {});
+  static bool decapsulate_chat(std::span<const uint8_t> mpdu,
+                               std::string& out_sender,
+                               std::string& out_text,
+                               const MacRxConfig& cfg = {});
+
+  static std::vector<uint8_t> encapsulate_ack(uint16_t ack_seq,
+                                              uint16_t seq_num,
+                                              const MacTxConfig& cfg = {});
+  static bool decapsulate_ack(std::span<const uint8_t> mpdu,
+                              uint16_t& out_ack_seq,
+                              const MacRxConfig& cfg = {});
+  static bool extract_piggy_ack(std::span<const uint8_t> mpdu, uint16_t& out_ack_seq);
 
   static WifiPacketInfo parse_frame(std::span<const uint8_t> mpdu, bool fcs_verified = false);
 

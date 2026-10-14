@@ -280,18 +280,49 @@ std::vector<int8_t> WifiTx::modulate_frame_cs8(std::span<const uint8_t> mpdu, co
   const auto cf32 = modulate_frame(mpdu, rate);
   if (cf32.empty()) return {};
 
-  float peak = 1e-6f;
-  for (const auto& s : cf32) {
-    peak = std::max(peak, std::abs(s));
-  }
-  const float scale = 100.f / peak;
+  // Deterministic RMS scaling (RMS of 52 active subcarriers after 1/64 IFFT is digital_scale * sqrt(52)/64).
+  // Target 32.0 CS8 counts RMS (~22.6 counts per I/Q rail) with complex-phase-preserving crest limiting at 102 counts
+  // prior to 2x half-band interpolation so all packets have identical TX power and zero hard-clipping splatter.
+  const float nominal_rms = std::max(1e-6f, cfg_.digital_scale * (7.21110255f / 64.f));
+  const float scale = 32.0f / nominal_rms;
 
-  std::vector<int8_t> cs8(cf32.size() * 2);
-  for (size_t i = 0; i < cf32.size(); ++i) {
-    float r = std::clamp(cf32[i].real() * scale, -127.f, 127.f);
-    float im = std::clamp(cf32[i].imag() * scale, -127.f, 127.f);
-    cs8[2 * i] = static_cast<int8_t>(std::lrintf(r));
-    cs8[2 * i + 1] = static_cast<int8_t>(std::lrintf(im));
+  const size_t n20 = cf32.size();
+  std::vector<c32> x(n20 + 8, c32(0.f, 0.f));
+  for (size_t i = 0; i < n20; ++i) {
+    c32 z = cf32[i] * scale;
+    const float mag = std::abs(z);
+    if (mag > 102.f) {
+      z *= (102.f / mag);
+    }
+    x[i + 4] = z;
+  }
+
+  // 2x half-band FIR interpolation (20 MS/s -> 40 MS/s) to suppress the +/-20 MHz first spectral image
+  // by >38 dB before the SoapySDR 4-tap Farrow upsampler and MAX2850 reconstruction filter.
+  constexpr float c1 = 2.f * 0.3134022f;
+  constexpr float c3 = 2.f * -0.0921536f;
+  constexpr float c5 = 2.f * 0.0363834f;
+  constexpr float c7 = 2.f * -0.0076320f;
+
+  const size_t n40 = n20 * 2;
+  std::vector<int8_t> cs8(n40 * 2);
+  for (size_t i = 0; i < n20; ++i) {
+    const size_t k = i + 4;
+    const c32 y_even = x[k];
+    const c32 y_odd = c1 * (x[k] + x[k + 1]) +
+                      c3 * (x[k - 1] + x[k + 2]) +
+                      c5 * (x[k - 2] + x[k + 3]) +
+                      c7 * (x[k - 3] + x[k + 4]);
+
+    const float r0 = std::clamp(y_even.real(), -127.f, 127.f);
+    const float im0 = std::clamp(y_even.imag(), -127.f, 127.f);
+    const float r1 = std::clamp(y_odd.real(), -127.f, 127.f);
+    const float im1 = std::clamp(y_odd.imag(), -127.f, 127.f);
+
+    cs8[4 * i + 0] = static_cast<int8_t>(std::lrintf(r0));
+    cs8[4 * i + 1] = static_cast<int8_t>(std::lrintf(im0));
+    cs8[4 * i + 2] = static_cast<int8_t>(std::lrintf(r1));
+    cs8[4 * i + 3] = static_cast<int8_t>(std::lrintf(im1));
   }
   return cs8;
 }

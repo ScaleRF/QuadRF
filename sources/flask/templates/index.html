@@ -2287,6 +2287,10 @@
         fetchApps();
         probeHttps();
         setInterval(fetchApps, 3000);
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') fetchApps();
+        });
+        window.addEventListener('focus', fetchApps);
         window.addEventListener('load', scrollToReceiveOnce);
 
         document.getElementById('openDesktopBtn').addEventListener('click', () => {

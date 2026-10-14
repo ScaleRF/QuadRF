@@ -821,6 +821,11 @@
                 signal: controller.signal
             });
             clearTimeout(timer);
+            arLeaving = true;
+            if (attachTimer) {
+                clearInterval(attachTimer);
+                attachTimer = null;
+            }
             window.location.replace(target);
             return true;
         } catch (e) {

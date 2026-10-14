@@ -23,7 +23,7 @@ std::vector<uint8_t> WifiMac::encapsulate_ipv4(std::span<const uint8_t> ip_packe
   // 1. MAC Header
   // Frame Control: Subtype 8 (QoS Data) -> 0x0088, Subtype 0 (Data) -> 0x0008
   mpdu[0] = is_qos ? 0x88 : 0x08;
-  mpdu[1] = 0x00;
+  mpdu[1] = cfg.retry ? 0x08 : 0x00;
 
   // Duration / ID
   mpdu[2] = 0x00;
@@ -44,10 +44,15 @@ std::vector<uint8_t> WifiMac::encapsulate_ipv4(std::span<const uint8_t> ip_packe
   mpdu[23] = static_cast<uint8_t>((seq_ctrl >> 8) & 0xFF);
 
   if (is_qos) {
-    // QoS Control: 2 bytes
-    // Bits 5-6: 01 (No-ACK policy = 0x0020)
-    mpdu[24] = 0x20;
-    mpdu[25] = 0x00;
+    // QoS Control: 2 bytes. Bit 15 signals a piggybacked 12-bit Link-Layer ACK sequence number.
+    if (cfg.has_piggy_ack) {
+      const uint16_t qos = 0x8000u | (cfg.piggy_ack_seq & 0x0FFFu);
+      mpdu[24] = static_cast<uint8_t>(qos & 0xFFu);
+      mpdu[25] = static_cast<uint8_t>((qos >> 8) & 0xFFu);
+    } else {
+      mpdu[24] = 0x20;
+      mpdu[25] = 0x00;
+    }
   }
 
   // 2. LLC / SNAP Header (8 bytes)
@@ -144,6 +149,86 @@ std::vector<uint8_t> WifiMac::decapsulate_ipv4(std::span<const uint8_t> mpdu,
   if (ip_len == 0) return {};
 
   return std::vector<uint8_t>(mpdu.begin() + ip_offset, mpdu.begin() + body_len);
+}
+
+std::vector<uint8_t> WifiMac::encapsulate_chat(const std::string& sender,
+                                               const std::string& text,
+                                               uint16_t seq_num,
+                                               const MacTxConfig& cfg) {
+  std::vector<uint8_t> payload;
+  const size_t slen = std::min<size_t>(sender.size(), 32);
+  const size_t tlen = std::min<size_t>(text.size(), 1024);
+  payload.reserve(7 + slen + tlen);
+  payload.push_back('Q');
+  payload.push_back('C');
+  payload.push_back('H');
+  payload.push_back('T');
+  payload.push_back(static_cast<uint8_t>(slen));
+  payload.insert(payload.end(), sender.begin(), sender.begin() + slen);
+  payload.push_back(static_cast<uint8_t>((tlen >> 8) & 0xFF));
+  payload.push_back(static_cast<uint8_t>(tlen & 0xFF));
+  payload.insert(payload.end(), text.begin(), text.begin() + tlen);
+
+  MacTxConfig chat_cfg = cfg;
+  chat_cfg.ethertype = 0x88B5;
+  return encapsulate_ipv4(payload, seq_num, chat_cfg);
+}
+
+bool WifiMac::decapsulate_chat(std::span<const uint8_t> mpdu,
+                               std::string& out_sender,
+                               std::string& out_text,
+                               const MacRxConfig& cfg) {
+  MacRxConfig chat_rx = cfg;
+  chat_rx.accept_ethertype = 0x88B5;
+  auto payload = decapsulate_ipv4(mpdu, chat_rx);
+  if (payload.size() < 7) return false;
+  if (payload[0] != 'Q' || payload[1] != 'C' || payload[2] != 'H' || payload[3] != 'T') return false;
+
+  const uint8_t slen = payload[4];
+  if (static_cast<size_t>(5 + slen + 2) > payload.size()) return false;
+  out_sender = std::string(reinterpret_cast<const char*>(&payload[5]), slen);
+
+  const size_t toff = 5 + slen;
+  const uint16_t tlen = (static_cast<uint16_t>(payload[toff]) << 8) | payload[toff + 1];
+  if (toff + 2 + tlen > payload.size()) return false;
+  out_text = std::string(reinterpret_cast<const char*>(&payload[toff + 2]), tlen);
+  return true;
+}
+
+std::vector<uint8_t> WifiMac::encapsulate_ack(uint16_t ack_seq,
+                                              uint16_t seq_num,
+                                              const MacTxConfig& cfg) {
+  std::array<uint8_t, 6> payload = {
+      'Q', 'A', 'C', 'K',
+      static_cast<uint8_t>((ack_seq >> 8) & 0x0Fu),
+      static_cast<uint8_t>(ack_seq & 0xFFu)};
+  MacTxConfig ack_cfg = cfg;
+  ack_cfg.ethertype = 0x88B6;
+  ack_cfg.has_piggy_ack = true;
+  ack_cfg.piggy_ack_seq = ack_seq & 0x0FFFu;
+  return encapsulate_ipv4(payload, seq_num, ack_cfg);
+}
+
+bool WifiMac::decapsulate_ack(std::span<const uint8_t> mpdu,
+                              uint16_t& out_ack_seq,
+                              const MacRxConfig& cfg) {
+  MacRxConfig ack_rx = cfg;
+  ack_rx.accept_ethertype = 0x88B6;
+  auto payload = decapsulate_ipv4(mpdu, ack_rx);
+  if (payload.size() < 6) return false;
+  if (payload[0] != 'Q' || payload[1] != 'A' || payload[2] != 'C' || payload[3] != 'K') return false;
+  out_ack_seq = ((static_cast<uint16_t>(payload[4]) & 0x0Fu) << 8) | payload[5];
+  return true;
+}
+
+bool WifiMac::extract_piggy_ack(std::span<const uint8_t> mpdu, uint16_t& out_ack_seq) {
+  if (mpdu.size() < 30) return false;
+  if ((mpdu[0] & 0xFCu) != 0x88u) return false;
+  const uint16_t qos = static_cast<uint16_t>(mpdu[24]) |
+                       (static_cast<uint16_t>(mpdu[25]) << 8);
+  if ((qos & 0x8000u) == 0) return false;
+  out_ack_seq = qos & 0x0FFFu;
+  return true;
 }
 
 std::string WifiMac::format_mac(const MacAddr& addr) {

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# deploy_and_test.sh - Build on quad (/boq) and deploy QuadRF Data Link
+# deploy_and_test.sh - Build on quad (/boq) and deploy 802.11 OFDM Link
 set -euo pipefail
 
 NODE1="${NODE1:-quadrf.local}"
@@ -48,7 +48,9 @@ run_ssh "$NODE1" "
   echo '$PASS' | sudo -S cp /home/dietpi/quadrf-build/build-arm/sources/soapy/libmipi.so /usr/lib/aarch64-linux-gnu/SoapySDR/modules0.8/libmipi.so && \
   echo '$PASS' | sudo -S install -m644 /home/dietpi/quadrf-build/sources/desktop/applications/com.scalerf.QuadRF.DataLink.desktop /usr/share/applications/com.scalerf.QuadRF.DataLink.desktop && \
   echo '$PASS' | sudo -S install -m644 /home/dietpi/quadrf-build/sources/icons/quadrf-data-link.svg /usr/share/icons/hicolor/scalable/apps/quadrf-data-link.svg && \
-  echo '$PASS' | sudo -S mkdir -p /usr/share/quadrf/apps.d && \
+  echo '$PASS' | sudo -S mkdir -p /usr/share/quadrf/apps.d /usr/share/quadrf-data/web && \
+  echo '$PASS' | sudo -S install -m644 /home/dietpi/quadrf-build/sources/demos/wifi/web/index.html /usr/share/quadrf-data/web/index.html && \
+  echo '$PASS' | sudo -S install -m644 /home/dietpi/quadrf-build/sources/demos/wifi/web/app.js /usr/share/quadrf-data/web/app.js && \
   echo '$PASS' | sudo -S install -m644 /home/dietpi/quadrf-build/sources/desktop/apps.d/quadrf-data.json /usr/share/quadrf/apps.d/quadrf-data.json && \
   echo '$PASS' | sudo -S install -m644 /home/dietpi/quadrf-build/sources/systemd/quadrf-data.service /lib/systemd/system/quadrf-data.service && \
   echo '$PASS' | sudo -S systemctl daemon-reload && \
@@ -62,6 +64,8 @@ run_ssh "$NODE1" "
   scp -o StrictHostKeyChecking=no /home/dietpi/quadrf-build/build-arm/sources/soapy/libmipi.so dietpi@$NODE2:/tmp/libmipi.so && \
   scp -o StrictHostKeyChecking=no /home/dietpi/quadrf-build/sources/desktop/applications/com.scalerf.QuadRF.DataLink.desktop dietpi@$NODE2:/tmp/com.scalerf.QuadRF.DataLink.desktop && \
   scp -o StrictHostKeyChecking=no /home/dietpi/quadrf-build/sources/icons/quadrf-data-link.svg dietpi@$NODE2:/tmp/quadrf-data-link.svg && \
+  scp -o StrictHostKeyChecking=no /home/dietpi/quadrf-build/sources/demos/wifi/web/index.html dietpi@$NODE2:/tmp/quadrf-data-index.html && \
+  scp -o StrictHostKeyChecking=no /home/dietpi/quadrf-build/sources/demos/wifi/web/app.js dietpi@$NODE2:/tmp/quadrf-data-app.js && \
   scp -o StrictHostKeyChecking=no /home/dietpi/quadrf-build/sources/desktop/apps.d/quadrf-data.json dietpi@$NODE2:/tmp/quadrf-data.json && \
   scp -o StrictHostKeyChecking=no /home/dietpi/quadrf-build/sources/systemd/quadrf-data.service dietpi@$NODE2:/tmp/quadrf-data.service && \
   ssh -o StrictHostKeyChecking=no dietpi@$NODE2 '
@@ -70,12 +74,14 @@ run_ssh "$NODE1" "
     echo \"$PASS\" | sudo -S cp /tmp/libmipi.so /usr/lib/aarch64-linux-gnu/SoapySDR/modules0.8/libmipi.so && \
     echo \"$PASS\" | sudo -S install -m644 /tmp/com.scalerf.QuadRF.DataLink.desktop /usr/share/applications/com.scalerf.QuadRF.DataLink.desktop && \
     echo \"$PASS\" | sudo -S install -m644 /tmp/quadrf-data-link.svg /usr/share/icons/hicolor/scalable/apps/quadrf-data-link.svg && \
-    echo \"$PASS\" | sudo -S mkdir -p /usr/share/quadrf/apps.d && \
+    echo \"$PASS\" | sudo -S mkdir -p /usr/share/quadrf/apps.d /usr/share/quadrf-data/web && \
+    echo \"$PASS\" | sudo -S install -m644 /tmp/quadrf-data-index.html /usr/share/quadrf-data/web/index.html && \
+    echo \"$PASS\" | sudo -S install -m644 /tmp/quadrf-data-app.js /usr/share/quadrf-data/web/app.js && \
     echo \"$PASS\" | sudo -S install -m644 /tmp/quadrf-data.json /usr/share/quadrf/apps.d/quadrf-data.json && \
     echo \"$PASS\" | sudo -S install -m644 /tmp/quadrf-data.service /lib/systemd/system/quadrf-data.service && \
     echo \"$PASS\" | sudo -S systemctl daemon-reload && \
     echo \"$PASS\" | sudo -S /usr/lib/quadrf/sync-desktop-apps 2>/dev/null || true && \
-    rm -f /tmp/quadrf-data /tmp/libmipi.so /tmp/com.scalerf.QuadRF.DataLink.desktop /tmp/quadrf-data-link.svg /tmp/quadrf-data.json /tmp/quadrf-data.service
+    rm -f /tmp/quadrf-data /tmp/libmipi.so /tmp/com.scalerf.QuadRF.DataLink.desktop /tmp/quadrf-data-link.svg /tmp/quadrf-data-index.html /tmp/quadrf-data-app.js /tmp/quadrf-data.json /tmp/quadrf-data.service
   '
 "
 
