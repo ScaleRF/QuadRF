@@ -57,7 +57,7 @@ Save both files and safely eject the microSD card.
 
 Insert the microSD card into the QuadRF Raspberry Pi 5 using the rear slot. Connect USB-C power or turn on the Mobile Battery Pack. It's important to be near your Wi-Fi router with a good connection for the automatic setup to succeed.
 
-The first boot takes longer than a normal boot because DietPi expands the filesystem, updates the base system, and installs Avahi. Allow approximately **5–10 minutes** before trying to connect. No monitor or keyboard is required.
+The first boot takes longer than a normal boot because DietPi expands the filesystem, updates the base system, and installs Avahi. Allow approximately **5–10 minutes** before trying to connect (the green power button should stop blinking when finished). No monitor or keyboard is required.
 
 From Linux, macOS, or a current Windows terminal, connect with:
 
