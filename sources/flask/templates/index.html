@@ -74,6 +74,28 @@
         #receive { scroll-margin-top: 0.5rem; }
         .panel-tx { border-top-color: var(--tx-color); }
         .panel-console { border-top-color: #10b981; }
+        .panel-console.term-expanded {
+            position: fixed !important;
+            inset: 0 !important;
+            z-index: 9999 !important;
+            margin: 0 !important;
+            border-radius: 0 !important;
+            display: flex !important;
+            flex-direction: column !important;
+            background-color: #0a0f1d !important;
+            border-top: 2px solid #10b981 !important;
+        }
+        .panel-console.term-expanded #terminalBody {
+            flex: 1 1 auto !important;
+            height: auto !important;
+        }
+        #termSizeToggleBtn.term-back-btn {
+            background: #10b981 !important;
+            color: #000 !important;
+            border-color: #10b981 !important;
+            font-weight: 700 !important;
+            padding: 0.25rem 0.75rem !important;
+        }
 
         .header-row {
             display: flex;
@@ -1341,8 +1363,8 @@
             </form>
         </article>
 
-        <article class="panel panel-console" style="padding: 0; overflow: hidden;">
-            <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.35); padding: 0.45rem 1rem; border-bottom: 1px solid rgba(255,255,255,0.08); flex-wrap: wrap; gap: 0.5rem;">
+        <article id="consolePanel" class="panel panel-console" style="padding: 0; overflow: hidden;">
+            <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(15, 23, 42, 0.95); padding: 0.45rem 1rem; border-bottom: 1px solid rgba(255,255,255,0.08); flex-wrap: wrap; gap: 0.5rem; flex: 0 0 auto;">
                 <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
                     <span style="font-size: 0.75rem; font-weight: 700; color: #10b981; letter-spacing: 0.03em;">> System Terminal</span>
                     <div style="display: inline-flex; background: rgba(0,0,0,0.4); border-radius: 4px; padding: 2px; border: 1px solid rgba(255,255,255,0.1);">
@@ -1353,7 +1375,7 @@
                 <div style="display: flex; align-items: center; gap: 0.4rem;">
                     <button type="button" id="termClearLogBtn" class="outline" style="display: none; font-size: 0.65rem; padding: 0.2rem 0.55rem; margin: 0; line-height: 1.2; height: auto;" title="Clear hardware log">Clear Log</button>
                     <button type="button" id="termReloadBtn" class="outline" style="font-size: 0.65rem; padding: 0.2rem 0.55rem; margin: 0; line-height: 1.2; height: auto;" title="Reload terminal session">Reload</button>
-                    <button type="button" id="termSizeToggleBtn" class="outline" style="font-size: 0.65rem; padding: 0.2rem 0.55rem; margin: 0; line-height: 1.2; height: auto;" title="Toggle terminal height">Expand</button>
+                    <button type="button" id="termSizeToggleBtn" style="font-size: 0.65rem; padding: 0.2rem 0.55rem; margin: 0; line-height: 1.2; height: auto; width: auto; background: transparent; color: #38bdf8; border: 1px solid #38bdf8; border-radius: 4px; font-weight: 600;" title="Expand terminal to full window">Expand</button>
                 </div>
             </div>
             <div id="terminalBody" style="height: 280px; width: 100%; position: relative; background: #0a0f1d; transition: height 0.2s ease;">
@@ -1387,6 +1409,7 @@
     </dialog>
 
     <script>
+        const consolePanel = document.getElementById('consolePanel');
         const consoleDiv = document.getElementById('consoleOutput');
         const terminalFrame = document.getElementById('terminalFrame');
         const tabTerminalShell = document.getElementById('tabTerminalShell');
@@ -1445,11 +1468,17 @@
             });
         }
 
-        if (termSizeToggleBtn && terminalBody) {
+        if (termSizeToggleBtn && terminalBody && consolePanel) {
             termSizeToggleBtn.addEventListener('click', () => {
                 isTermExpanded = !isTermExpanded;
-                terminalBody.style.height = isTermExpanded ? '520px' : '280px';
-                termSizeToggleBtn.innerText = isTermExpanded ? 'Collapse' : 'Expand';
+                consolePanel.classList.toggle('term-expanded', isTermExpanded);
+                termSizeToggleBtn.classList.toggle('term-back-btn', isTermExpanded);
+                document.body.style.overflow = isTermExpanded ? 'hidden' : '';
+                termSizeToggleBtn.innerText = isTermExpanded ? '← Back to Controls' : 'Expand';
+                termSizeToggleBtn.title = isTermExpanded ? 'Return to Controls page' : 'Expand terminal to full window';
+                if (!isTermExpanded) {
+                    consolePanel.scrollIntoView({ behavior: 'instant', block: 'nearest' });
+                }
             });
         }
 
