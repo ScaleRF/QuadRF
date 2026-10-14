@@ -20,13 +20,13 @@ The complete `quadrf` package ships with the following built-in applications:
 | Application | Description | Surface |
 | --- | --- | --- |
 | **Spatial RF Vision** | Swept-LO phase scatter of the RF scene (30 fps) | Browser AR view at `/AR/` |
+| **PhaseGaze** | Swept-LO phase-gradient hemisphere (38 Msps, 4-lane CSI) | Browser view at `/phasegaze/` |
+| **PSD Plot** | Live FFT power spectral density (1 to 4 channels) | Remote desktop |
 | **Camera Decoder** | Real-time NTSC demodulation of analog FPV video | Remote desktop |
 | **Camera Encoder** | Analog NTSC FM transmit from a still, MP4, or test card | Remote desktop |
-| **PSD Plot** | Live FFT power spectral density (1 to 4 channels) | Remote desktop |
 | **Near-Field Phasors** | Coherent 4x4 MIMO near-field phasors with TDM TX cycling | Remote desktop |
-| **802.11 OFDM Link** | 802.11 OFDM IP tunnel (TUN) between two QuadRF units | Browser view at `/data/` |
-| **PhaseGaze** | Swept-LO phase-gradient hemisphere (38 Msps, 4-lane CSI) | Browser view at `/phasegaze/` |
 | **MIMO Link** | Phase-coded 4x4 MIMO transceiver and chat | Browser view at `/mimo/` |
+| **802.11 OFDM Link** | 802.11 OFDM IP tunnel (TUN) between two QuadRF units | Browser view at `/data/` |
 | **QuadRF Mesh** | Experimental Meshtastic daemon and LoRa-compatible PHY | Control panel + remote desktop (`:9443`) |
 | **GNU Radio Companion** | Flowgraph development with QuadRF source/sink blocks | Remote desktop |
 | **QRadioLink** | Multi-mode digital voice and analog transceiver | Remote desktop |

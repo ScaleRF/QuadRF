@@ -10,6 +10,14 @@
       "ready_port": 8000
     },
     {
+      "id": "psd",
+      "desktop_entry": "com.scalerf.QuadRF.PSDPlot.desktop",
+      "service": "quadrf-psd.service",
+      "binaries": ["quadrf-psd"],
+      "exclusive": true,
+      "open": "desktop"
+    },
+    {
       "id": "ntsc",
       "desktop_entry": "com.scalerf.QuadRF.CameraDecoder.desktop",
       "service": "quadrf-ntsc.service",
@@ -22,14 +30,6 @@
       "desktop_entry": "com.scalerf.QuadRF.CameraEncoder.desktop",
       "service": "quadrf-ntsc-tx.service",
       "binaries": ["quadrf-ntsc-tx", "quadrf-ntsc-mod"],
-      "exclusive": true,
-      "open": "desktop"
-    },
-    {
-      "id": "psd",
-      "desktop_entry": "com.scalerf.QuadRF.PSDPlot.desktop",
-      "service": "quadrf-psd.service",
-      "binaries": ["quadrf-psd"],
       "exclusive": true,
       "open": "desktop"
     },
