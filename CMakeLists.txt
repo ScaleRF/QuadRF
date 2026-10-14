@@ -37,6 +37,11 @@ add_executable(quadrf-jtag sources/fpga/jtag_src/jtag.c sources/fpga/jtag_src/ma
 target_link_libraries(quadrf-jtag m)
 install(TARGETS quadrf-jtag DESTINATION ${bindir})
 
+add_library(pcmanfm_starfield SHARED sources/desktop/pcmanfm_starfield.c)
+set_target_properties(pcmanfm_starfield PROPERTIES PREFIX "")
+target_link_libraries(pcmanfm_starfield m dl)
+install(TARGETS pcmanfm_starfield LIBRARY DESTINATION ${libdir})
+
 add_custom_command(OUTPUT fpga-csi.dtbo COMMAND dtc -@ -I dts -O dtb -o fpga-csi.dtbo ${CMAKE_CURRENT_SOURCE_DIR}/sources/fpga/drivers/csi/fpga-csi.dts DEPENDS sources/fpga/drivers/csi/fpga-csi.dts)
 add_custom_command(OUTPUT fpga-dsi.dtbo COMMAND dtc -@ -I dts -O dtb -o fpga-dsi.dtbo ${CMAKE_CURRENT_SOURCE_DIR}/sources/fpga/drivers/dsi/fpga-dsi.dts DEPENDS sources/fpga/drivers/dsi/fpga-dsi.dts)
 add_custom_target(overlays ALL DEPENDS fpga-csi.dtbo fpga-dsi.dtbo)

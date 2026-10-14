@@ -197,7 +197,7 @@ Description: QuadRF demonstration applications
  systemd units start on demand from the control panel; they are not enabled.
 
 Package: quadrf-desktop
-Architecture: all
+Architecture: arm64
 Depends: dbus-x11,
          kasmvncserver,
          libglib2.0-bin,
@@ -214,7 +214,8 @@ Depends: dbus-x11,
          x11-utils,
          x11-xserver-utils,
          xfce4-terminal,
-         ${misc:Depends}
+         ${misc:Depends},
+         ${shlibs:Depends}
 Recommends: lxde-icon-theme, xdg-utils
 Description: QuadRF remote desktop session
  KasmVNC session on port 8444 running openbox with a tint2 panel and the

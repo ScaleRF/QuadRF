@@ -4,5 +4,5 @@ if command -v pulseaudio >/dev/null 2>&1; then
     # RX start and the Qt audio/PortAudio setup can stall the event loop.
     pulseaudio --start --exit-idle-time=-1 --log-target=syslog 2>/dev/null || true
 fi
-pcmanfm --desktop --profile LXDE &
+LD_PRELOAD=/usr/lib/quadrf/pcmanfm_starfield.so pcmanfm --desktop --profile LXDE &
 tint2 -c "${HOME}/.config/tint2/tint2rc" &
