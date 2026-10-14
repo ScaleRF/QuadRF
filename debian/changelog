@@ -1,3 +1,12 @@
+quadrf (1.0.40) trixie; urgency=medium
+
+  * debian: Add quadrf-mimo v0.1.0 dependency and bump quadrf-phasegaze to v0.1.4
+  * gui: add scalerf icon for tab favicon
+  * gui: integrate ttyd web terminal daemon into control panel
+  * pkg, agent: Add QuadRF agent reference system, topic guides, and package symlinks
+
+ -- QuadRF Engineering <contact@ScaleRF.com>  Tue, 13 Oct 2026 18:41:20 -0700
+
 quadrf (1.0.39) trixie; urgency=medium
 
   * fpga-csi: Bit-bang JTAG via RP1 RIO and add paced/streamed PIO write slot engine
