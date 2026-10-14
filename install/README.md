@@ -99,7 +99,7 @@ Then reboot,
 sudo reboot
 ```
 
-⚠️Note: After the reboot, the hostname is `quadrf.local`. 
+⚠️**Note: After the reboot, the hostname is** `quadrf.local`. 
 
 Run the following command to check the services, CSI/DSI drivers, SoapySDR devices, and interface addresses:
 
