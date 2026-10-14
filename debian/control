@@ -77,6 +77,8 @@ Description: QuadRF appliance without the graphical desktop
 Package: quadrf-common
 Architecture: all
 Depends: dbus, ${misc:Depends}
+Breaks: quadrf-desktop (<< ${binary:Version})
+Replaces: quadrf-desktop (<< ${binary:Version})
 Description: QuadRF shared configuration and control command
  Site configuration in /etc/quadrf/quadrf.conf, the shell helpers the other
  quadrf-* packages use in their maintainer scripts, and the quadrf command for

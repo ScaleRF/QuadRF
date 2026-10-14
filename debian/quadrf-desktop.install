@@ -9,7 +9,6 @@ usr/share/icons/hicolor/scalable/apps/quadrf-files.svg
 usr/share/icons/hicolor/scalable/apps/quadrf-qradiolink.svg
 usr/share/icons/hicolor/scalable/apps/quadrf-software.svg
 usr/share/quadrf/desktop/
-usr/share/quadrf/agent/
 usr/lib/quadrf/kasm-wrangle
 usr/lib/quadrf/pcmanfm_starfield.so
 usr/lib/quadrf/apply.d/50-desktop
