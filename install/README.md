@@ -148,6 +148,7 @@ Install the `quadrf` or `quadrf-headless` metapackage, or select individual comp
 | `quadrf-gnuradio` | Example GNU Radio flowgraphs |
 | `quadrf-mesh` | QuadRF Mesh desktop launcher, control-panel app, and Meshtastic services |
 | `quadrf-phasegaze` | Spherical phase visualization |
+| `quadrf-mimo` | Phase-coded 4x4 MIMO transceiver and web HUD |
 | `quadrf-ups` | UPS HAT battery monitor |
 
 ## Dependencies
@@ -159,6 +160,7 @@ SoapySDR, GNU Radio, gr-osmosdr, nginx, dnsmasq, hostapd, mpv, and other depende
 - `qradiolink`: the SDR transceiver used by the KasmVNC desktop launcher
 - `quadrf-mesh`: QuadRF Mesh (`quadrf-lora-phy`, `quadrf-meshtasticd`) from the [quadrf-mesh](https://github.com/radioroy/quadrf-mesh) release
 - `quadrf-phasegaze`: Phase visualizer from the [phasegaze](https://github.com/radioroy/phasegaze) release
+- `quadrf-mimo`: 4x4 MIMO transceiver from the [quadrf-mimo](https://github.com/radioroy/quadrf-mimo) release
 
 ## Additional setup documentation
 

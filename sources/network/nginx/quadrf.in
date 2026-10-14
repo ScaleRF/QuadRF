@@ -8,6 +8,7 @@
 #   /AR/                      browser AR overlay, static
 #   /ws                       WebSocket from Spatial RF Vision on 8000
 #   /phasegaze/               PhaseGaze hemisphere (static UI; WS on 8001)
+#   /mimo/                    MIMO Link (static UI; WS on 8091)
 #
 # KasmVNC's client assumes it is at the root of a host. Do not put it under
 # a path prefix.

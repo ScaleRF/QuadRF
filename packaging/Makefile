@@ -1,7 +1,7 @@
 # Build the QuadRF packages and fill the apt repository.
 #
 #   make quadrf        packages from this source tree
-#   make thirdparty    quadrf-openocd, qradiolink, mirrored KasmVNC, Mesh, PhaseGaze
+#   make thirdparty    quadrf-openocd, qradiolink, mirrored KasmVNC, Mesh, PhaseGaze, MIMO
 #   make repo          publish everything in out/ into repo/
 #   make serve         HTTP-serve the signed tree (maintainer testing)
 #
@@ -27,7 +27,7 @@ quadrf: | $(OUT)
 	mv $(TOP)/../quadrf_$(shell dpkg-parsechangelog -l$(TOP)/debian/changelog -SVersion)_*.buildinfo $(OUT)/ 2>/dev/null || true
 	mv $(TOP)/../quadrf_$(shell dpkg-parsechangelog -l$(TOP)/debian/changelog -SVersion)_*.changes $(OUT)/ 2>/dev/null || true
 
-thirdparty: openocd qradiolink kasmvnc mesh phasegaze
+thirdparty: openocd qradiolink kasmvnc mesh phasegaze mimo
 
 openocd: | $(OUT)
 	OUT=$(OUT) ./thirdparty/openocd/build.sh
@@ -44,6 +44,9 @@ mesh: | $(OUT)
 phasegaze: | $(OUT)
 	OUT=$(OUT) ./thirdparty/fetch-quadrf-phasegaze.sh
 
+mimo: | $(OUT)
+	OUT=$(OUT) ./thirdparty/fetch-quadrf-mimo.sh
+
 key:
 	./repo/gen-key.sh
 	./repo/export-key.sh
@@ -57,4 +60,4 @@ serve: repo
 clean:
 	rm -rf $(OUT) thirdparty/openocd/work thirdparty/qradiolink/work
 
-.PHONY: all quadrf thirdparty openocd qradiolink kasmvnc mesh phasegaze key repo serve clean
+.PHONY: all quadrf thirdparty openocd qradiolink kasmvnc mesh phasegaze mimo key repo serve clean

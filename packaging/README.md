@@ -55,7 +55,7 @@ Artefacts land in `packaging/out/`. The builder image is tagged
 Override the image name with `QUADRF_BUILD_IMAGE`, or set `DEB_BUILD_OPTIONS`
 (default `parallel=$(nproc)`).
 
-## QuadRF Mesh and PhaseGaze
+## QuadRF Mesh, PhaseGaze, and MIMO
 
 `packaging/pins.env` pins the third-party releases copied into the apt repo.
 The `quadrf` metapackage Depends on those same versions, so `apt upgrade quadrf`
@@ -69,6 +69,9 @@ To take a new upstream release:
 
 ./packaging/thirdparty/pin-quadrf-phasegaze.sh      # latest GitHub release
 ./packaging/thirdparty/pin-quadrf-phasegaze.sh v0.1.0
+
+./packaging/thirdparty/pin-quadrf-mimo.sh           # latest GitHub release
+./packaging/thirdparty/pin-quadrf-mimo.sh v0.1.0
 ```
 
 Commit `packaging/pins.env` and tag a QuadRF release.

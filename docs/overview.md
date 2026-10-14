@@ -122,6 +122,8 @@ flowchart TB
 | `quadrf-desktop` | KasmVNC desktop environment (`DISPLAY=:1`) with desktop launchers and triggers |
 | `quadrf-gnuradio` | Example GNU Radio Companion flowgraphs |
 | `quadrf-mesh` | QuadRF Mesh (LoRa-compatible PHY, Meshtastic daemon, desktop and control-panel launcher) |
+| `quadrf-phasegaze` | PhaseGaze swept-LO phase-gradient hemisphere viewer |
+| `quadrf-mimo` | Phase-coded 4x4 MIMO transceiver and web interface |
 | `quadrf-ups` | Hardware battery monitor integration for the UPS HAT |
 
 ---
@@ -156,6 +158,7 @@ Nginx handles ingress on ports 80 (HTTP) and 443 (HTTPS):
 | `/AR/` | Mobile Augmented Reality view | Static assets in `/usr/share/quadrf/ar/` |
 | `/ws` | High-rate RF vision data stream | `quadrf-rf-vision` on port 8000 |
 | `/phasegaze/` | PhaseGaze hemisphere view | `quadrf-phasegaze` on port 8001 |
+| `/mimo/` | MIMO Link telemetry and chat | `quadrf-mimo` on port 8091 |
 | `/setup/security/` | Platform root certificate installation | Local root CA certificate distribution |
 
 > For certificate installation and browser HTTPS configuration, see [HTTPS Setup](tls.md).
