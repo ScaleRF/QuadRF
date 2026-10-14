@@ -2108,8 +2108,16 @@
             return `${desktopUrl()}split`;
         }
 
-        // Catalog "desktop" (and the register --open browser token) stay on
-        // the Kasm session. Only URL paths such as /AR/ open a new tab.
+        function inSplitView() {
+            try {
+                return window.self !== window.top;
+            } catch (e) {
+                return true;
+            }
+        }
+
+        // Catalog "desktop" opens the split desktop view from the standalone
+        // control panel, or launches in place when already inside split view.
         function isWebOpen(open) {
             return !!(open && open !== 'desktop' && open !== 'browser');
         }
@@ -2141,6 +2149,9 @@
         }
 
         function resolveOpen(open, appId) {
+            if (open === 'desktop') {
+                return inSplitView() ? '' : splitUrl();
+            }
             if (!isWebOpen(open)) return '';
             try {
                 const u = new URL(open, window.location.href);

@@ -165,7 +165,7 @@ The web UI reads application metadata from JSON files in `/usr/share/quadrf/apps
 | `service` | Yes | Systemd unit name (`<name>.service`). |
 | `binaries` | Recommended | Array of process names stopped via `pkill` if the user also launched a copy outside systemd. |
 | `exclusive` | No | Set to `true` if the app opens CSI/DSI device nodes. Starting an exclusive app stops other running radio apps. |
-| `open` | No | Destination after launch: `"desktop"` runs on the KasmVNC session without opening a tab; URL paths like `"/AR/"` open that endpoint in a new tab. |
+| `open` | No | Destination after launch: `"desktop"` opens the KasmVNC split view from the standalone control panel (or launches in place when already in split view); URL paths like `"/AR/"` open that endpoint in a new tab. |
 | `ready_port` | No | Local TCP port that must accept connections before the application is marked running. |
 
 ---
