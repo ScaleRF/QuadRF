@@ -47,7 +47,7 @@ On an arm64 Debian trixie machine, without Docker:
 ```bash
 sudo apt build-dep .
 make -C packaging quadrf        # packages from this tree, into packaging/out/
-make -C packaging openocd qradiolink kasmvnc
+make -C packaging openocd qradiolink kasmvnc ttyd
 ```
 
 Artefacts land in `packaging/out/`. The builder image is tagged
