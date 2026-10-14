@@ -1,3 +1,12 @@
+quadrf (1.0.42) trixie; urgency=medium
+
+  * pkg, desktop: Fix agent file collision between quadrf-desktop and quadrf-common
+  * Update README.md
+  * Update README.md
+  * Update README.md
+
+ -- QuadRF Engineering <contact@ScaleRF.com>  Tue, 13 Oct 2026 23:17:58 -0700
+
 quadrf (1.0.41) trixie; urgency=medium
 
   * desktop: Add procedural starfield background hook for pcmanfm
