@@ -647,11 +647,13 @@ def requested_client_id():
 # while still releasing CSI soon after an ungracefully abandoned tab.
 ATTACH_APPS = frozenset({"ar", "phasegaze", "mimo", "data"})
 WEB_CLIENTS = {}
+WEB_DETACHED = {}
 WEB_SEEN = set()
 WEB_STOP_TIMER = {}
 WEB_LOCK = threading.Lock()
 APP_ACTION_LOCK = threading.Lock()
 WEB_STOP_GRACE = 1.5
+WEB_DETACH_IGNORE_SEC = 0.5
 WEB_STALE_SEC = 120.0
 # Explicit Stop from the drawer. Without this an already-open tab would
 # resurrect the app on its next attach.
@@ -669,6 +671,10 @@ def _prune_web_clients(app_id, now=None):
     for key, seen in list(clients.items()):
         if now - seen > WEB_STALE_SEC:
             clients.pop(key, None)
+    detached = WEB_DETACHED.get(app_id, {})
+    for key, ts in list(detached.items()):
+        if now - ts > WEB_DETACH_IGNORE_SEC:
+            detached.pop(key, None)
 
 
 def _cancel_web_stop(app_id):
@@ -775,6 +781,7 @@ def _app_open_path(app_id):
 def _clear_web_clients(app_id):
     with WEB_LOCK:
         WEB_CLIENTS.pop(app_id, None)
+        WEB_DETACHED.pop(app_id, None)
         WEB_SEEN.discard(app_id)
         _cancel_web_stop(app_id)
 
@@ -831,7 +838,14 @@ def apps_attach():
     if app_id not in ATTACH_APPS:
         return jsonify({"status": "error", "message": "attach is only used by web-open apps"}), 400
     client = requested_client_id() or "anon"
+    now = time.time()
     with WEB_LOCK:
+        # Ignore late-arriving in-flight attach requests that raced with an
+        # explicit pagehide/beforeunload detach from the same tab UUID.
+        detached_ts = WEB_DETACHED.get(app_id, {}).get(client)
+        if detached_ts is not None and now - detached_ts < WEB_DETACH_IGNORE_SEC:
+            return jsonify({"status": "ignored"})
+        WEB_DETACHED.get(app_id, {}).pop(client, None)
         # Only a client we have not seen before triggers the running check;
         # the 1 Hz keepalive must not spawn an `app status` every second.
         start = (client not in WEB_CLIENTS.get(app_id, {})
@@ -839,7 +853,7 @@ def apps_attach():
         if start:
             WEB_AUTOSTART.add(app_id)
         WEB_SEEN.add(app_id)
-        _web_clients(app_id)[client] = time.time()
+        _web_clients(app_id)[client] = now
         _cancel_web_stop(app_id)
     if start:
         threading.Thread(target=_web_autostart, args=(app_id,),
@@ -853,10 +867,12 @@ def apps_detach():
     if app_id not in ATTACH_APPS:
         return jsonify({"status": "error", "message": "detach is only used by web-open apps"}), 400
     client = requested_client_id()
+    now = time.time()
     with WEB_LOCK:
         if client:
             _web_clients(app_id).pop(client, None)
-        _prune_web_clients(app_id)
+            WEB_DETACHED.setdefault(app_id, {})[client] = now
+        _prune_web_clients(app_id, now)
         if not WEB_CLIENTS.get(app_id):
             _schedule_web_stop(app_id)
     return jsonify({"status": "ok"})

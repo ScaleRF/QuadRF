@@ -26,12 +26,18 @@ const dataClient = (window.crypto && crypto.randomUUID)
     : String(Date.now()) + '-' + Math.random().toString(16).slice(2);
 let dataLeaving = false;
 let attachTimer = null;
+let attachCtrl = null;
 
 function dataAttach() {
     if (dataLeaving) return;
+    if (attachCtrl) {
+        try { attachCtrl.abort(); } catch (e) {}
+    }
+    attachCtrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
     fetch('/api/apps/attach?app=data&client=' + encodeURIComponent(dataClient), {
         method: 'POST',
-        keepalive: true
+        keepalive: true,
+        signal: attachCtrl ? attachCtrl.signal : undefined
     }).catch(() => {});
 }
 
@@ -41,6 +47,10 @@ function dataDetach() {
     if (attachTimer) {
         clearInterval(attachTimer);
         attachTimer = null;
+    }
+    if (attachCtrl) {
+        try { attachCtrl.abort(); } catch (e) {}
+        attachCtrl = null;
     }
     if (ws) {
         try { ws.close(); } catch (e) {}

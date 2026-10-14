@@ -821,11 +821,6 @@
                 signal: controller.signal
             });
             clearTimeout(timer);
-            arLeaving = true;
-            if (attachTimer) {
-                clearInterval(attachTimer);
-                attachTimer = null;
-            }
             window.location.replace(target);
             return true;
         } catch (e) {
@@ -845,6 +840,7 @@
     // Initialize global WebSocket variable
     let reconnectTimeout = null;
     let attachTimer = null;
+    let attachCtrl = null;
     const arClient = (window.crypto && crypto.randomUUID)
         ? crypto.randomUUID()
         : String(Date.now()) + '-' + Math.random().toString(16).slice(2);
@@ -852,9 +848,14 @@
 
     function arAttach() {
         if (arLeaving) return;
+        if (attachCtrl) {
+            try { attachCtrl.abort(); } catch (e) {}
+        }
+        attachCtrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
         fetch('/api/apps/attach?app=ar&client=' + encodeURIComponent(arClient), {
             method: 'POST',
-            keepalive: true
+            keepalive: true,
+            signal: attachCtrl ? attachCtrl.signal : undefined
         }).catch(() => {});
     }
 
@@ -864,6 +865,10 @@
         if (attachTimer) {
             clearInterval(attachTimer);
             attachTimer = null;
+        }
+        if (attachCtrl) {
+            try { attachCtrl.abort(); } catch (e) {}
+            attachCtrl = null;
         }
         if (reconnectTimeout) {
             clearTimeout(reconnectTimeout);
@@ -880,11 +885,25 @@
         fetch(url, { method: 'POST', keepalive: true }).catch(() => {});
     }
 
+    function arResume() {
+        if (!arLeaving && attachTimer) return;
+        arLeaving = false;
+        if (!attachTimer)
+            attachTimer = setInterval(arAttach, 1000);
+        arAttach();
+        if (!ws || ws.readyState > 1) connectStream();
+    }
+
     arAttach();
     attachTimer = setInterval(arAttach, 1000);
     window.addEventListener('pagehide', arDetach);
     window.addEventListener('beforeunload', arDetach);
     window.addEventListener('freeze', arDetach);
+    window.addEventListener('pageshow', arResume);
+    window.addEventListener('resume', arResume);
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') arAttach();
+    });
 
     function connectStream() {
         ws = new WebSocket(wsUrl);

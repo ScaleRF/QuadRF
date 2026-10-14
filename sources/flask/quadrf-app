@@ -169,16 +169,17 @@ def running_process_names():
             if not entry.name.isdigit():
                 continue
             try:
+                with open(os.path.join(entry.path, "cmdline"), "rb") as f:
+                    raw = f.read(512)
+                if not raw:
+                    continue
+                arg0 = raw.split(b"\x00", 1)[0].decode("utf-8", errors="ignore")
+                if arg0:
+                    names.add(os.path.basename(arg0))
                 with open(os.path.join(entry.path, "comm"), "r", encoding="utf-8", errors="ignore") as f:
                     comm = f.read().strip()
                     if comm:
                         names.add(comm)
-                with open(os.path.join(entry.path, "cmdline"), "rb") as f:
-                    raw = f.read(512)
-                    if raw:
-                        arg0 = raw.split(b"\x00", 1)[0].decode("utf-8", errors="ignore")
-                        if arg0:
-                            names.add(os.path.basename(arg0))
             except OSError:
                 continue
     except OSError:
@@ -231,9 +232,10 @@ def stop_app(app, unit_info=None, proc_names=None):
             wait_until(lambda: not unit_active(unit), STOP_WAIT_S)
         if failed or unit_failed(unit):
             run(["systemctl", "reset-failed", unit])
-    if any(binary_running(b) for b in bins):
+    after_procs = running_process_names()
+    if any(binary_running(b, after_procs) for b in bins):
         stop_binaries(app)
-        wait_until(lambda: not any(binary_running(b) for b in bins), 2.0)
+        wait_until(lambda: not any(binary_running(b, running_process_names()) for b in bins), 2.0)
 
 
 def start_app(app):
