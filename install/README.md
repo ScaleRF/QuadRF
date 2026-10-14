@@ -29,20 +29,20 @@ In **`dietpi.txt`**, find and change the corresponding settings to:
 AUTO_SETUP_NET_WIFI_ENABLED=1
 
 # Install Avahi so DietPi and dietpi.local resolve on the local network 
-AUTO_SETUP_INSTALL_SOFTWARE_ID=152  # ***(delete others, remember to uncomment the line, it is commented by default!)***
+AUTO_SETUP_INSTALL_SOFTWARE_ID=152  # ***(delete other numbers, remember to uncomment the line, it is commented by default!)***
 
 # Complete DietPi's first-run setup without a monitor or keyboard
 AUTO_SETUP_AUTOMATED=1
 SURVEY_OPTED_IN=0
 ```
 
-DietPi recommends replacing its public default password when enabling unattended setup. In the same file, change:
+Replace the public default password. Set:
 
 ```ini
 AUTO_SETUP_GLOBAL_PASSWORD=choose-a-temporary-password
 ```
 
-Remember this password; you will use it for your first SSH login.
+You will use this password for your SSH login.
 
 In **`dietpi-wifi.txt`**, enter your Wi-Fi credentials (remember SSID is **case sensitive**!):
 
@@ -55,7 +55,7 @@ Save both files and safely eject the microSD card.
 
 ### Connect to the Pi 5 via SSH
 
-Insert the microSD card into the QuadRF Raspberry Pi 5 using the rear slot. Connect USB-C power or turn on the Mobile Battery Pack. It's important to be near your Wi-Fi router with a good connection for the automatic setup to succeed.
+Insert the microSD card into the QuadRF Raspberry Pi 5 using the rear slot. Connect USB-C power or turn on the Mobile Battery Pack. **It's important to be near your Wi-Fi router with a good connection for the automatic setup to succeed.**
 
 The first boot takes longer than a normal boot because DietPi expands the filesystem, updates the base system, and installs Avahi. Allow approximately **5–10 minutes** before trying to connect (the green power button should stop blinking when finished). No monitor or keyboard is required.
 
@@ -73,8 +73,6 @@ Use the following credentials:
 Username: dietpi
 Password: the value you set in AUTO_SETUP_GLOBAL_PASSWORD
 ```
-
-Hostnames are not case-sensitive, but lowercase `dietpi.local` is conventional.
 
 If `dietpi.local` does not resolve after the first-run setup has finished, find the Pi's IP address in your router's connected-device or DHCP list and connect directly (`ssh dietpi@192.168.x.x`). Some guest  Wi-Fi networks block the multicast traffic used by `.local` discovery. Worst case, you can connect a Micro-HDMI display and USB keyboard directly to the QuadRF.
 
