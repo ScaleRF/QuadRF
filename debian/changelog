@@ -1,3 +1,17 @@
+quadrf (1.0.43) trixie; urgency=medium
+
+  * debian: Pin quadrf-mesh 0.1.10 and quadrf-phasegaze 0.1.6
+  * gui: Open split desktop view when launching desktop apps from standalone controls
+  * gui: Order control panel apps with demos before link and mesh tools
+  * gui, demos: Prevent in-flight attach race on tab close and skip zombie /proc entries
+  * demos, gui: Replace SDL data link with 802.11 OFDM Link web HUD
+  * gui: Expand system terminal to full window with return bar
+  * debian, pkg: Package ttyd and add quadrf-gui dependency
+  * Update README.md
+  * Update README.md
+
+ -- QuadRF Engineering <contact@ScaleRF.com>  Wed, 14 Oct 2026 04:19:50 -0700
+
 quadrf (1.0.42) trixie; urgency=medium
 
   * pkg, desktop: Fix agent file collision between quadrf-desktop and quadrf-common
