@@ -29,7 +29,7 @@ In **`dietpi.txt`**, find and change the corresponding settings to:
 AUTO_SETUP_NET_WIFI_ENABLED=1
 
 # Install Avahi so DietPi and dietpi.local resolve on the local network 
-AUTO_SETUP_INSTALL_SOFTWARE_ID=152  # (remember to uncomment the line!)
+AUTO_SETUP_INSTALL_SOFTWARE_ID=152  # ***(delete others, remember to uncomment the line, it is commented by default!)***
 
 # Complete DietPi's first-run setup without a monitor or keyboard
 AUTO_SETUP_AUTOMATED=1
@@ -44,7 +44,7 @@ AUTO_SETUP_GLOBAL_PASSWORD=choose-a-temporary-password
 
 Remember this password; you will use it for your first SSH login.
 
-In **`dietpi-wifi.txt`**, enter your Wi-Fi credentials:
+In **`dietpi-wifi.txt`**, enter your Wi-Fi credentials (remember SSID is case sensitive!):
 
 ```ini
 aWIFI_SSID[0]='your Wi-Fi name'
@@ -55,7 +55,7 @@ Save both files and safely eject the microSD card.
 
 ### Connect to the Pi 5 via SSH
 
-Insert the microSD card into the QuadRF Raspberry Pi 5 using the rear slot. Connect USB-C power or turn on the Mobile Battery Pack.
+Insert the microSD card into the QuadRF Raspberry Pi 5 using the rear slot. Connect USB-C power or turn on the Mobile Battery Pack. It's important to be near your Wi-Fi router with a good connection for the automatic setup to succeed.
 
 The first boot takes longer than a normal boot because DietPi expands the filesystem, updates the base system, and installs Avahi. Allow approximately **5–10 minutes** before trying to connect. No monitor or keyboard is required.
 
