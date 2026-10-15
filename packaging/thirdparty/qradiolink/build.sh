@@ -13,10 +13,38 @@ src="${work}/qradiolink"
 
 mkdir -p "${work}" "${OUT}"
 
+# Codeberg drops the TCP handshake from GitHub-hosted runners. One miss fails
+# the whole release, so retry the clone and the later fetch.
+git_try() {
+    local attempt
+    for attempt in 1 2 3 4 5; do
+        if git -c http.connectTimeout=60 "$@"; then
+            return 0
+        fi
+        echo "qradiolink: git failed (attempt ${attempt}); retrying" >&2
+        sleep $((attempt * 5))
+    done
+    return 1
+}
+
 if [ ! -d "${src}/.git" ]; then
-    git clone "${QRADIOLINK_REPO}" "${src}"
+    cloned=0
+    for attempt in 1 2 3 4 5; do
+        rm -rf "${src}"
+        if git -c http.connectTimeout=60 clone "${QRADIOLINK_REPO}" "${src}"; then
+            cloned=1
+            break
+        fi
+        echo "qradiolink: clone failed (attempt ${attempt}); retrying" >&2
+        sleep $((attempt * 5))
+    done
+    if [ "${cloned}" -ne 1 ]; then
+        rm -rf "${src}"
+        echo "qradiolink: clone failed" >&2
+        exit 1
+    fi
 fi
-git -C "${src}" fetch origin --tags
+git_try -C "${src}" fetch origin --tags
 git -C "${src}" checkout -f "${QRADIOLINK_COMMIT}"
 
 # Trixie renamed these; keep a bookworm fallback so either suite builds.
