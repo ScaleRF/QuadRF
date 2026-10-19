@@ -1,64 +1,130 @@
 #!/bin/sh
-# Program the FPGA, load the CSI/DSI drivers and initialise the RF front-end.
-# Run by load-quadrf.service at boot and safe to re-run by hand.
+# QuadRF FPGA / CSI-DSI boot loader for LFE5U-25F and LFE5U-45F.
 #
-# fpga_csi has to go before OpenOCD touches the JTAG GPIOs; it re-probes once
-# the new bitstream is up.
+# With no arguments: auto-detect the FPGA JTAG IDCODE, select its
+# SVF and board/TAP config, program, then initialize the RF interface.
+# --detect: emit ONLY "25" or "45" on stdout (diagnostics on stderr). This
+# allows factory scripts to confirm the exact device before attempting OTP.
+#
+# Requires the two existing OpenOCD board files under SEARCH_DIR. Their TAP
+# names and expected IDs must match the two mappings below. No .env setting,
+# persistent variant file, or manual selection is used.
 set -eu
 
 . /usr/share/quadrf/functions.sh
 quadrf_load_conf
 
 SEARCH_DIR=/usr/share/quadrf/openocd
-BOARD=board/rpi5_lfe5u45f.cfg
-BITSTREAM=/usr/share/quadrf/fpga/quadrf.svf
+FPGA_DIR=/usr/share/quadrf/fpga
+
+usage() {
+    echo 'Usage: quadrf-load [--detect]' >&2
+    exit 2
+}
+
+case "$#:$*" in
+    '0:') OPERATION=load ;;
+    '1:--detect') OPERATION=detect ;;
+    *) usage ;;
+esac
 
 if ! OPENOCD="$(quadrf_openocd)"; then
-    echo "quadrf-load: no openocd found; install quadrf-openocd or openocd" >&2
+    echo 'quadrf-load: OpenOCD unavailable (install quadrf-openocd or openocd)' >&2
     exit 1
 fi
 
+# Scan the actual hardware, not an image/batch setting. Both board files
+# enforce their respective expected IDCODEs, so probing the wrong variant
+# fails safely and no SVF is sent to it. Prefer 45F (legacy default).
+# OpenOCD's 'jtag cget TAP -idcode' reports the *observed* hardware ID.
+# Match an exact marker and exit status; never infer a variant from an error
+# string or silently default to a device when neither probe succeeds.
+detect_fpga() {
+    for variant in 45 25; do
+        case "$variant" in
+            45) board=board/rpi5_lfe5u45f.cfg
+                tap=lfe5u45f.tap
+                expected=0x41112043 ;;
+            25) board=board/rpi5_lfe5u25f.cfg
+                tap=lfe5u25f.tap
+                expected=0x41111043 ;;
+        esac
+
+        if [ ! -r "$SEARCH_DIR/$board" ]; then
+            echo "quadrf-load: missing board config: $SEARCH_DIR/$board" >&2
+            continue
+        fi
+        # 'init' validates the OpenOCD JTAG chain and the expected TAP ID.
+        # 'shutdown error' propagates failed init as a nonzero process status.
+        # Limit a stalled GPIO/JTAG adapter so factory testing can fail safely.
+        if response=$(timeout --kill-after=3 20 "$OPENOCD" \
+            -s "$SEARCH_DIR" -f "$board" \
+            -c "if {[catch {init}]} {shutdown error} else {puts \"QUADRF_IDCODE=[jtag cget $tap -idcode]\"; shutdown}" \
+            2>&1); then
+            if printf '%s\n' "$response" | grep -Fqx "QUADRF_IDCODE=$expected"; then
+                FPGA_VARIANT=$variant
+                BOARD=$board
+                TAP=$tap
+                IDCODE=$expected
+                echo "quadrf-load: detected LFE5U-${variant}F (IDCODE $expected)" >&2
+                return 0
+            fi
+            echo "quadrf-load: unexpected/missing IDCODE for ${variant}F: $response" >&2
+        else
+            echo "quadrf-load: no validated ${variant}F TAP; trying other variant" >&2
+        fi
+    done
+    echo 'quadrf-load: cannot identify supported FPGA via JTAG; refusing to load' >&2
+    return 1
+}
+
+# The CSI kernel module must release the GPIO/JTAG bus before OpenOCD
+# accesses it. In --detect mode restore that module if it was loaded before
+# probing (a status check may momentarily interrupt CSI streaming).
 unload_csi() {
     lsmod | grep -q '^fpga_csi' || return 0
     if command -v fuser >/dev/null 2>&1; then
         fuser -k /dev/csi_stream0 >/dev/null 2>&1 || true
         sleep 1
     fi
-    # rmmod can sit in D-state when the driver teardown wedges; that ignores
-    # signals, so a foreground timeout never returns. Fire it in the
-    # background and move on if it has not finished after a few seconds.
     rmmod fpga_csi &
     rmmod_pid=$!
     i=0
-    while kill -0 "${rmmod_pid}" 2>/dev/null; do
+    while kill -0 "$rmmod_pid" 2>/dev/null; do
         i=$((i + 1))
-        [ "${i}" -ge 5 ] && return 1
+        [ "$i" -ge 5 ] && return 1
         sleep 1
     done
-    wait "${rmmod_pid}" 2>/dev/null || true
+    wait "$rmmod_pid" 2>/dev/null || true
 }
 
-unload_csi || true
-
-# -progress writes a CR-updated bar that stalls journald (and anything
-# logging through it) for the whole SVF. Keep it for interactive TTYs.
-SVF_PROGRESS=
-if [ -t 2 ]; then
-    SVF_PROGRESS="-progress"
+RELOAD_CSI=0
+if [ "$OPERATION" = detect ] && lsmod | grep -q '^fpga_csi'; then
+    RELOAD_CSI=1
+    trap 'modprobe fpga-csi || echo "quadrf-load: failed to restore fpga-csi after probe" >&2' EXIT
 fi
-"${OPENOCD}" -s "${SEARCH_DIR}" -f "${BOARD}" \
-    -c "svf -tap lfe5u45f.tap -quiet ${SVF_PROGRESS} ${BITSTREAM}; exit"
+unload_csi || echo 'quadrf-load: CSI module teardown delayed' >&2
+
+detect_fpga || exit 1
+if [ "$OPERATION" = detect ]; then
+    printf '%s\n' "$FPGA_VARIANT"
+    exit 0
+fi
+
+BITSTREAM="$FPGA_DIR/quadrf-$FPGA_VARIANT.svf"
+[ -r "$BITSTREAM" ] || {
+    echo "quadrf-load: missing FPGA SVF: $BITSTREAM" >&2
+    exit 1
+}
+
+SVF_PROGRESS=
+[ -t 2 ] && SVF_PROGRESS='-progress'
+echo "quadrf-load: programming $BITSTREAM via $TAP" >&2
+"$OPENOCD" -s "$SEARCH_DIR" -f "$BOARD" \
+    -c "if {[catch {init}]} {shutdown error} else {if {[catch {svf -tap $TAP -quiet $SVF_PROGRESS $BITSTREAM}]} {shutdown error} else {shutdown}}"
 
 sleep 1
-# DKMS modules are absent until matching linux-headers are installed.
-# Program the FPGA and init the front-end anyway; quadrf status reports
-# whether the drivers actually loaded.
-modprobe fpga-dsi || echo "quadrf-load: fpga-dsi not loaded (install linux-headers and dkms autoinstall)" >&2
 
-# A CSI teardown that raced with the reflash above can leave the old
-# instance attached for a while after rmmod returns to us; don't let a
-# transient "Device or resource busy" here take the rest of bring-up down
-# with it. The driver settles in on its own once the hardware is quiet.
-modprobe fpga-csi || echo "quadrf-load: fpga-csi not (re)loaded this run, continuing" >&2
-
+modprobe fpga-dsi || echo 'quadrf-load: fpga-dsi not loaded' >&2
+modprobe fpga-csi || echo 'quadrf-load: fpga-csi not reloaded' >&2
 exec /usr/bin/quadrf-jtag --init
