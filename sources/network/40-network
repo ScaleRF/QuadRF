@@ -184,6 +184,12 @@ prune_dns_names() {
 reload_nginx() {
     # DietPi dietpi-ramlog mounts tmpfs on /var/log; nginx's log dir is gone after reboot.
     install -d -m 755 /var/log/nginx
+    # A single epoll worker is plenty for the local control panel and saves
+    # ~16 MB of private heap on 1 GB Pi 5 boards compared to 4 'auto' workers.
+    if [ -f /etc/nginx/nginx.conf ] &&
+       grep -qE '^[[:space:]]*worker_processes[[:space:]]+auto;' /etc/nginx/nginx.conf; then
+        sed -i -E 's/^[[:space:]]*worker_processes[[:space:]]+auto;/worker_processes 1;/' /etc/nginx/nginx.conf
+    fi
     if nginx -t >/dev/null 2>&1; then
         systemctl reload nginx.service 2>/dev/null || true
     fi
@@ -256,6 +262,11 @@ enable_timesync() {
     systemctl unmask systemd-timesyncd.service 2>/dev/null || true
     systemctl enable systemd-timesyncd.service 2>/dev/null || true
     systemctl start systemd-timesyncd.service 2>/dev/null || true
+
+    # nfs-common (for factory startup.sh mount.nfs) pulls in nfs-blkmap and
+    # always-on rpcbind. Keep only rpcbind.socket so it uses 0 RAM unless needed.
+    systemctl disable --now nfs-blkmap.service 2>/dev/null || true
+    systemctl stop rpcbind.service 2>/dev/null || true
 }
 
 apply() {

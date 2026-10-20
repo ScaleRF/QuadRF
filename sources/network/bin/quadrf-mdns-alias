@@ -10,6 +10,7 @@
 # direct-connect records. On COLLISION, unless QUADRF_HOSTNAME_LOCK is set,
 # persist HOSTNAME-2 via quadrf-apply-hostname and re-apply site config.
 
+import ctypes
 import os
 import socket
 import subprocess
@@ -20,10 +21,31 @@ try:
     import avahi
     import dbus
     from dbus.mainloop.glib import DBusGMainLoop
-    from gi.repository import GLib
 except ImportError as exc:
     print(f"quadrf-mdns-alias: missing dependency ({exc})", file=sys.stderr)
     sys.exit(1)
+
+# Call libglib directly instead of importing gi.repository.GLib, which pulls in
+# PyGObject and typelib caches (~8 MB of private heap) just for two timer calls.
+_glib = ctypes.CDLL("libglib-2.0.so.0")
+_libc = ctypes.CDLL("libc.so.6")
+_GSourceFunc = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_void_p)
+_glib.g_timeout_add_seconds.argtypes = [ctypes.c_uint, _GSourceFunc, ctypes.c_void_p]
+_glib.g_timeout_add_seconds.restype = ctypes.c_uint
+_glib.g_main_loop_new.argtypes = [ctypes.c_void_p, ctypes.c_int]
+_glib.g_main_loop_new.restype = ctypes.c_void_p
+_glib.g_main_loop_run.argtypes = [ctypes.c_void_p]
+_glib.g_main_loop_run.restype = None
+_GLIB_CBS = []
+
+
+def _glib_timeout_add_seconds(interval, fn):
+    def _cb(_data):
+        return 1 if fn() else 0
+
+    c_cb = _GSourceFunc(_cb)
+    _GLIB_CBS.append(c_cb)
+    return _glib.g_timeout_add_seconds(interval, c_cb, None)
 
 CONF = os.environ.get("QUADRF_CONF", "/etc/quadrf/quadrf.conf")
 HELPER = os.environ.get("QUADRF_APPLY_HOSTNAME", "/usr/sbin/quadrf-apply-hostname")
@@ -611,10 +633,12 @@ class Publisher:
 def main():
     DBusGMainLoop(set_as_default=True)
     pub = Publisher()
-    GLib.timeout_add_seconds(POLL_SEC, pub.publish)
-    GLib.timeout_add_seconds(3, lambda: (pub._probe_peers(), False)[1])
-    GLib.timeout_add_seconds(15, pub._probe_peers)
-    GLib.MainLoop().run()
+    _glib_timeout_add_seconds(POLL_SEC, pub.publish)
+    _glib_timeout_add_seconds(3, lambda: (pub._probe_peers(), False)[1])
+    _glib_timeout_add_seconds(15, pub._probe_peers)
+    _libc.malloc_trim(0)
+    loop = _glib.g_main_loop_new(None, 0)
+    _glib.g_main_loop_run(loop)
 
 
 if __name__ == "__main__":

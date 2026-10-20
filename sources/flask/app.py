@@ -12,7 +12,23 @@ import math
 import re
 import fcntl
 import struct
+import ctypes
+import gc
 from app_icons import find_app_icon
+
+try:
+    _LIBC = ctypes.CDLL("libc.so.6")
+except Exception:
+    _LIBC = None
+
+
+def _trim_heap():
+    gc.collect()
+    if _LIBC is not None:
+        try:
+            _LIBC.malloc_trim(0)
+        except Exception:
+            pass
 
 # Suppress verbose per-request access logs from Werkzeug to prevent stdio stream saturation
 logging.getLogger('werkzeug').setLevel(logging.WARNING)
@@ -460,7 +476,7 @@ def index():
     hostname = conf.get('QUADRF_HOSTNAME', 'quadrf')
     callsign = (conf.get('CALLSIGN') or conf.get('QUADRF_CALLSIGN') or 'NOCALL').strip() or 'NOCALL'
     net = get_network_status(_via_header())
-    return render_template(
+    html = render_template(
         'index.html',
         ap_ssid=conf.get('QUADRF_AP_SSID', 'QuadRF'),
         callsign=callsign,
@@ -474,6 +490,8 @@ def index():
         wifi_sta_ssid=net["wifi_sta_ssid"] or '',
         wifi_fallback_active=net["wifi_fallback_active"],
     )
+    _trim_heap()
+    return html
 
 @app.route('/split')
 def split():
@@ -1063,4 +1081,5 @@ def tx_unlock():
 
 
 if __name__ == '__main__':
+    _trim_heap()
     socketio.run(app, host='0.0.0.0', port=8080, allow_unsafe_werkzeug=True)

@@ -28,8 +28,30 @@ def format_time(minutes):
     m = minutes % 60
     return f"{h}h{m:02d}m"
 
+def probe_ups_hat(bus):
+    if not bus:
+        return False
+    for _ in range(3):
+        try:
+            bus.read_i2c_block_data(ADDR, 0x20, 0x0C)
+            return True
+        except Exception:
+            time.sleep(1)
+    return False
+
+
 def main():
     bus = get_i2c_bus()
+    if not probe_ups_hat(bus):
+        # No UPS HAT at 0x2d: clear the status file so tint2 hides the widget
+        # and exit cleanly so Python does not sit in RAM polling a missing IC.
+        try:
+            with open(STATUS_FILE, "w") as f:
+                f.write("")
+        except Exception:
+            pass
+        return
+
     warning_triggered = False
     shutdown_counter = 60
 

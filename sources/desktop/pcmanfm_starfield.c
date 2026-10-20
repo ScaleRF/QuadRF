@@ -180,6 +180,15 @@ static void paint_procedural_starfield(cairo_t *cr) {
     }
 
     fn_cairo_restore(cr);
+
+    /* librsvg allocates several MB of heap arenas while rasterizing desktop
+     * SVG icons after gdk_window_set_background_pattern() has already run.
+     * Trim once after the initial desktop paint so those arenas return to OS. */
+    static int trimmed_after_icons = 0;
+    if (!trimmed_after_icons) {
+        trimmed_after_icons = 1;
+        malloc_trim(0);
+    }
 }
 
 void gdk_window_set_background_pattern(GdkWindow *window, cairo_pattern_t *pattern) {

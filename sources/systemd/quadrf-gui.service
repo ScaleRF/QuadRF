@@ -10,6 +10,7 @@ Type=simple
 # User, Group and HOME come from /etc/systemd/system/quadrf-gui.service.d/,
 # written from QUADRF_USER in /etc/quadrf/quadrf.conf.
 User=root
+Environment=MALLOC_ARENA_MAX=2
 WorkingDirectory=/usr/share/quadrf/gui
 ExecStart=/usr/bin/python3 /usr/share/quadrf/gui/app.py
 Restart=always
