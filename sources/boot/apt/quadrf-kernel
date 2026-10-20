@@ -1,0 +1,8 @@
+# Hold the Raspberry Pi kernel and firmware at the image version during normal
+# apt upgrades so out-of-tree fpga-csi / fpga-dsi DKMS modules and RP1 device-tree
+# overlays are not silently broken by upstream kernel bumps.
+# Pin-Priority 50 is below installed packages (100), holding back upgrades while
+# still allowing initial installation when absent.
+Package: linux-image-rpi-2712 linux-headers-rpi-2712 linux-image-rpi-v8 linux-headers-rpi-v8 raspi-firmware
+Pin: release o=*
+Pin-Priority: 50

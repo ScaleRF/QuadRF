@@ -17,6 +17,7 @@ Usage: quadrf <command> [arguments]
 
   status              service, radio and network state
   apply               re-apply site configuration for the installed packages
+  update [--check]    check for or install QuadRF package updates
   packages            installed quadrf-* packages and versions
   callsign [name]     display or update station callsign
   tls import <dir>    install a certificate and private key
@@ -85,6 +86,13 @@ cmd_apply() {
 cmd_packages() {
     dpkg-query -W -f '${Package} ${Version} ${Status}\n' 'quadrf*' 2>/dev/null |
         awk '$4 == "ok" && $5 == "installed" { printf "  %-24s %s\n", $1, $2 }'
+}
+
+cmd_update() {
+    if [ "$(id -u)" -ne 0 ]; then
+        exec sudo /usr/sbin/quadrf-update "$@"
+    fi
+    exec /usr/sbin/quadrf-update "$@"
 }
 
 cmd_callsign() {
@@ -156,6 +164,7 @@ command="${1:-status}"
 case "${command}" in
     status)   cmd_status ;;
     apply)    cmd_apply ;;
+    update)   cmd_update "$@" ;;
     packages) cmd_packages ;;
     callsign) cmd_callsign "$@" ;;
     tls)      cmd_tls "$@" ;;

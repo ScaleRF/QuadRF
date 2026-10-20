@@ -1,4 +1,5 @@
 usr/bin/quadrf
+usr/sbin/quadrf-update
 usr/share/quadrf/functions.sh
 usr/lib/quadrf/apply.d/05-logind
 etc/quadrf/quadrf.conf

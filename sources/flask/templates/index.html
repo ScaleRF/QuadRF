@@ -933,8 +933,16 @@
             <div class="header-row">
                 <h2><span class="indicator" style="background-color: #8b5cf6;"></span> Applications</h2>
                 <div class="controls-row">
+                    <button type="button" class="outline" id="checkUpdatesBtn" title="Check for QuadRF software updates">Check for Updates</button>
                     <button type="button" class="outline" id="httpsSetupBtn">HTTPS Setup</button>
                     <button type="button" class="outline" id="openDesktopBtn">Open Desktop</button>
+                </div>
+            </div>
+            <div id="updateBanner" class="banner hidden" style="margin-bottom: 0.75rem; padding: 0.55rem 0.75rem; font-size: 0.8rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem; text-align: left;">
+                <span id="updateBannerText"></span>
+                <div id="updateBannerActions" style="display: inline-flex; gap: 0.4rem; align-items: center;">
+                    <button type="button" class="outline hidden" id="applyUpdateBtn" style="border-color: #10b981; color: #a7f3d0;">Install Update</button>
+                    <button type="button" class="outline hidden" id="dismissUpdateBtn" style="border-color: rgba(255,255,255,0.2); color: #94a3b8;">Dismiss</button>
                 </div>
             </div>
             <div id="appList" class="app-list"></div>
@@ -1484,6 +1492,130 @@
 
         document.getElementById('httpsSetupBtn').addEventListener('click', () => {
             window.open('/setup/security/', '_blank', 'noopener');
+        });
+
+        const updateCheckApi = '{{ url_for("system_update_check") }}';
+        const updateApplyApi = '{{ url_for("system_update_apply") }}';
+        const updateStatusApi = '{{ url_for("system_update_status") }}';
+        const checkUpdatesBtn = document.getElementById('checkUpdatesBtn');
+        const updateBanner = document.getElementById('updateBanner');
+        const updateBannerText = document.getElementById('updateBannerText');
+        const applyUpdateBtn = document.getElementById('applyUpdateBtn');
+        const dismissUpdateBtn = document.getElementById('dismissUpdateBtn');
+        let updatePollTimer = null;
+
+        function showUpdateBanner(kind, text, { showApply = false, showDismiss = true } = {}) {
+            if (!text) {
+                updateBanner.classList.add('hidden');
+                updateBannerText.textContent = '';
+                applyUpdateBtn.classList.add('hidden');
+                dismissUpdateBtn.classList.add('hidden');
+                return;
+            }
+            updateBanner.classList.remove('hidden', 'success', 'error');
+            updateBanner.classList.add(kind);
+            updateBannerText.textContent = text;
+            applyUpdateBtn.classList.toggle('hidden', !showApply);
+            dismissUpdateBtn.classList.toggle('hidden', !showDismiss);
+        }
+
+        function stopUpdatePoll() {
+            if (updatePollTimer) {
+                clearInterval(updatePollTimer);
+                updatePollTimer = null;
+            }
+        }
+
+        async function pollUpdateStatus() {
+            try {
+                const res = await fetch(updateStatusApi, { cache: 'no-store' });
+                if (!res.ok) return;
+                const data = await res.json();
+                if (data.state === 'running') {
+                    checkUpdatesBtn.disabled = true;
+                    checkUpdatesBtn.textContent = 'Updating…';
+                    showUpdateBanner('success', data.message || 'Installing QuadRF update…', { showApply: false, showDismiss: false });
+                    return;
+                }
+                stopUpdatePoll();
+                checkUpdatesBtn.disabled = false;
+                checkUpdatesBtn.textContent = 'Check for Updates';
+                if (data.state === 'done') {
+                    let msg = data.message || 'Update complete.';
+                    if (data.reboot_required) {
+                        msg += ' Reboot recommended to apply boot or driver changes.';
+                    }
+                    showUpdateBanner('success', msg, { showApply: false, showDismiss: true });
+                    logToConsole('quadrf update', msg);
+                    fetchApps();
+                    fetchState();
+                } else if (data.state === 'error') {
+                    const errMsg = data.message || 'Update failed.';
+                    showUpdateBanner('error', errMsg, { showApply: false, showDismiss: true });
+                    logToConsole('quadrf update', errMsg, true);
+                }
+            } catch (e) {
+                // quadrf-gui.service may briefly restart during a self-upgrade; keep polling.
+            }
+        }
+
+        checkUpdatesBtn.addEventListener('click', async () => {
+            checkUpdatesBtn.disabled = true;
+            checkUpdatesBtn.textContent = 'Checking…';
+            showUpdateBanner('success', 'Synchronizing clock and checking for QuadRF updates…', { showApply: false, showDismiss: false });
+            try {
+                const res = await fetch(updateCheckApi, { method: 'POST' });
+                const data = await res.json();
+                if (!res.ok || data.status === 'error') {
+                    throw new Error(data.message || 'Update check failed');
+                }
+                if (data.up_to_date) {
+                    let msg = `QuadRF software is up to date (v${data.current_version || 'unknown'}).`;
+                    if (data.reboot_required) {
+                        msg += ' A reboot is pending from a previous update.';
+                    }
+                    showUpdateBanner('success', msg, { showApply: false, showDismiss: true });
+                    logToConsole('quadrf update --check', msg);
+                } else {
+                    const pkgs = (data.updates || []).map(u => `${u.package} (${u.installed} → ${u.candidate})`).join(', ');
+                    const msg = `${data.updates.length} update(s) available: ${pkgs}`;
+                    showUpdateBanner('success', msg, { showApply: true, showDismiss: true });
+                    logToConsole('quadrf update --check', msg);
+                }
+            } catch (e) {
+                showUpdateBanner('error', e.message || 'Update check failed.', { showApply: false, showDismiss: true });
+                logToConsole('quadrf update --check', e.message || 'failed', true);
+            } finally {
+                checkUpdatesBtn.disabled = false;
+                checkUpdatesBtn.textContent = 'Check for Updates';
+            }
+        });
+
+        applyUpdateBtn.addEventListener('click', async () => {
+            applyUpdateBtn.disabled = true;
+            checkUpdatesBtn.disabled = true;
+            checkUpdatesBtn.textContent = 'Updating…';
+            showUpdateBanner('success', 'Starting background update… The web interface may briefly reconnect.', { showApply: false, showDismiss: false });
+            try {
+                const res = await fetch(updateApplyApi, { method: 'POST' });
+                const data = await res.json();
+                if (!res.ok || data.status === 'error') {
+                    throw new Error(data.message || 'Failed to start update');
+                }
+                stopUpdatePoll();
+                updatePollTimer = setInterval(pollUpdateStatus, 1500);
+            } catch (e) {
+                checkUpdatesBtn.disabled = false;
+                checkUpdatesBtn.textContent = 'Check for Updates';
+                showUpdateBanner('error', e.message || 'Failed to start update.', { showApply: false, showDismiss: true });
+                logToConsole('quadrf update', e.message || 'failed', true);
+            } finally {
+                applyUpdateBtn.disabled = false;
+            }
+        });
+
+        dismissUpdateBtn.addEventListener('click', () => {
+            showUpdateBanner(null, '');
         });
         
         const MAX_LOG_ENTRIES = 200;

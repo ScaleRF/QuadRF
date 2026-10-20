@@ -254,3 +254,9 @@ quadrf_reboot_required() {
     sort -u -o /var/lib/quadrf/reboot-required /var/lib/quadrf/reboot-required
     touch /run/reboot-required 2>/dev/null || true
 }
+
+# Raspberry Pi 5 has no battery-backed RTC; kick systemd-timesyncd as soon as
+# a LAN path comes up so TLS certificates and apt signatures validate.
+quadrf_sync_time() {
+    systemctl restart --no-block systemd-timesyncd.service 2>/dev/null || true
+}

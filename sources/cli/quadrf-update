@@ -1,0 +1,477 @@
+#!/usr/bin/env python3
+"""Scoped QuadRF software updater.
+
+Synchronizes the system clock (via systemd-timesyncd with plain-HTTP Date
+header fallback for RTC-less Raspberry Pi 5 boards), refreshes the QuadRF
+APT repository list, and checks or upgrades only QuadRF-managed packages so
+unrelated Debian/Raspberry Pi kernel packages are not touched.
+"""
+
+import argparse
+import email.utils
+import json
+import os
+import subprocess
+import sys
+import time
+import urllib.request
+
+QUADRF_LIST = "/etc/apt/sources.list.d/quadrf.list"
+STATE_FILE = "/run/quadrf-update.json"
+LOG_FILE = "/run/quadrf-update.log"
+UNIT_NAME = "quadrf-updater.service"
+MANAGED_PATTERNS = ["quadrf*", "qradiolink", "kasmvncserver", "ttyd"]
+HTTP_DATE_URLS = [
+    "http://deb.debian.org/",
+    "http://scalerf.github.io/",
+]
+
+
+def is_reboot_required():
+    try:
+        return os.path.getsize("/var/lib/quadrf/reboot-required") > 0
+    except OSError:
+        return False
+
+
+def write_state(data):
+    tmp = f"{STATE_FILE}.tmp.{os.getpid()}"
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(data, f)
+        os.replace(tmp, STATE_FILE)
+    except OSError:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+
+
+def read_state():
+    try:
+        with open(STATE_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+
+def read_log_tail(max_bytes=8192):
+    try:
+        with open(LOG_FILE, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            size = f.tell()
+            f.seek(max(0, size - max_bytes), os.SEEK_SET)
+            return f.read().decode("utf-8", errors="replace")
+    except OSError:
+        return ""
+
+
+def unit_active():
+    res = subprocess.run(
+        ["systemctl", "is-active", "--quiet", UNIT_NAME],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    return res.returncode == 0
+
+
+def ntp_synchronized():
+    res = subprocess.run(
+        ["timedatectl", "show", "-p", "NTPSynchronized", "--value"],
+        capture_output=True,
+        text=True,
+    )
+    return res.returncode == 0 and res.stdout.strip() == "yes"
+
+
+def sync_clock(quiet=False):
+    """Ensure the system clock is accurate enough for HTTPS/APT verification."""
+    if ntp_synchronized():
+        return True
+
+    if not quiet:
+        print("Synchronizing system clock...", flush=True)
+
+    subprocess.run(
+        ["systemctl", "restart", "systemd-timesyncd.service"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    deadline = time.monotonic() + 3.0
+    while time.monotonic() < deadline:
+        if ntp_synchronized():
+            return True
+        time.sleep(0.3)
+
+    # Fallback when UDP/123 is filtered or slow: step from plain-HTTP Date header.
+    for url in HTTP_DATE_URLS:
+        try:
+            req = urllib.request.Request(url, method="HEAD")
+            with urllib.request.urlopen(req, timeout=4) as resp:
+                date_hdr = resp.headers.get("Date")
+            if not date_hdr:
+                continue
+            dt = email.utils.parsedate_to_datetime(date_hdr)
+            remote_ts = dt.timestamp()
+            if abs(remote_ts - time.time()) > 60:
+                subprocess.run(
+                    ["date", "-u", "-s", f"@{int(remote_ts)}"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    check=False,
+                )
+            return True
+        except Exception:
+            continue
+    return False
+
+
+def refresh_apt(quiet=False):
+    cmd = ["apt-get", "update"]
+    if os.path.isfile(QUADRF_LIST):
+        cmd.extend([
+            "-o", f"Dir::Etc::sourcelist={QUADRF_LIST}",
+            "-o", "Dir::Etc::sourceparts=-",
+            "-o", "APT::Get::List-Cleanup=0",
+        ])
+    res = subprocess.run(
+        cmd,
+        stdout=subprocess.PIPE if quiet else None,
+        stderr=subprocess.STDOUT if quiet else None,
+        text=True,
+    )
+    if res.returncode != 0:
+        err = (res.stdout or "").strip() if quiet else "apt-get update failed"
+        raise RuntimeError(err or "apt-get update failed")
+
+
+def installed_managed_packages():
+    res = subprocess.run(
+        ["dpkg-query", "-W", "-f=${Package}\\t${Version}\\t${db:Status-Status}\\n"]
+        + MANAGED_PATTERNS,
+        capture_output=True,
+        text=True,
+    )
+    pkgs = {}
+    for line in res.stdout.splitlines():
+        parts = line.split("\t")
+        if len(parts) == 3 and parts[2] == "installed":
+            pkgs[parts[0]] = parts[1]
+    return pkgs
+
+
+def current_quadrf_version(pkgs=None):
+    if pkgs is None:
+        pkgs = installed_managed_packages()
+    return pkgs.get("quadrf") or pkgs.get("quadrf-common") or "unknown"
+
+
+def find_updates():
+    pkgs = installed_managed_packages()
+    cur_ver = current_quadrf_version(pkgs)
+    if not pkgs:
+        return cur_ver, []
+
+    res = subprocess.run(
+        ["apt-cache", "policy"] + sorted(pkgs.keys()),
+        capture_output=True,
+        text=True,
+    )
+    candidates = {}
+    cur_pkg = None
+    for line in res.stdout.splitlines():
+        if not line.startswith(" ") and line.endswith(":"):
+            cur_pkg = line[:-1].strip()
+        elif cur_pkg and line.strip().startswith("Candidate:"):
+            candidates[cur_pkg] = line.split(":", 1)[1].strip()
+
+    updates = []
+    for pkg, inst_ver in sorted(pkgs.items()):
+        cand_ver = candidates.get(pkg)
+        if not cand_ver or cand_ver == "(none)" or cand_ver == inst_ver:
+            continue
+        cmp_res = subprocess.run(
+            ["dpkg", "--compare-versions", cand_ver, "gt", inst_ver]
+        )
+        if cmp_res.returncode == 0:
+            updates.append({
+                "package": pkg,
+                "installed": inst_ver,
+                "candidate": cand_ver,
+            })
+    return cur_ver, updates
+
+
+def do_check(as_json=False):
+    try:
+        sync_clock(quiet=as_json)
+        refresh_apt(quiet=as_json)
+        cur_ver, updates = find_updates()
+    except Exception as exc:
+        if as_json:
+            print(json.dumps({"status": "error", "message": str(exc)}))
+        else:
+            print(f"quadrf-update: {exc}", file=sys.stderr)
+        return 1
+
+    payload = {
+        "status": "ok",
+        "current_version": cur_ver,
+        "up_to_date": len(updates) == 0,
+        "updates": updates,
+        "reboot_required": is_reboot_required(),
+    }
+    if as_json:
+        print(json.dumps(payload))
+    else:
+        if not updates:
+            print(f"All QuadRF packages are up to date ({cur_ver}).")
+        else:
+            print(f"{len(updates)} update(s) available:")
+            for u in updates:
+                print(f"  {u['package']:<22} {u['installed']} -> {u['candidate']}")
+        if payload["reboot_required"]:
+            print("Reboot required to complete a previous update.")
+    return 0
+
+
+def do_apply(as_json=False):
+    started = int(time.time())
+    write_state({
+        "status": "ok",
+        "state": "running",
+        "started_at": started,
+        "message": "Synchronizing system clock...",
+        "current_version": current_quadrf_version(),
+        "reboot_required": is_reboot_required(),
+    })
+    try:
+        sync_clock(quiet=as_json)
+        write_state({
+            "status": "ok",
+            "state": "running",
+            "started_at": started,
+            "message": "Checking QuadRF package repository...",
+            "current_version": current_quadrf_version(),
+            "reboot_required": is_reboot_required(),
+        })
+        refresh_apt(quiet=as_json)
+        cur_ver, updates = find_updates()
+        if not updates:
+            msg = f"All QuadRF packages are up to date ({cur_ver})."
+            result = {
+                "status": "ok",
+                "state": "done",
+                "started_at": started,
+                "finished_at": int(time.time()),
+                "message": msg,
+                "updated": [],
+                "current_version": cur_ver,
+                "reboot_required": is_reboot_required(),
+            }
+            write_state(result)
+            if as_json:
+                print(json.dumps(result))
+            else:
+                print(msg)
+            return 0
+
+        pkg_names = [u["package"] for u in updates]
+        write_state({
+            "status": "ok",
+            "state": "running",
+            "started_at": started,
+            "message": f"Installing {len(updates)} package update(s)...",
+            "updates": updates,
+            "current_version": cur_ver,
+            "reboot_required": is_reboot_required(),
+        })
+        if not as_json:
+            print(f"Upgrading {len(updates)} package(s): {' '.join(pkg_names)}", flush=True)
+
+        env = os.environ.copy()
+        env["DEBIAN_FRONTEND"] = "noninteractive"
+        env["APT_LISTCHANGES_FRONTEND"] = "none"
+        cmd = [
+            "apt-get", "install", "-y", "--only-upgrade",
+            "-o", "Dpkg::Options::=--force-confdef",
+            "-o", "Dpkg::Options::=--force-confold",
+            "--",
+        ] + pkg_names
+        res = subprocess.run(
+            cmd,
+            env=env,
+            stdout=subprocess.PIPE if as_json else None,
+            stderr=subprocess.STDOUT if as_json else None,
+            text=True,
+        )
+        if res.returncode != 0:
+            err = (res.stdout or "").strip() if as_json else f"apt-get install exited with {res.returncode}"
+            raise RuntimeError(err or "package upgrade failed")
+
+        new_ver = current_quadrf_version()
+        msg = f"Updated {len(updates)} package(s) (QuadRF {new_ver})."
+        result = {
+            "status": "ok",
+            "state": "done",
+            "started_at": started,
+            "finished_at": int(time.time()),
+            "message": msg,
+            "updated": updates,
+            "current_version": new_ver,
+            "reboot_required": is_reboot_required(),
+        }
+        write_state(result)
+        if as_json:
+            print(json.dumps(result))
+        else:
+            print(msg)
+            if result["reboot_required"]:
+                print("Reboot required to apply boot or driver changes.")
+        return 0
+    except Exception as exc:
+        err_state = {
+            "status": "error",
+            "state": "error",
+            "started_at": started,
+            "finished_at": int(time.time()),
+            "message": str(exc),
+            "current_version": current_quadrf_version(),
+            "reboot_required": is_reboot_required(),
+        }
+        write_state(err_state)
+        if as_json:
+            print(json.dumps(err_state))
+        else:
+            print(f"quadrf-update: {exc}", file=sys.stderr)
+        return 1
+
+
+def do_apply_bg(as_json=False):
+    if unit_active():
+        payload = {
+            "status": "ok",
+            "state": "running",
+            "message": "Update is already in progress.",
+        }
+        if as_json:
+            print(json.dumps(payload))
+        else:
+            print(payload["message"])
+        return 0
+
+    try:
+        with open(LOG_FILE, "w", encoding="utf-8") as f:
+            f.write("")
+    except OSError:
+        pass
+
+    write_state({
+        "status": "ok",
+        "state": "running",
+        "started_at": int(time.time()),
+        "message": "Starting QuadRF update...",
+        "current_version": current_quadrf_version(),
+        "reboot_required": is_reboot_required(),
+    })
+
+    # Run inside a transient systemd unit so restarting quadrf-gui.service
+    # during a package upgrade does not terminate the apt transaction.
+    subprocess.run(
+        ["systemctl", "reset-failed", UNIT_NAME],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    res = subprocess.run(
+        [
+            "systemd-run",
+            f"--unit={UNIT_NAME}",
+            "--collect",
+            "--property=Type=oneshot",
+            "/bin/sh",
+            "-c",
+            f"/usr/sbin/quadrf-update --apply > {LOG_FILE} 2>&1",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if res.returncode != 0:
+        msg = (res.stderr or res.stdout or "failed to start background updater").strip()
+        err = {"status": "error", "state": "error", "message": msg}
+        write_state(err)
+        if as_json:
+            print(json.dumps(err))
+        else:
+            print(f"quadrf-update: {msg}", file=sys.stderr)
+        return 1
+
+    payload = {
+        "status": "ok",
+        "state": "running",
+        "message": "Installing QuadRF update in background...",
+    }
+    if as_json:
+        print(json.dumps(payload))
+    else:
+        print(payload["message"])
+    return 0
+
+
+def do_status(as_json=False):
+    st = read_state()
+    running = unit_active()
+    cur_ver = current_quadrf_version()
+    if not st:
+        st = {
+            "status": "ok",
+            "state": "running" if running else "idle",
+            "message": "Update in progress..." if running else f"QuadRF {cur_ver}",
+            "current_version": cur_ver,
+            "reboot_required": is_reboot_required(),
+        }
+    else:
+        if st.get("state") == "running" and not running:
+            # Re-read in case the unit just finished writing state.
+            st = read_state() or st
+            if st.get("state") == "running":
+                st["state"] = "error"
+                st["status"] = "error"
+                st["message"] = "Update process exited unexpectedly."
+        st["current_version"] = cur_ver
+        st["reboot_required"] = is_reboot_required()
+
+    st["log"] = read_log_tail()
+    if as_json:
+        print(json.dumps(st))
+    else:
+        print(f"State:   {st.get('state')}")
+        print(f"Version: {st.get('current_version')}")
+        print(f"Message: {st.get('message')}")
+    return 0
+
+
+def main():
+    if os.geteuid() != 0:
+        print("quadrf-update: must be run as root", file=sys.stderr)
+        return 1
+
+    parser = argparse.ArgumentParser(description="Check or apply QuadRF package updates.")
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("--check", action="store_true", help="Check for available QuadRF updates")
+    group.add_argument("--apply", action="store_true", help="Install available QuadRF updates")
+    group.add_argument("--apply-bg", action="store_true", help="Install updates in a background systemd unit")
+    group.add_argument("--status", action="store_true", help="Report status of current or last update")
+    parser.add_argument("--json", action="store_true", help="Format output as JSON")
+    args = parser.parse_args()
+
+    if args.check:
+        return do_check(as_json=args.json)
+    if args.apply_bg:
+        return do_apply_bg(as_json=args.json)
+    if args.status:
+        return do_status(as_json=args.json)
+    return do_apply(as_json=args.json)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

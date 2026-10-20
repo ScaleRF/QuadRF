@@ -245,8 +245,22 @@ prefer_openssh() {
     done
 }
 
+# DietPi ships CONFIG_NTP_MODE=2 (boot/daily oneshot), which stops
+# systemd-timesyncd after boot even if the boot-time sync failed offline.
+# Mode 4 (Daemon + Drift) keeps systemd-timesyncd running continuously.
+enable_timesync() {
+    for dietpi_txt in "${QUADRF_BOOT_DIR}/dietpi.txt" /boot/dietpi.txt; do
+        [ -f "${dietpi_txt}" ] || continue
+        quadrf_setting_set "${dietpi_txt}" CONFIG_NTP_MODE 4 || true
+    done
+    systemctl unmask systemd-timesyncd.service 2>/dev/null || true
+    systemctl enable systemd-timesyncd.service 2>/dev/null || true
+    systemctl start systemd-timesyncd.service 2>/dev/null || true
+}
+
 apply() {
     prefer_openssh
+    enable_timesync
     publish_nginx
     quadrf_write_hostapd /etc/hostapd/quadrf.conf
     render "${SHARE}/dhcpd.conf.in" /etc/quadrf/dhcpd.conf

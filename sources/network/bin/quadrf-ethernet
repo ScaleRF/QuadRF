@@ -215,6 +215,7 @@ interface-name=$(quadrf_desktop_mdns_short),${IFACE}
 EOF
     log "${IFACE} on LAN at $(lan_v4 | tr '\n' ' ')"
     refresh_addr_cache
+    quadrf_sync_time
 }
 
 enter_direct() {

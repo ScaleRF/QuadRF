@@ -30,6 +30,13 @@ network configuration and the desktop layout. Safe to repeat. Needs root.
 .B packages
 List the installed quadrf-* packages and their versions.
 .TP
+.BR "update " [ \-\-check ]
+Synchronize the system clock, refresh the QuadRF package repository and
+upgrade the installed QuadRF packages without touching the base Debian or
+Raspberry Pi kernel packages. With
+.B \-\-check
+only report available package updates. Needs root.
+.TP
 .BI "tls import " directory
 Install
 .I fullchain.pem

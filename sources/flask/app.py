@@ -34,6 +34,7 @@ HOTSPOT_CLI = os.environ.get("QUADRF_HOTSPOT", "/usr/sbin/quadrf-hotspot")
 APP_CLI = os.environ.get("QUADRF_APP", "/usr/sbin/quadrf-app")
 UNLOCK_CLI = os.environ.get("QUADRF_TX_UNLOCK", "/usr/sbin/quadrf-tx-unlock")
 CALLSIGN_CLI = os.environ.get("QUADRF_APPLY_CALLSIGN", "/usr/sbin/quadrf-apply-callsign")
+UPDATE_CLI = os.environ.get("QUADRF_UPDATE", "/usr/sbin/quadrf-update")
 CONF_PATH = os.environ.get("QUADRF_CONF", "/etc/quadrf/quadrf.conf")
 WPA_CONF = os.environ.get("QUADRF_WPA_CONF", "/etc/wpa_supplicant/wpa_supplicant.conf")
 TX_FULL_POWER_PATH = os.environ.get("QUADRF_TX_FULL_POWER", "/var/lib/quadrf/tx_full_power")
@@ -610,6 +611,40 @@ def system_callsign():
     if proc.returncode != 0:
         return jsonify({"status": "error", "message": _cli_error(proc, "failed to set callsign")}), 500
     return jsonify({"status": "ok", **get_network_status(_via_header())})
+
+
+def _run_update_cli(args, timeout=60, default_err="update command failed"):
+    try:
+        proc = run_sudo([UPDATE_CLI] + args + ["--json"], timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return {"status": "error", "message": "update request timed out"}, 500
+    try:
+        payload = json.loads((proc.stdout or "").strip())
+    except Exception:
+        payload = None
+    if proc.returncode != 0:
+        msg = (payload or {}).get("message") or _cli_error(proc, default_err)
+        return {"status": "error", "message": msg}, 500
+    return payload or {"status": "ok"}, 200
+
+
+@app.route('/api/system/update/check', methods=['POST'])
+def system_update_check():
+    payload, code = _run_update_cli(["--check"], timeout=60, default_err="failed to check for updates")
+    return jsonify(payload), code
+
+
+@app.route('/api/system/update/apply', methods=['POST'])
+def system_update_apply():
+    payload, code = _run_update_cli(["--apply-bg"], timeout=15, default_err="failed to start update")
+    return jsonify(payload), code
+
+
+@app.route('/api/system/update/status', methods=['GET'])
+def system_update_status():
+    payload, code = _run_update_cli(["--status"], timeout=10, default_err="failed to read update status")
+    return jsonify(payload), code
+
 
 def broadcast_full_status(force=False):
     """Fetches the latest state and pushes it to all connected WebSocket clients."""

@@ -7,3 +7,4 @@
 @USER@ ALL=(ALL) NOPASSWD: /usr/sbin/quadrf-hotspot
 @USER@ ALL=(ALL) NOPASSWD: /usr/sbin/quadrf-app
 @USER@ ALL=(ALL) NOPASSWD: /usr/sbin/quadrf-tx-unlock
+@USER@ ALL=(ALL) NOPASSWD: /usr/sbin/quadrf-update

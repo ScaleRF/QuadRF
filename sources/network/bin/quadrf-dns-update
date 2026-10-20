@@ -46,3 +46,4 @@ if [[ ! -f "${DEST}" ]] || ! cmp -s "${tmp}" "${DEST}"; then
     restart_dnsmasq
 fi
 rm -f "${tmp}"
+quadrf_sync_time
