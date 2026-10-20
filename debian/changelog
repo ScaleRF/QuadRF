@@ -1,3 +1,11 @@
+quadrf (1.0.46) trixie; urgency=medium
+
+  * Add scoped software updater, continuous NTP sync, and kernel APT pinning
+  * fpga, boot, gui: Package BIST, add factory startup runner, and rename RF Vision apps
+  * added fpga files, dynamic quadrf-load, and built-in self test for quadrature error correction, etc..
+
+ -- QuadRF Engineering <contact@ScaleRF.com>  Tue, 20 Oct 2026 00:53:45 -0700
+
 quadrf (1.0.45) trixie; urgency=medium
 
   * pkg: Retry qradiolink fetch when Codeberg drops the connection
