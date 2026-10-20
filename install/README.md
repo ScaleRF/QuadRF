@@ -141,11 +141,11 @@ Install the `quadrf` or `quadrf-headless` metapackage, or select individual comp
 | `quadrf-gui` | Flask control panel on port 8080 |
 | `quadrf-network` | nginx, dnsmasq, mDNS, access point support, and OpenSSH/SFTP |
 | `quadrf-dev` | C++ headers and `find_package(QuadRF)` support for building against the installed SoapySDR modules |
-| `quadrf-demos` | Spatial RF Vision, PSD plot, NTSC decoder (`mpv`), near-field phasors, 802.11 OFDM Link, PhaseGaze, AR, and example sources under `/usr/share/quadrf/examples` |
+| `quadrf-demos` | RF Vision (Basic), PSD plot, NTSC decoder (`mpv`), near-field phasors, 802.11 OFDM Link, RF Vision (Advanced), AR, and example sources under `/usr/share/quadrf/examples` |
 | `quadrf-desktop` | KasmVNC session with QuadRF launchers |
 | `quadrf-gnuradio` | Example GNU Radio flowgraphs |
 | `quadrf-mesh` | QuadRF Mesh desktop launcher, control-panel app, and Meshtastic services |
-| `quadrf-phasegaze` | Spherical phase visualization |
+| `quadrf-phasegaze` | RF Vision (Advanced) spherical phase visualization |
 | `quadrf-mimo` | Phase-coded 4x4 MIMO transceiver and web HUD |
 | `quadrf-ups` | UPS HAT battery monitor |
 

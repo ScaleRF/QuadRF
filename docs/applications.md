@@ -19,8 +19,8 @@ The complete `quadrf` package ships with the following built-in applications:
 
 | Application | Description | Surface |
 | --- | --- | --- |
-| **Spatial RF Vision** | Swept-LO phase scatter of the RF scene (30 fps) | Browser AR view at `/AR/` |
-| **PhaseGaze** | Swept-LO phase-gradient hemisphere (38 Msps, 4-lane CSI) | Browser view at `/phasegaze/` |
+| **RF Vision (Advanced)** | Swept-LO phase-gradient hemisphere (38 Msps, 4-lane CSI) | Browser view at `/phasegaze/` |
+| **RF Vision (Basic)** | Swept-LO phase scatter of the RF scene (30 fps) | Browser AR view at `/AR/` |
 | **PSD Plot** | Live FFT power spectral density (1 to 4 channels) | Remote desktop |
 | **Camera Decoder** | Real-time NTSC demodulation of analog FPV video | Remote desktop |
 | **Camera Encoder** | Analog NTSC FM transmit from a still, MP4, or test card | Remote desktop |

@@ -218,7 +218,7 @@ certutil -d "sql:$quadrf_nss_db" -A -t "C,," -n "QuadRF Local Root" \
     <ol>
       <li>Copy the internal Chrome address below, open a new tab, and paste it into the address bar.</li>
       <li>Find <strong>Insecure origins treated as secure</strong>, add the exact HTTP origin shown below, and set the feature to <strong>Enabled</strong>.</li>
-      <li>Tap <strong>Relaunch</strong>, return to the same HTTP address, and launch Spatial RF Vision.</li>
+      <li>Tap <strong>Relaunch</strong>, return to the same HTTP address, and launch RF Vision.</li>
     </ol>
     <div class="copy-row">
       <input id="chromeFlagUrl" value="chrome://flags/#unsafely-treat-insecure-origin-as-secure" readonly aria-label="Chrome flag address">

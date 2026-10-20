@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Application
 Version=1.0
-Name=Spatial RF Vision
+Name=RF Vision (Basic)
 Comment=Swept-LO phase scatter view with a WebSocket feed for the AR page
 Exec=quadrf-rf-vision
 TryExec=quadrf-rf-vision

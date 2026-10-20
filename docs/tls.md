@@ -48,7 +48,7 @@ all three addresses.
 7. Under **Enable Full Trust for Root Certificates**, enable the entry
    beginning with **QuadRF Local Root CA**, then confirm.
 8. Return to Safari and open `https://quadrf.local/`.
-9. Launch Spatial RF Vision and tap **Allow** when Safari requests camera
+9. Launch RF Vision and tap **Allow** when Safari requests camera
    permission.
 
 Apple removes a downloaded profile if it is not installed within eight
@@ -73,7 +73,7 @@ contains only the public root certificate, never either private key.
 6. Review Android's network-monitoring warning, continue, and select
    `quadrf-root-ca.cer`. Set a screen lock if Android requires one.
 7. Return to Chrome and open `https://quadrf.local/`.
-8. Launch Spatial RF Vision and allow camera access.
+8. Launch RF Vision and allow camera access.
 
 Common settings paths are:
 
@@ -204,7 +204,7 @@ window.isSecureContext
 typeof navigator.mediaDevices?.getUserMedia
 ```
 
-Spatial RF Vision opens `/AR/` relative to the controls page, so launching it
+RF Vision (Basic) opens `/AR/` relative to the controls page, so launching it
 from the HTTPS controls page keeps the AR tab on HTTPS and uses a secure
 WebSocket.
 

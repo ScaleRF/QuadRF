@@ -3,17 +3,27 @@
 quadrf-load \- program the FPGA and bring up the QuadRF radio
 .SH SYNOPSIS
 .B quadrf-load
+.RB [ \-\-detect | \-\-bist ]
 .SH DESCRIPTION
 Unloads
 .BR fpga_csi ,
-programs
-.I /usr/share/quadrf/fpga/quadrf.svf
-into the ECP5 over JTAG with OpenOCD, loads the
+detects the ECP5 variant (LFE5U-45F or LFE5U-25F) over JTAG with OpenOCD,
+programs the matching
+.I /usr/share/quadrf/fpga/quadrf-45.svf
+or
+.I /usr/share/quadrf/fpga/quadrf-25.svf
+bitstream, loads the
 .B fpga-dsi
 and
 .B fpga-csi
 drivers against the new bitstream and finishes with
-.BR "quadrf-jtag \-\-init" .
+.BR "quadrf-jtag \-\-init"
+(and
+.B bist
+when invoked with
+.B \-\-bist
+or through
+.BR load-quadrf.service ).
 .PP
 .B load-quadrf.service
 runs this at boot. It is safe to run again by hand, which is the quickest way

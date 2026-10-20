@@ -1,0 +1,18 @@
+[Unit]
+Description=QuadRF first-boot factory startup script
+After=local-fs.target network.target load-quadrf.service
+Wants=load-quadrf.service
+Before=quadrf-hotspot.service quadrf-soapy-server.service
+ConditionPathExists=|/home/dietpi/startup.sh
+ConditionPathExists=|/root/startup.sh
+ConditionPathExists=|/boot/firmware/startup.sh
+ConditionPathExists=|/boot/startup.sh
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+TimeoutStartSec=600
+ExecStart=/usr/sbin/quadrf-startup
+
+[Install]
+WantedBy=multi-user.target

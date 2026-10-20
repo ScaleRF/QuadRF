@@ -30,6 +30,18 @@ wifi_disabled() {
         grep -qE '^[[:space:]]*#?[[:space:]]*dtoverlay=disable-wifi' "${CONFIG_TXT}"
 }
 
+factory_startup_active() {
+    local home
+    home="$(quadrf_home 2>/dev/null || echo /home/dietpi)"
+    [[ -d /run/quadrf-production ]] ||
+        [[ -f "${home}/startup.sh" ]] ||
+        [[ -f /home/dietpi/startup.sh ]] ||
+        [[ -f /root/startup.sh ]] ||
+        [[ -f "${QUADRF_BOOT_DIR}/startup.sh" ]] ||
+        [[ -f /boot/firmware/startup.sh ]] ||
+        [[ -f /boot/startup.sh ]]
+}
+
 wifi_mode() {
     case "${QUADRF_WIFI_MODE:-sta}" in
         ap|off|sta) printf '%s\n' "${QUADRF_WIFI_MODE:-sta}" ;;
@@ -354,6 +366,10 @@ apply_sta() {
 }
 
 cmd_start() {
+    if factory_startup_active; then
+        log "factory startup.sh present or active; skipping wlan0 override"
+        return 0
+    fi
     readable_wpa
     if wifi_disabled; then
         log "dtoverlay=disable-wifi is set in ${CONFIG_TXT}; wlan0 is unavailable"

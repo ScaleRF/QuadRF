@@ -43,7 +43,7 @@ QuadRF pairs a Raspberry Pi 5 with an RF frontend and FPGA digital baseband:
 └──────────────┬───────────────────────────────┘
                │ /dev/csi_stream0, /dev/dsi_stream0, SoapySDR (driver=mipi)
                ▼
-[ Userland Applications & Web GUI ] (PhaseGaze, Data Link, GNU Radio)
+[ Userland Applications & Web GUI ] (RF Vision, Data Link, GNU Radio)
 ```
 
 ### Core Hardware Components
@@ -95,7 +95,8 @@ QuadRF pairs a Raspberry Pi 5 with an RF frontend and FPGA digital baseband:
   - Control panel: `http://quadrf.local/` (also `/GUI/`, `/split`)
   - Remote desktop (KasmVNC): `http://quadrfd.local/`, `http://quadrf-desktop.local/`, or `http://quadrf.local:6080/` (extra units: `quadrf-2d.local` / `quadrf-2-desktop.local`)
 - **Application Suite**:
-  - **PhaseGaze** (`quadrf-phasegaze.service`): Real-time spatial RF camera and swept CSI heatmap visualization at 30+ FPS.
+  - **RF Vision (Advanced)** (`quadrf-phasegaze.service`): Real-time spatial RF camera and swept CSI heatmap visualization at 30+ FPS.
+  - **RF Vision (Basic)** (`quadrf-rf-vision.service`): Swept-LO phase scatter and browser AR overlay.
   - **802.11 OFDM Link** (`quadrf-data`): IEEE 802.11 OFDM IP tunnel bridging Linux `tun0` across QuadRF units.
   - **NTSC Demodulator** (`quadrf-ntsc-demod`): Real-time analog video demodulation.
   - **4x4 MIMO**: Simple 4ch MIMO demo.

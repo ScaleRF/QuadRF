@@ -11,7 +11,7 @@ APPLICATION_DIR="${QUADRF_APPLICATION_DIR:-/usr/share/applications}"
 # Flow order for unfixed icons (mtime ascending). Do not write per-icon
 # x/y: PCManFM then reflows on Kasm resize instead of clamping overflow
 # onto the last row.
-PREFERRED_DESKTOP_ENTRIES="quadrf-terminal.desktop quadrf-files.desktop quadrf-editor.desktop"
+PREFERRED_DESKTOP_ENTRIES="quadrf-terminal.desktop quadrf-files.desktop quadrf-editor.desktop com.scalerf.QuadRF.PhaseGaze.desktop com.scalerf.QuadRF.SpatialRFVision.desktop"
 DESKTOP_MTIME_BASE=1000000000
 
 if ! getent passwd "${QUADRF_USER}" >/dev/null; then
@@ -56,6 +56,10 @@ sync_desktop_entry() {
     if [ -n "${tryexec}" ] && [ ! -x "${tryexec}" ] && ! command -v "${tryexec}" >/dev/null 2>&1; then
         rm -f "${dest}"
         return 0
+    fi
+    if [ "$(basename "${entry}")" = "com.scalerf.QuadRF.PhaseGaze.desktop" ] &&
+       grep -q '^Name=PhaseGaze$' "${entry}" 2>/dev/null; then
+        sed -i 's/^Name=PhaseGaze$/Name=RF Vision (Advanced)/' "${entry}" 2>/dev/null || true
     fi
     install -o "${QUADRF_USER}" -g "${GROUP}" -m 755 "${entry}" "${dest}"
     if command -v gio >/dev/null 2>&1; then

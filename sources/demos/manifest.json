@@ -1,6 +1,6 @@
 {
-  "name": "MoonRF AR Vision",
-  "short_name": "AR Vision",
+  "name": "RF Vision (Basic)",
+  "short_name": "RF Vision (Basic)",
   "start_url": "/AR/",
   "display": "fullscreen",
   "background_color": "#000000",

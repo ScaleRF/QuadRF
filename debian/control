@@ -156,13 +156,16 @@ Depends: avahi-daemon,
          dnsmasq,
          ethtool,
          hostapd,
+         isc-dhcp-client,
          isc-dhcp-server,
          iw,
          libnss-mdns,
+         nfs-common,
          nginx,
          nftables,
          openssh-server,
          openssl,
+         psmisc,
          python3,
          python3-avahi,
          python3-dbus,
@@ -192,12 +195,12 @@ Breaks: quadrf-desktop (<< ${binary:Version})
 Replaces: quadrf-desktop (<< ${binary:Version})
 Suggests: quadrf-soapy
 Description: QuadRF demonstration applications
- Spatial RF Vision (swept-LO phase scatter with a WebSocket feed for the
+ RF Vision (Basic) (swept-LO phase scatter with a WebSocket feed for the
  browser AR page), the PSD plot, the NTSC decoder, the NTSC encoder, the
- near-field phasor display, 802.11 OFDM Link, and PhaseGaze (four-lane
- phase-gradient hemisphere in the browser). The package owns their desktop
- entries, icons, AppStream metadata and control-page runtime descriptor. The
- systemd units start on demand from the control panel; they are not enabled.
+ near-field phasor display, 802.11 OFDM Link, and RF Vision (Advanced)
+ (four-lane phase-gradient hemisphere in the browser). The package owns their
+ desktop entries, icons, AppStream metadata and control-page runtime descriptor.
+ The systemd units start on demand from the control panel; they are not enabled.
 
 Package: quadrf-desktop
 Architecture: arm64

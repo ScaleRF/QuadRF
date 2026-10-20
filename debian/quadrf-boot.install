@@ -1,3 +1,5 @@
 usr/lib/quadrf/overlays/
 usr/lib/quadrf/apply.d/10-boot
+usr/sbin/quadrf-startup
 lib/systemd/system/quadrf-reboot-clear.service
+lib/systemd/system/quadrf-startup.service

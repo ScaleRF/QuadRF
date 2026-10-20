@@ -24,7 +24,13 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
-#include "/usr/src/quadrf-fpga-1.0.42/csi/fpga_csi.h"
+#if __has_include(<quadrf/fpga_csi.h>)
+#include <quadrf/fpga_csi.h>
+#elif __has_include("../drivers/csi/fpga_csi.h")
+#include "../drivers/csi/fpga_csi.h"
+#else
+#include "fpga_csi.h"
+#endif
 
 #ifndef DSI_IOC_MAGIC
 #define DSI_IOC_MAGIC 'D'
@@ -168,13 +174,13 @@ static int8_t g_cos_i8[LUT_SIZE];
 static int8_t g_sin_i8[LUT_SIZE];
 
 static volatile sig_atomic_t g_stop;
-static atomic_bool g_radio_ready = ATOMIC_VAR_INIT(false);
-static atomic_bool g_tx_streaming = ATOMIC_VAR_INIT(false);
-static atomic_bool g_tx_failed = ATOMIC_VAR_INIT(false);
-static atomic_int g_requested_polarity = ATOMIC_VAR_INIT(1);
-static atomic_uint_fast64_t g_requested_step = ATOMIC_VAR_INIT(0);
-static atomic_uint g_requested_generation = ATOMIC_VAR_INIT(0);
-static atomic_uint g_queued_generation = ATOMIC_VAR_INIT(0);
+static atomic_bool g_radio_ready = false;
+static atomic_bool g_tx_streaming = false;
+static atomic_bool g_tx_failed = false;
+static atomic_int g_requested_polarity = 1;
+static atomic_uint_fast64_t g_requested_step = 0;
+static atomic_uint g_requested_generation = 0;
+static atomic_uint g_queued_generation = 0;
 
 static void on_signal(int signo)
 {

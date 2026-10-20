@@ -1,3 +1,4 @@
+usr/bin/bist
 usr/bin/quadrf-jtag
 usr/sbin/quadrf-load
 usr/share/quadrf/fpga/

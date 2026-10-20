@@ -2,7 +2,9 @@
 Description=QuadRF FPGA bring-up
 Documentation=man:quadrf(1)
 After=local-fs.target
-ConditionPathExists=/usr/share/quadrf/fpga/quadrf.svf
+ConditionPathExists=|/usr/share/quadrf/fpga/quadrf-45.svf
+ConditionPathExists=|/usr/share/quadrf/fpga/quadrf-25.svf
+ConditionPathExists=|/usr/share/quadrf/fpga/quadrf.svf
 
 [Service]
 Type=oneshot
@@ -11,6 +13,7 @@ TimeoutStartSec=120
 TimeoutStopSec=15
 KillMode=process
 ExecStart=/usr/sbin/quadrf-load
+ExecStart=/usr/bin/bist
 
 [Install]
 WantedBy=multi-user.target

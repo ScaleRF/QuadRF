@@ -118,11 +118,11 @@ flowchart TB
 | `quadrf-gui` | Flask control panel served on port 8080 |
 | `quadrf-network` | Nginx reverse proxy, dnsmasq DHCP/DNS, mDNS responder, and Wi-Fi mode management |
 | `quadrf-dev` | C++ headers (`fpga_csi.h`, `Farrow.hpp`), CMake configuration, and source trees under `/usr/src/` |
-| `quadrf-demos` | Reference apps (Spatial RF Vision, PSD Plot, NTSC decoder/encoder, Near-Field Phasors, 802.11 OFDM Link, PhaseGaze) and source examples |
+| `quadrf-demos` | Reference apps (RF Vision (Basic), PSD Plot, NTSC decoder/encoder, Near-Field Phasors, 802.11 OFDM Link, RF Vision (Advanced)) and source examples |
 | `quadrf-desktop` | KasmVNC desktop environment (`DISPLAY=:1`) with desktop launchers and triggers |
 | `quadrf-gnuradio` | Example GNU Radio Companion flowgraphs |
 | `quadrf-mesh` | QuadRF Mesh (LoRa-compatible PHY, Meshtastic daemon, desktop and control-panel launcher) |
-| `quadrf-phasegaze` | PhaseGaze swept-LO phase-gradient hemisphere viewer |
+| `quadrf-phasegaze` | RF Vision (Advanced) swept-LO phase-gradient hemisphere viewer |
 | `quadrf-mimo` | Phase-coded 4x4 MIMO transceiver and web interface |
 | `quadrf-ups` | Hardware battery monitor integration for the UPS HAT |
 
@@ -155,9 +155,9 @@ Nginx handles ingress on ports 80 (HTTP) and 443 (HTTPS):
 | `/` | Appliance Web Control Panel | Flask on port 8080 |
 | `quadrfd.local`, `quadrf-desktop.local`, or `:6080` | Operator Remote Desktop | KasmVNC on port 8444 |
 | `quadrfd.local/split` | Dual view: desktop + control panel | Kasm iframe + Flask |
-| `/AR/` | Mobile Augmented Reality view | Static assets in `/usr/share/quadrf/ar/` |
-| `/ws` | High-rate RF vision data stream | `quadrf-rf-vision` on port 8000 |
-| `/phasegaze/` | PhaseGaze hemisphere view | `quadrf-phasegaze` on port 8001 |
+| `/AR/` | RF Vision (Basic) mobile Augmented Reality view | Static assets in `/usr/share/quadrf/ar/` |
+| `/ws` | High-rate RF Vision (Basic) data stream | `quadrf-rf-vision` on port 8000 |
+| `/phasegaze/` | RF Vision (Advanced) hemisphere view | `quadrf-phasegaze` on port 8001 |
 | `/mimo/` | MIMO Link telemetry and chat | `quadrf-mimo` on port 8091 |
 | `/setup/security/` | Platform root certificate installation | Local root CA certificate distribution |
 

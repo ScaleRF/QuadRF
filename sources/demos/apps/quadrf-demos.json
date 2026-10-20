@@ -2,6 +2,7 @@
   "apps": [
     {
       "id": "ar",
+      "name": "RF Vision (Basic)",
       "desktop_entry": "com.scalerf.QuadRF.SpatialRFVision.desktop",
       "service": "quadrf-rf-vision.service",
       "binaries": ["quadrf-rf-vision"],

@@ -18,13 +18,14 @@ SEARCH_DIR=/usr/share/quadrf/openocd
 FPGA_DIR=/usr/share/quadrf/fpga
 
 usage() {
-    echo 'Usage: quadrf-load [--detect]' >&2
+    echo 'Usage: quadrf-load [--detect|--bist]' >&2
     exit 2
 }
 
 case "$#:$*" in
     '0:') OPERATION=load ;;
     '1:--detect') OPERATION=detect ;;
+    '1:--bist') OPERATION=bist ;;
     *) usage ;;
 esac
 
@@ -112,8 +113,12 @@ if [ "$OPERATION" = detect ]; then
 fi
 
 BITSTREAM="$FPGA_DIR/quadrf-$FPGA_VARIANT.svf"
+[ -r "$BITSTREAM" ] || BITSTREAM="$FPGA_DIR/quadrf_${FPGA_VARIANT}.svf"
+if [ ! -r "$BITSTREAM" ] && [ "$FPGA_VARIANT" = 45 ] && [ -s "$FPGA_DIR/quadrf.svf" ]; then
+    BITSTREAM="$FPGA_DIR/quadrf.svf"
+fi
 [ -r "$BITSTREAM" ] || {
-    echo "quadrf-load: missing FPGA SVF: $BITSTREAM" >&2
+    echo "quadrf-load: missing FPGA SVF: $FPGA_DIR/quadrf-$FPGA_VARIANT.svf" >&2
     exit 1
 }
 
@@ -127,4 +132,8 @@ sleep 1
 
 modprobe fpga-dsi || echo 'quadrf-load: fpga-dsi not loaded' >&2
 modprobe fpga-csi || echo 'quadrf-load: fpga-csi not reloaded' >&2
+if [ "$OPERATION" = bist ]; then
+    /usr/bin/quadrf-jtag --init
+    exec /usr/bin/bist
+fi
 exec /usr/bin/quadrf-jtag --init

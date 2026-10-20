@@ -1,0 +1,24 @@
+#!/bin/sh
+# Run the first-boot factory startup.sh script if present.
+# Invoked as root by quadrf-startup.service after FPGA bring-up and before
+# quadrf-hotspot.service touches wlan0.
+set -eu
+
+. /usr/share/quadrf/functions.sh
+quadrf_load_conf
+
+HOME_DIR="$(quadrf_home 2>/dev/null || echo /home/dietpi)"
+
+for candidate in \
+    "${HOME_DIR}/startup.sh" \
+    /home/dietpi/startup.sh \
+    /root/startup.sh \
+    "${QUADRF_BOOT_DIR}/startup.sh" \
+    /boot/firmware/startup.sh \
+    /boot/startup.sh
+do
+    if [ -f "${candidate}" ]; then
+        logger -t quadrf-startup -- "executing ${candidate}" 2>/dev/null || true
+        exec /bin/bash "${candidate}"
+    fi
+done

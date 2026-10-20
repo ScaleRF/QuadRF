@@ -1,5 +1,5 @@
 [Unit]
-Description=QuadRF Spatial RF Vision
+Description=QuadRF RF Vision (Basic)
 Wants=load-quadrf.service
 After=load-quadrf.service
 
