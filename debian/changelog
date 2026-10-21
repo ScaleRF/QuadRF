@@ -1,3 +1,9 @@
+quadrf (1.0.47) trixie; urgency=medium
+
+  * Reduce idle background memory usage across system services
+
+ -- QuadRF Engineering <contact@ScaleRF.com>  Tue, 20 Oct 2026 21:26:38 -0700
+
 quadrf (1.0.46) trixie; urgency=medium
 
   * Add scoped software updater, continuous NTP sync, and kernel APT pinning
