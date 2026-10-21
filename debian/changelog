@@ -1,3 +1,9 @@
+quadrf (1.0.48) trixie; urgency=medium
+
+  * cli, debian, fpga, gui: Fix background updater timeout and service stops on upgrade
+
+ -- QuadRF Engineering <contact@ScaleRF.com>  Tue, 20 Oct 2026 22:23:39 -0700
+
 quadrf (1.0.47) trixie; urgency=medium
 
   * Reduce idle background memory usage across system services
