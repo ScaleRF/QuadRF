@@ -1535,6 +1535,9 @@
                     checkUpdatesBtn.disabled = true;
                     checkUpdatesBtn.textContent = 'Updating…';
                     showUpdateBanner('success', data.message || 'Installing QuadRF update…', { showApply: false, showDismiss: false });
+                    if (!updatePollTimer) {
+                        updatePollTimer = setInterval(pollUpdateStatus, 1500);
+                    }
                     return;
                 }
                 stopUpdatePoll();
@@ -1617,6 +1620,22 @@
         dismissUpdateBtn.addEventListener('click', () => {
             showUpdateBanner(null, '');
         });
+
+        (async () => {
+            try {
+                const res = await fetch(updateStatusApi, { cache: 'no-store' });
+                if (!res.ok) return;
+                const data = await res.json();
+                if (data.state === 'running') {
+                    checkUpdatesBtn.disabled = true;
+                    checkUpdatesBtn.textContent = 'Updating…';
+                    showUpdateBanner('success', data.message || 'Installing QuadRF update…', { showApply: false, showDismiss: false });
+                    if (!updatePollTimer) {
+                        updatePollTimer = setInterval(pollUpdateStatus, 1500);
+                    }
+                }
+            } catch (e) {}
+        })();
         
         const MAX_LOG_ENTRIES = 200;
 

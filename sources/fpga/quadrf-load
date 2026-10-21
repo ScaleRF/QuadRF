@@ -112,10 +112,11 @@ if [ "$OPERATION" = detect ]; then
     exit 0
 fi
 
-BITSTREAM="$FPGA_DIR/quadrf-$FPGA_VARIANT.svf"
-[ -r "$BITSTREAM" ] || BITSTREAM="$FPGA_DIR/quadrf_${FPGA_VARIANT}.svf"
-if [ ! -r "$BITSTREAM" ] && [ "$FPGA_VARIANT" = 45 ] && [ -s "$FPGA_DIR/quadrf.svf" ]; then
+if [ "$FPGA_VARIANT" = 45 ] && [ -s "$FPGA_DIR/quadrf.svf" ]; then
     BITSTREAM="$FPGA_DIR/quadrf.svf"
+else
+    BITSTREAM="$FPGA_DIR/quadrf-$FPGA_VARIANT.svf"
+    [ -r "$BITSTREAM" ] || BITSTREAM="$FPGA_DIR/quadrf_${FPGA_VARIANT}.svf"
 fi
 [ -r "$BITSTREAM" ] || {
     echo "quadrf-load: missing FPGA SVF: $FPGA_DIR/quadrf-$FPGA_VARIANT.svf" >&2

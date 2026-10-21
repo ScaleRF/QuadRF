@@ -39,9 +39,11 @@ cmd_status() {
     for unit in ${UNITS}; do
         if systemctl list-unit-files "${unit}" >/dev/null 2>&1 &&
            [ -n "$(systemctl list-unit-files --no-legend "${unit}" 2>/dev/null)" ]; then
+            enabled="$(systemctl is-enabled "${unit}" 2>/dev/null || true)"
+            active="$(systemctl is-active "${unit}" 2>/dev/null || true)"
             printf '  %-28s %s / %s\n' "${unit}" \
-                "$(systemctl is-enabled "${unit}" 2>/dev/null || echo unknown)" \
-                "$(systemctl is-active "${unit}" 2>/dev/null || echo inactive)"
+                "${enabled:-unknown}" \
+                "${active:-inactive}"
         fi
     done
 

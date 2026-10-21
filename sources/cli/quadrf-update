@@ -67,6 +67,8 @@ def read_log_tail(max_bytes=8192):
 
 
 def unit_active():
+    if not os.path.exists(f"/run/systemd/transient/{UNIT_NAME}"):
+        return False
     res = subprocess.run(
         ["systemctl", "is-active", "--quiet", UNIT_NAME],
         stdout=subprocess.DEVNULL,
@@ -377,17 +379,17 @@ def do_apply_bg(as_json=False):
 
     # Run inside a transient systemd unit so restarting quadrf-gui.service
     # during a package upgrade does not terminate the apt transaction.
-    subprocess.run(
-        ["systemctl", "reset-failed", UNIT_NAME],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
+    if os.path.exists(f"/run/systemd/transient/{UNIT_NAME}"):
+        subprocess.run(
+            ["systemctl", "reset-failed", UNIT_NAME],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
     res = subprocess.run(
         [
             "systemd-run",
             f"--unit={UNIT_NAME}",
             "--collect",
-            "--property=Type=oneshot",
             "/bin/sh",
             "-c",
             f"/usr/sbin/quadrf-update --apply > {LOG_FILE} 2>&1",

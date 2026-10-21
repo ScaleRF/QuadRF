@@ -13,7 +13,7 @@ TimeoutStartSec=120
 TimeoutStopSec=15
 KillMode=process
 ExecStart=/usr/sbin/quadrf-load
-ExecStart=/usr/bin/bist
+ExecStart=-/usr/bin/bist
 
 [Install]
 WantedBy=multi-user.target
