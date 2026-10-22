@@ -4,7 +4,6 @@ Documentation=man:quadrf(1)
 After=local-fs.target
 ConditionPathExists=|/usr/share/quadrf/fpga/quadrf-45.svf
 ConditionPathExists=|/usr/share/quadrf/fpga/quadrf-25.svf
-ConditionPathExists=|/usr/share/quadrf/fpga/quadrf.svf
 
 [Service]
 Type=oneshot

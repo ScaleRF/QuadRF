@@ -58,7 +58,7 @@ The host controls MAX2850/MAX2851 transceiver registers and FPGA phase/filter se
    - Used for time-critical register updates (such as rapid phase dithering or fast frequency hops).
 3. **Control CLI Tools**:
    - `quadrf-jtag`: Primary CLI utility for configuring RF frequency, gain, bandwidth, polarization, and reading chip status.
-   - `quadrf-load`: Helper that flashes `/usr/share/quadrf/fpga/quadrf.svf`.
+   - `quadrf-load`: Helper that reads the JTAG IDCODE and flashes `/usr/share/quadrf/fpga/quadrf-25.svf` or `quadrf-45.svf`.
 
 ---
 

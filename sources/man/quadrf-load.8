@@ -1,9 +1,9 @@
-.TH QUADRF-LOAD 8 "August 2026" "QuadRF" "QuadRF"
+.TH QUADRF-LOAD 8 "October 2026" "QuadRF" "QuadRF"
 .SH NAME
 quadrf-load \- program the FPGA and bring up the QuadRF radio
 .SH SYNOPSIS
 .B quadrf-load
-.RB [ \-\-detect | \-\-bist ]
+.RB [ \-\-detect ]
 .SH DESCRIPTION
 Unloads
 .BR fpga_csi ,
@@ -17,13 +17,11 @@ bitstream, loads the
 and
 .B fpga-csi
 drivers against the new bitstream and finishes with
-.BR "quadrf-jtag \-\-init"
-(and
+.BR "quadrf-jtag \-\-init" .
+.B load-quadrf.service
+runs
 .B bist
-when invoked with
-.B \-\-bist
-or through
-.BR load-quadrf.service ).
+after this program.
 .PP
 .B load-quadrf.service
 runs this at boot. It is safe to run again by hand, which is the quickest way
@@ -40,11 +38,16 @@ Stock OpenOCD cannot drive JTAG on a Pi 5; install
 for a build with RP1 GPIO support.
 .SH FILES
 .TP
-.I /usr/share/quadrf/fpga/quadrf.svf
-Bitstream.
+.I /usr/share/quadrf/fpga/quadrf-45.svf
+LFE5U-45F bitstream.
+.TP
+.I /usr/share/quadrf/fpga/quadrf-25.svf
+LFE5U-25F bitstream.
 .TP
 .I /usr/share/quadrf/openocd/board/rpi5_lfe5u45f.cfg
-OpenOCD board configuration.
+.TQ
+.I /usr/share/quadrf/openocd/board/rpi5_lfe5u25f.cfg
+OpenOCD board configuration for each ECP5 variant.
 .SH SEE ALSO
 .BR quadrf (1),
 .BR quadrf-jtag (1),

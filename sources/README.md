@@ -5,7 +5,7 @@
 | `common/` | `quadrf.conf` and the shell helpers shared by the maintainer scripts |
 | `cli/` | The `quadrf` command |
 | `boot/` | Apply hook for the firmware configuration |
-| `fpga/` | `quadrf.svf` placeholder (factory bitstream is not published), `jtag` CLI, kernel driver sources, device-tree overlays, OpenOCD board configuration |
+| `fpga/` | LFE5U-25F and LFE5U-45F bitstreams (`quadrf-25.svf`, `quadrf-45.svf`), `jtag` CLI, kernel driver sources, device-tree overlays, OpenOCD board configuration |
 | `soapy/` | SoapySDR MIPI module |
 | `flask/` | Web control panel |
 | `network/` | nginx, dnsmasq, hostapd, DHCP, interface drop-ins, hotspot and Wi-Fi scripts |

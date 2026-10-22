@@ -31,7 +31,7 @@ flowchart TB
   subgraph fpga["FPGA and drivers"]
     JTAG["quadrf-jtag"]
     KO["fpga-csi.ko / fpga-dsi.ko"]
-    BIT["quadrf.svf bitstream"]
+    BIT["quadrf-25.svf / quadrf-45.svf"]
   end
 
   WEB --> FLASK
@@ -112,7 +112,7 @@ flowchart TB
 | --- | --- |
 | `quadrf-common` | Master configuration `/etc/quadrf/quadrf.conf`, shared helpers, and the `quadrf` command |
 | `quadrf-boot` | Device tree overlays (`fpga-csi.dtbo`, `fpga-dsi.dtbo`) and `/boot/firmware/config.txt` management |
-| `quadrf-fpga` | Lattice ECP5 bitstream (`quadrf.svf`), `quadrf-jtag` CLI, and `load-quadrf.service` |
+| `quadrf-fpga` | Lattice ECP5 bitstreams (`quadrf-25.svf`, `quadrf-45.svf`), `quadrf-jtag` CLI, and `load-quadrf.service` |
 | `quadrf-fpga-dkms` | Kernel modules (`fpga-csi.ko`, `fpga-dsi.ko`) built for the host kernel by DKMS |
 | `quadrf-soapy` | SoapySDR hardware driver module (`libmipi.so`) and dedicated SoapyRemote service |
 | `quadrf-gui` | Flask control panel served on port 8080 |

@@ -73,12 +73,9 @@ install(FILES sources/boot/apt/quadrf-kernel DESTINATION ${sysconfdir}/apt/prefe
 install(FILES sources/systemd/quadrf-reboot-clear.service DESTINATION ${unitdir})
 install(FILES sources/systemd/quadrf-startup.service DESTINATION ${unitdir})
 install(PROGRAMS sources/fpga/quadrf-load DESTINATION ${sbindir})
-file(SIZE "${CMAKE_CURRENT_SOURCE_DIR}/sources/fpga/quadrf.svf" QUADRF_SVF_SIZE)
-if(QUADRF_SVF_SIZE GREATER 0)
-    install(FILES sources/fpga/quadrf.svf DESTINATION ${datadir}/fpga)
-endif()
-install(FILES sources/fpga/quadrf_25.svf DESTINATION ${datadir}/fpga RENAME quadrf-25.svf)
-install(FILES sources/fpga/quadrf_45.svf DESTINATION ${datadir}/fpga RENAME quadrf-45.svf)
+install(FILES sources/fpga/quadrf-25.svf
+              sources/fpga/quadrf-45.svf
+        DESTINATION ${datadir}/fpga)
 install(FILES sources/fpga/board/rpi5_lfe5u25f.cfg DESTINATION ${datadir}/openocd/board)
 install(FILES sources/fpga/board/rpi5_lfe5u45f.cfg DESTINATION ${datadir}/openocd/board)
 install(FILES sources/fpga/interface/rpi5_ecp5_gpio.cfg DESTINATION ${datadir}/openocd/interface)
