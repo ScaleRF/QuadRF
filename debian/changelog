@@ -1,3 +1,10 @@
+quadrf (1.0.50) trixie; urgency=medium
+
+  * fpga, debian: Package quadrf-25.svf and quadrf-45.svf
+  * updated quadrf-load
+
+ -- QuadRF Engineering <contact@ScaleRF.com>  Thu, 22 Oct 2026 11:02:57 -0700
+
 quadrf (1.0.49) trixie; urgency=medium
 
   * debian: Pin quadrf-phasegaze 0.1.8
